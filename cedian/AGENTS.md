@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-> Status: plan-only repo. No `src/`, `crates/`, `packages/`, configs, or tests exist. Sole source of truth is `CEDIAN_AGENTIC_IDE_PLAN.md` (~3550 lines, §§1–90). Do not invent build/test/lint commands until configs land.
+> Status: plan-only repo. No `src/`, `crates/`, `packages/`, configs, or tests exist. Sole source of truth is `CEDIAN_AGENTIC_IDE_PLAN.md` (~3640 lines, §§1–91). Do not invent build/test/lint commands until configs land.
 
 ## Project Overview
 
