@@ -2535,7 +2535,8 @@ Avoid duplicating full chat history unless necessary.
 
 > **Lessons from `herdrdev/herdr` (Rust agent runtime, 42k⭐, studied 2026-10-06).** Adopt three mechanisms, adapted to cedian's GPUI (not terminal) surface:
 >
-> 1. **Pane status as first-class signal.** herdr marks every pane `working | blocked | idle` and pushes attention when an agent stops needing an answer (`agent_view_eval.rs`: `status()`, `attention()` seq per entry). cedian's subagent tree (§42) + tool cards (§66) adopt the same tri-state per task/pane with an attention counter — a `blocked`-on-`ask`-lease-expiry (§63) surfaces in the panel WITHOUT opening the task. Status derives from EventRouter state (running turn → `working`, pending ask/abstain → `blocked`, else `idle`), never from polling.
+> 1. **Pane status as first-class signal.** herdr marks every pane `working | blocked | idle` and pushes attention when an agent stops needing an answer (`agent_view_eval.rs`: `status()`, `attention()` seq per entry). cedian's subagent tree (§42) + tool cards (§66) adopt the tri-state, derived from EventRouter state (running turn → `working`, pending ask/abstain → `blocked`, else `idle`); a `blocked` task surfaces in the panel WITHOUT opening it, never via polling.
+> **Ponytail cut (2026-10-06): no attention counter in v1.** herdr's monotonic attention-seq is a cross-process ordering mechanism — unnecessary single-process. A bool `needs_attention` reset on task-open suffices; upgrade when multi-window needs cross-window ordering.
 > 2. **Agent resume as validated argv, not free text.** herdr's `agent_resume.rs` constrains resume commands (bare command name, ≤64 args, ≤8KiB, no control chars/apostrophes, cwd part of the dedupe identity). cedian's §74 respawn adopts the same discipline: the respawned `omp --mode rpc-ui` command line is constructed from a validated struct, never string-concatenated; `{binary_path, session_dir, cwd}` is the dedupe key so two workspaces never share a runtime by accident.
 > 3. **Versioned snapshots.** herdr's `persist/snapshot.rs` carries `SNAPSHOT_VERSION` and rejects incompatible restores. cedian's `workspace ↔ session ↔ task` mapping store (§75) + review baseline (§16) carry a `snapshot_version: u32` from day one — old state fails closed with "state too old, re-baseline" instead of silently misreading.
 
@@ -3236,19 +3237,19 @@ No new engine.
 
 > **Rationale (market parity, 2026-10-06).** Synara + Claude Desktop both ship browse/review/merge PRs + stacked PRs + CI auto-fix in-app. cedian's Review Changes (§§15–20) stops at the working tree — the PR is where review actually ships. Cheap to build: `gh` CLI + existing review pipeline, no new engine.
 
-Implement (all via `gh`, cedian renders natively):
+Implement (all via `gh`, cedian renders natively) — v1 scope ONLY (Fix-button, stacked-PR position, pinned list are follow-ups with their own acceptance, not this phase):
 
 ```text
-PR list (per repo + pinned)
-stacked-PR position + readiness
+PR list (per repo)
 diff review (reuse §15–20 pipeline on PR range, not task baseline)
 inline comments → ReviewFeedback payload (§19) → OMP Fix
-Fix button (group unresolved comments → one numbered prompt)
 CI status bar + auto-fix toggle (read check output → iterate, bounded like §54 max_continue)
-merge safe-prefix (explicit confirm; method = squash default)
+merge (explicit confirm; method = squash default)
 ```
 
 Rules: PR diffs use the PR base as baseline (§16 task-baseline stays for working-tree review — two baselines, labeled in UI, never mixed). Destructive actions (merge, close) are `Deny`-by-default in §64 policy (explicit per-action `Ask`, never auto-allow). CI auto-fix turns count against the task's `max_continue`.
+
+> **Ponytail cut (2026-10-06).** Dropped from v1: Fix-button (comment grouping), stacked-PR position/readiness, pinned repos, safe-prefix merge — each is a separate feature needing its own acceptance; bundling them guarantees a half-done phase.
 
 Acceptance:
 
@@ -3263,7 +3264,7 @@ Acceptance:
 Implement:
 
 ```text
-schedule (cron expr + plain-language → cron, OMP parses)
+schedule (cron expr; plain-language → cron is a follow-up, not v1)
 run history (reuse audit-tuple log, §64)
 stop conditions (evaluated as pure predicates, §54-style: bounded, no I/O)
 consecutive-failure limit (default 3 → auto-pause + notify, same shape as max_continue)
@@ -3272,9 +3273,11 @@ wake = spawn turn in existing workspace (same lifecycle as §71, steps 1–12)
 
 Rules: automations run under the SAME permission profile as interactive turns (no privilege elevation for background); `computer` actuation is `Deny` for automation runs until the user explicitly allows per-automation. Every scheduled run emits the same provenance (§17) and evidence (§53) as interactive work — gates apply identically. No cloud/SSH execution, EVER (out of scope, §91).
 
+> **Ponytail cut (2026-10-06).** Dropped from v1: NL→cron parsing (cron expr typed directly; OMP translation is its own feature with its own misparse risk), lid-closed guarantee (acceptance is "history + evidence visible on return from sleep", not a power-management promise — no `IOPMAssertion`, no wake-from-sleep; machine-on-24/7 is the user's setup, not cedian's contract).
+
 Acceptance:
 
-> "Run tests every morning, fix failures" works with the lid closed — history + evidence visible on return.
+> Scheduled run fires while the machine is awake → history + evidence visible on return.
 
 ---
 
