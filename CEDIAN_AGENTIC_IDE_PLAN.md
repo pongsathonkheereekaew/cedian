@@ -2533,7 +2533,11 @@ cedian task
 
 Avoid duplicating full chat history unless necessary.
 
-> **Upstream fact (oh-my-pi `docs/session.md` + RPC `open_session`, verified 2026-10-06).** `open_session{sessionDir}` is DIRECTORY-ADOPT (newest non-empty session in dir, else fresh) — NOT file-restore; reopen-active is a no-op; unrestorable model ⇒ hard fail with prior-session-stays/turn-aborted; fails with `--no-session`. Session LEAF is ephemeral (rebuilt from last entry; `branch`/`fork` copies root-to-leaf + optional artifacts). Consequence for §17/§74: cedian provenance MUST live outside the summarized stream (UNATTRIBUTED uses namespaced custom records + backward scan, never snake_case roles which collide with OMP's camelCase taxonomy); on reconnect, prefer `fork`/`branch` over destructive leaf ops, and NEVER assume `open_session(sessionFile)` — it takes a DIRECTORY.
+> **Lessons from `herdrdev/herdr` (Rust agent runtime, 42k⭐, studied 2026-10-06).** Adopt three mechanisms, adapted to cedian's GPUI (not terminal) surface:
+>
+> 1. **Pane status as first-class signal.** herdr marks every pane `working | blocked | idle` and pushes attention when an agent stops needing an answer (`agent_view_eval.rs`: `status()`, `attention()` seq per entry). cedian's subagent tree (§42) + tool cards (§66) adopt the same tri-state per task/pane with an attention counter — a `blocked`-on-`ask`-lease-expiry (§63) surfaces in the panel WITHOUT opening the task. Status derives from EventRouter state (running turn → `working`, pending ask/abstain → `blocked`, else `idle`), never from polling.
+> 2. **Agent resume as validated argv, not free text.** herdr's `agent_resume.rs` constrains resume commands (bare command name, ≤64 args, ≤8KiB, no control chars/apostrophes, cwd part of the dedupe identity). cedian's §74 respawn adopts the same discipline: the respawned `omp --mode rpc-ui` command line is constructed from a validated struct, never string-concatenated; `{binary_path, session_dir, cwd}` is the dedupe key so two workspaces never share a runtime by accident.
+> 3. **Versioned snapshots.** herdr's `persist/snapshot.rs` carries `SNAPSHOT_VERSION` and rejects incompatible restores. cedian's `workspace ↔ session ↔ task` mapping store (§75) + review baseline (§16) carry a `snapshot_version: u32` from day one — old state fails closed with "state too old, re-baseline" instead of silently misreading.
 
 ---
 
@@ -3228,6 +3232,52 @@ No new engine.
 
 ---
 
+## Phase 18 — PR Workspace
+
+> **Rationale (market parity, 2026-10-06).** Synara + Claude Desktop both ship browse/review/merge PRs + stacked PRs + CI auto-fix in-app. cedian's Review Changes (§§15–20) stops at the working tree — the PR is where review actually ships. Cheap to build: `gh` CLI + existing review pipeline, no new engine.
+
+Implement (all via `gh`, cedian renders natively):
+
+```text
+PR list (per repo + pinned)
+stacked-PR position + readiness
+diff review (reuse §15–20 pipeline on PR range, not task baseline)
+inline comments → ReviewFeedback payload (§19) → OMP Fix
+Fix button (group unresolved comments → one numbered prompt)
+CI status bar + auto-fix toggle (read check output → iterate, bounded like §54 max_continue)
+merge safe-prefix (explicit confirm; method = squash default)
+```
+
+Rules: PR diffs use the PR base as baseline (§16 task-baseline stays for working-tree review — two baselines, labeled in UI, never mixed). Destructive actions (merge, close) are `Deny`-by-default in §64 policy (explicit per-action `Ask`, never auto-allow). CI auto-fix turns count against the task's `max_continue`.
+
+Acceptance:
+
+> Open PR → review diff → comment → Fix → CI green → merge, without leaving cedian.
+
+---
+
+## Phase 19 — Automations (Scheduled Runs)
+
+> **Rationale + scope (user decision, 2026-10-06).** Synara ships scheduled recurring runs; cedian adopts a LOCAL-only version — no cloud runner, no remote queue. Justification: the machine stays on 24/7, so a local scheduler suffices and avoids an entire second infrastructure (server, auth, billing, remote sandbox).
+
+Implement:
+
+```text
+schedule (cron expr + plain-language → cron, OMP parses)
+run history (reuse audit-tuple log, §64)
+stop conditions (evaluated as pure predicates, §54-style: bounded, no I/O)
+consecutive-failure limit (default 3 → auto-pause + notify, same shape as max_continue)
+wake = spawn turn in existing workspace (same lifecycle as §71, steps 1–12)
+```
+
+Rules: automations run under the SAME permission profile as interactive turns (no privilege elevation for background); `computer` actuation is `Deny` for automation runs until the user explicitly allows per-automation. Every scheduled run emits the same provenance (§17) and evidence (§53) as interactive work — gates apply identically. No cloud/SSH execution, EVER (out of scope, §91).
+
+Acceptance:
+
+> "Run tests every morning, fix failures" works with the lid closed — history + evidence visible on return.
+
+---
+
 # 85. MVP Releases
 
 ## cedian v0.1
@@ -3278,6 +3328,17 @@ This makes cedian meaningfully more agentic.
 ```
 
 iOS (simulator, visual verification) moved to the extension track — ships after v0.3, not gating it.
+
+---
+
+## cedian v0.4
+
+```text
+✓ PR workspace (browse/review/merge, stacked PRs, CI auto-fix)
+✓ automations (local scheduler, same gates + provenance as interactive)
+```
+
+OMP-only multi-provider note: cedian intentionally speaks to ONE harness. Multi-model choice lives INSIDE OMP (provider/model routing, `set_model`) — cedian never adds a second harness adapter to chase providers. If OMP gains a provider, cedian gains it for free.
 
 ---
 
@@ -3481,6 +3542,20 @@ Avoid:
 ❌ custom DAP
 
 ❌ dozens of playbooks on day one
+```
+
+---
+
+# 91. Out of Scope (Deliberate Cuts)
+
+Decided 2026-10-06, not deferred — these return only if the destination is redrawn:
+
+```text
+❌ cloud/SSH sessions — machine stays on 24/7; local scheduler (Phase 19) covers recurrence. No remote runner, queue, or billing, EVER.
+❌ second harness adapters — OMP already routes providers/models internally; cedian speaks OMP, OMP speaks the world.
+❌ custom browser engine (Servo evaluated 2026-10-06: no full CDP, web-compat gap — revisit only if it speaks CDP completely)
+❌ Ghostty-as-terminal (Zig FFI for what Zed PTY already gives — evaluated 2026-10-06)
+❌ VM sandbox for computer tool (Lume/Spaces deferred past CUA driver-only landing)
 ```
 
 ---
