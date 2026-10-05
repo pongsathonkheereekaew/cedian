@@ -876,15 +876,11 @@ Zed rust-analyzer
 OMP rust-analyzer
 ```
 
-Final target:
+Final target (no backend seam inside OMP — §10):
 
 ```text
-OMP `lsp`
-    ↓
-LspBackend
-    ↓
-cedian Host Service
-    ↓
+OMP `lsp` (unchanged, OMP-owned)
+    ↓ (reads Zed state via cedian:// URIs + host tools)
 Zed Language Server
 ```
 
@@ -915,13 +911,11 @@ lsp
 
 Use the same debugger session.
 
-Target:
+Target (no backend seam inside OMP — §10):
 
 ```text
-OMP debug
-   ↓
-cedian DAP Backend
-   ↓
+OMP debug (unchanged, OMP-owned)
+   ↓ (reads/writes Zed state via cedian:// URIs + host tools)
 Zed Debugger Session
 ```
 
@@ -2611,7 +2605,7 @@ Reuse useful concepts/components:
 Agent Panel UI concepts
 Thread UI
 Review Changes
-Agent Diff
+DiffPatch/MultiBuffer review (acp_thread::diff)
 image attachments
 composer
 notifications
@@ -2958,7 +2952,7 @@ Acceptance:
 
 ---
 
-## Phase 4 — Editor-Native Edit Backend
+## Phase 4 — Editor-Native Edit Surface (host tools + cedian:// URIs; no OMP backend seam — §10)
 
 > **Scrutinize R2 fix (ordering):** this phase MUST precede Review (Phase 5). `clock::Global` baselines (§16) have no meaning before `cedianWorkspaceHost::buffer_version` exists.
 
@@ -2988,7 +2982,7 @@ Implement:
 task baseline
 toolCallId provenance
 agent edit tracker
-Zed AgentDiff bridge
+DiffPatch/MultiBuffer projection (acp_thread::diff — no "AgentDiff" symbol exists)
 accept/reject
 stale detection
 ```
@@ -3021,20 +3015,13 @@ Acceptance:
 
 ---
 
-## Phase 7 — Zed LSP Backend
+## Phase 7 — Zed LSP Surface (no OMP backend seam — §10)
 
-Implement:
+Implement (cedian host tools + cedian:// URIs surfacing Zed LSP state; OMP `lsp` tool unchanged):
 
 ```text
-OMP LspBackend abstraction
-cedian host service
-definitions
-references
-hover
-symbols
-rename
-code action
-diagnostics
+cedian host tools (definitions/references/hover/symbols/rename/code-action/diagnostics)
+cedian:// diagnostics + symbol URIs
 ```
 
 Acceptance:
@@ -3043,18 +3030,12 @@ Acceptance:
 
 ---
 
-## Phase 8 — Zed DAP Backend
+## Phase 8 — Zed DAP Surface (no OMP backend seam — §10)
 
-Implement:
+Implement (cedian host tools + cedian:// URIs surfacing Zed DAP state; OMP `debug` tool unchanged):
 
 ```text
-OMP DebugBackend
-Zed DAP bridge
-breakpoint sync
-stack
-variables
-step
-continue
+cedian host tools (breakpoint sync/stack/variables/step/continue)
 ```
 
 Acceptance:
@@ -3549,7 +3530,7 @@ Avoid:
 
 ---
 
-# 91. Out of Scope (Deliberate Cuts)
+# 89. Out of Scope (Deliberate Cuts)
 
 Decided 2026-10-06, not deferred — these return only if the destination is redrawn:
 
@@ -3563,7 +3544,7 @@ Decided 2026-10-06, not deferred — these return only if the destination is red
 
 ---
 
-# 89. Final Architecture
+# 90. Final Architecture
 
 ```text
                          cedian
@@ -3602,7 +3583,7 @@ Decided 2026-10-06, not deferred — these return only if the destination is red
 
 ---
 
-# 90. Final Design Principle
+# 91. Final Design Principle
 
 The final product should satisfy:
 
