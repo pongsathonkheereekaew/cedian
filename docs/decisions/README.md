@@ -29,3 +29,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0023](0023-product-scope.md) | Product scope — what cedian is |
 | [0024](0024-evidence-bound-to-code-state.md) | Evidence is bound to code state, has three outcomes, and claims must cite it |
 | [0025](0025-playbooks-are-omp-skills.md) | Playbooks and project verification profiles are OMP skills |
+| [0026](0026-fast-lane.md) | Fast lane — proportional rigor, inline edit, revert turn, measured speed |

@@ -19,6 +19,7 @@ Compressed index:
 - OMP runs only through the spawn profile (`--approval-mode write` + generated `--config` overlay: `computer.enabled: false`, eval gate, scrubbed env) — never a bare spawn (ADR-0020).
 - OMP reports to cedian through host tools; playbooks/verification profiles are OMP skills; TS in the OMP repo only as a last resort (ADR-0022, ADR-0025).
 - Evidence is bound to code state (stale after a later edit), has outcome pass|fail|inconclusive, and completion takes a claims ledger (ADR-0024).
+- Fast lane: a normal turn has no workflow/gates; rigor engages only by gate floor (kind × risk) or on request; inline edit + revert turn are core; speed is benchmarked, never claimed (ADR-0026).
 - Stateful headless work runs in `cedian shell`; one-shot commands are store-backed only (ADR-0021).
 - Pre-S9 stand-ins need a row in ROADMAP "Headless stand-ins"; ✅ only when the exit holds through an OMP turn or hermetic replay — ADR-0017.
 - Timebox every slice + define partial-exit: commit what's green, mark the rest follow-up, never block.

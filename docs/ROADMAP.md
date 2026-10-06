@@ -17,7 +17,7 @@ Slice numbers are names, not order ([ADR-0023](decisions/0023-product-scope.md))
 ```text
 P1 spawn profile → P2 fake-omp → P3 snapshot_version
   → S9a app spike
-  → P4 cedian shell → P5 host-tool channel
+  → P4 cedian shell → P5 host-tool channel → P6 revert turn + inline edit
   → S2 workflow core → S3 review agents → S4 browser evidence → S5 parallel workers
   → S9 real app  (= v0.1)
   → S6 PR workspace → S7 local automations  (= v0.2)
@@ -62,6 +62,7 @@ Shared foundations that several slice exits depend on. Each is small; build it b
 | P2 | **Hermetic fake-omp replay harness.** Recorded RPC frames → `EventRouter` → thread/panel/review, run in `cargo test` | ARCHITECTURE §86 | S0 exit; S2, S3, S5 exits (workflow and subagent events) |
 | P3 | **`snapshot_version` on every store.** `workflow.json`, `workers.json`, `browser.json`, session manager; user-edited `cedian.toml` carries a `schema` key instead; mismatch fails closed | ADR-0016 | before any slice adds a new store |
 | P4 | **`cedian shell`.** One long-lived headless process + `.cedian/shell.lock` | [ADR-0021](decisions/0021-headless-host-process.md) | S4 exit (frame seq), S5 exit (steer), S7 (scheduler), S3 (reviewer sessions) |
+| P6 | **Revert turn + headless inline edit.** Turn-grouped provenance → one-action revert (skips `STALE`); `cedian shell` `edit <path> <range> <instruction>` | [ADR-0026](decisions/0026-fast-lane.md) | S2 exit (benchmark), S9 (⌘K + revert UI) |
 | P5 | **Host-tool channel.** `cedian_workflow_update`, `cedian_complete`, `cedian_worktree_request`; evidence checked against the router log | [ADR-0022](decisions/0022-host-tool-first.md) | S2 exit, S5 exit, S3 findings (`cedian_review_finding`) |
 
 ## Slice dependencies
@@ -70,7 +71,7 @@ Shared foundations that several slice exits depend on. Each is small; build it b
 |---|---|
 | S0 | P1, P2 |
 | S9a | P1 |
-| S2 | P2, P3, P5 |
+| S2 | P2, P3, P5, P6 |
 | S3 | gate (below) — gate 1 = P1; gate 3 = row E; plus P2, P4, P5 |
 | S4 | P4 (frame seq is only real inside one live session) |
 | S5 | P2, P4, P5 (`cedian_worktree_request` + subagent events) |
@@ -309,7 +310,7 @@ Retire the biggest unknown early: does the headless core bind to the Zed fork an
 
 Split per [ADR-0010](decisions/0010-gate-checker-a1-narrow.md) (A1-narrow), stand-in row A.
 
-**Exit:** a bugfix playbook (an OMP skill, [ADR-0025](decisions/0025-playbooks-are-omp-skills.md)) runs reproduce → verify; OMP drives profile/playbook/phases through host tools (P5), cedian stores evidence and evaluates gates (pure, `max_continue: 3`), and an OMP turn that claims completion while a required gate is unmet is blocked (status `blocked`, missing gates surfaced). Evidence is attributed only when it carries a real `tool_call_id` from the router log — CLI-typed evidence is `unattributed` by default. Evidence captured before a later edit to a bound file is `stale` and does not count; `inconclusive` never counts as pass; completion shows the claims ledger ([ADR-0024](decisions/0024-evidence-bound-to-code-state.md)).
+**Exit:** a bugfix playbook (an OMP skill, [ADR-0025](decisions/0025-playbooks-are-omp-skills.md)) runs reproduce → verify; OMP drives profile/playbook/phases through host tools (P5), cedian stores evidence and evaluates gates (pure, `max_continue: 3`), and an OMP turn that claims completion while a required gate is unmet is blocked (status `blocked`, missing gates surfaced). Evidence is attributed only when it carries a real `tool_call_id` from the router log — CLI-typed evidence is `unattributed` by default. Evidence captured before a later edit to a bound file is `stale` and does not count; `inconclusive` never counts as pass; completion shows the claims ledger ([ADR-0024](decisions/0024-evidence-bound-to-code-state.md)). Fast lane holds: a trivial/small task with no floor gate completes with no workflow at all. **Benchmark** ([ADR-0026](decisions/0026-fast-lane.md)): 10 real tasks vs Cursor with the same model — time-to-usable-result, false-done count, owner review time — recorded in the slice notes.
 
 #### Scope from Phase 10 — Workflow Engine
 
@@ -549,7 +550,7 @@ Acceptance:
 
 Fork hygiene, signing/notarization, app-shell UI, GPUI binding of every headless model, and deletion of stand-ins B and D. THIS — not S1–S8 — is what makes cedian triable as an app.
 
-**Exit:** `cargo run -p cedian -- …` → onboard → prompt → answer with zero terminal, AND every non-extension item of the checklist below is true.
+**Exit:** `cargo run -p cedian -- …` → onboard → prompt → answer with zero terminal, AND every non-extension item of the checklist below is true, AND ⌘K inline edit + revert turn work in the editor, AND the [ADR-0026](decisions/0026-fast-lane.md) benchmark is re-run on the whole app (frame time while streaming, per-turn cedian overhead vs Cursor, the 10-task comparison).
 
 #### Definition of "fully native" (v0.1 gate)
 

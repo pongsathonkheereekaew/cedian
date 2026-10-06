@@ -596,6 +596,8 @@ TextDeltaBuffer
 
 Flush approximately every frame or every ~16–33 ms.
 
+Speed is measured, not claimed ([ADR-0026](decisions/0026-fast-lane.md)): UI frame time never blocks while an agent streams; cedian's per-turn overhead (spawn, context assembly, edit apply, diff rebuild) is recorded and must beat Cursor's with the same model; the OMP session stays warm (no spawn per prompt).
+
 ---
 
 ### Headless process shape (pre-S9)
@@ -1022,6 +1024,8 @@ Review must be first-class.
 
 Do not rely on OMP printing markdown diffs in chat.
 
+**Inline edit** ([ADR-0026](decisions/0026-fast-lane.md)): select code → ⌘K → instruction → one OMP turn targeting the selection (fast `smol` model by default) → diff in place → accept/reject in the editor. Same provenance and review rules as any turn.
+
 Pipeline:
 
 ```text
@@ -1153,6 +1157,8 @@ STALE
 ```
 
 Do not automatically reject.
+
+**Revert turn** ([ADR-0026](decisions/0026-fast-lane.md)): one action rejects every hunk a turn produced (grouped by provenance); `STALE` hunks are skipped and listed, never overwritten; the revert is itself undoable.
 
 Show:
 
@@ -2343,6 +2349,8 @@ cedian generates these events itself from host-tool calls (`cedian_workflow_upda
 ### §62 Task Complexity Budget
 
 Prevent over-engineering.
+
+**Proportional rigor (fast lane, [ADR-0026](decisions/0026-fast-lane.md)).** A normal turn has no workflow and no gates — edits land as reviewable hunks immediately, as light as any agentic IDE. Workflow and gates engage only when the `cedian.toml` gate floor requires them for the task kind × risk, or when the user asks (`/verify`, a playbook). Trivial and small tasks never pass through gates unless asked.
 
 Suggested:
 
