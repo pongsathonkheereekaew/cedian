@@ -16,6 +16,9 @@ use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// Name of the host edit tool (also allow-listed in the OMP spawn overlay).
+pub const APPLY_EDIT_TOOL: &str = "cedian_apply_edit";
 /// Normalize any key-shaped path to canonical `/rel` form (leading `/`
 /// enforced, `.` components kept — keys never touch disk by themselves).
 fn normalize_key(path: &Path) -> PathBuf {
@@ -218,7 +221,7 @@ impl HostTools {
         .unwrap()
         .clone();
         HostTool::new(
-            "cedian_apply_edit",
+            APPLY_EDIT_TOOL,
             "Apply one edit to a cedian workspace buffer transactionally (preferred over filesystem writes for project files).",
             params,
             move |args, _ctx| {
