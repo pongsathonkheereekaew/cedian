@@ -19,4 +19,4 @@ pub mod registry;
 pub mod worktree;
 
 pub use registry::{Registry, WorkerError, WorkerHead, WorkerStatus};
-pub use worktree::{merge_back, merge_preview, remove, spawn, MergePlan};
+pub use worktree::{merge_back, merge_preview, remove, spawn, validate_id, MergePlan};

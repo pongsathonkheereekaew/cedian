@@ -91,6 +91,29 @@ impl ProvenanceStore {
     }
 
     /// Drop a task's records (explicit task archive only).
+    /// Every record, oldest first (stable order for persistence).
+    pub fn all(&self) -> Vec<AgentEdit> {
+        let mut out: Vec<AgentEdit> = self.records.values().cloned().collect();
+        out.sort_by(|a, b| {
+            (a.timestamp_ms, &a.task_id, &a.tool_call_id).cmp(&(
+                b.timestamp_ms,
+                &b.task_id,
+                &b.tool_call_id,
+            ))
+        });
+        out
+    }
+
+    /// Rebuild a store from persisted records (cedian-owned, survives OMP
+    /// compaction — §17 R1).
+    pub fn from_records(records: Vec<AgentEdit>) -> Self {
+        let mut store = Self::new();
+        for r in records {
+            store.record(r);
+        }
+        store
+    }
+
     pub fn drop_task(&mut self, task_id: &str) {
         self.records.retain(|(t, _), _| t != task_id);
     }

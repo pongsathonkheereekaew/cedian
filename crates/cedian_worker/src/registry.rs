@@ -40,6 +40,15 @@ pub enum WorkerError {
     Io(String),
     Git(String),
     Conflicted(Vec<String>),
+    /// Worker id is not a safe path/branch segment.
+    BadId(String),
+    /// Branch has commits not in the main checkout — removing would lose them.
+    NotMerged(String),
+    /// The main checkout is not on the requested merge base.
+    WrongBase {
+        base: String,
+        checked_out: String,
+    },
 }
 
 impl std::fmt::Display for WorkerError {
@@ -52,6 +61,18 @@ impl std::fmt::Display for WorkerError {
             Self::Conflicted(files) => {
                 write!(f, "worker merge refused (STALE): {}", files.join(", "))
             }
+            Self::BadId(id) => write!(
+                f,
+                "bad worker id {id:?} (use 1-64 chars of [A-Za-z0-9._-], not starting with '.')"
+            ),
+            Self::NotMerged(branch) => write!(
+                f,
+                "branch {branch} has unmerged commits — merge-back first, or delete it with git yourself"
+            ),
+            Self::WrongBase { base, checked_out } => write!(
+                f,
+                "merge base {base:?} is not checked out (main checkout is on {checked_out:?})"
+            ),
         }
     }
 }

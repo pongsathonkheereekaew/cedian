@@ -5,12 +5,20 @@
 //! — compare/restore manually. Bulk accept-all SKIPS `Unattributed` hunks (§17
 //! R2: per-hunk resolve only).
 //!
+//! Attribution (§16/§17): a hunk belongs to the task only when the latest
+//! `AgentEdit` for its file explains it. Files with no agent record →
+//! `Unattributed`; hunks overlapping changes made AFTER the agent's last
+//! write (agent text → current) → `Stale`. User resolutions are keyed by hunk
+//! identity (before range + after text), not index, so they survive rebuilds
+//! and persist across sessions via [`StatusRecord`].
+//!
 //! Debounce (§20): diff rebuilds queue on edit-complete and flush at 50–100ms;
 //! streaming tokens and tool progress never trigger recomputation. Headless:
 //! the owner calls `request_rebuild` + `rebuild_due`; GPUI ticks it per frame.
 
-use crate::{line_diff, Baseline, FileDiff, HunkStatus};
+use crate::{line_diff, AgentEdit, Baseline, FileDiff, Hunk, HunkStatus};
 use cedian_workspace::{TextEdit, Version, WorkspaceHost};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -29,6 +37,8 @@ pub enum TrackerError {
     BadHunk { path: PathBuf, index: usize },
     /// Transition not allowed (e.g. resolving `Interrupted` directly).
     BadTransition { status: HunkStatus },
+    /// Buffer changed since the diff was built — rebuild and look again.
+    Outdated { path: PathBuf },
 }
 
 impl std::fmt::Display for TrackerError {
@@ -36,28 +46,75 @@ impl std::fmt::Display for TrackerError {
         match self {
             Self::NoDiff { path } => write!(f, "no review diff for {}", path.display()),
             Self::BadHunk { path, index } => write!(f, "no hunk {index} in {}", path.display()),
+            Self::BadTransition {
+                status: HunkStatus::Stale,
+            } => write!(
+                f,
+                "hunk is STALE (changed after the agent edit) — compare and restore manually"
+            ),
             Self::BadTransition { status } => {
                 write!(f, "hunk transition not allowed from {status:?}")
             }
             Self::Host(e) => write!(f, "host edit failed: {e}"),
+            Self::Outdated { path } => write!(
+                f,
+                "{} changed since the review diff was built — re-run review",
+                path.display()
+            ),
         }
     }
 }
 
 impl std::error::Error for TrackerError {}
 
-/// Per-task review state: baseline + computed diffs + hunk statuses.
+/// Stable hunk identity: survives rebuilds that shift indices.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct HunkKey {
+    pub before_start: usize,
+    pub before_count: usize,
+    /// Exact after-side lines (joined with `\n`).
+    pub after_text: String,
+}
+
+impl HunkKey {
+    fn of(after: &str, hunk: &Hunk) -> Self {
+        Self {
+            before_start: hunk.before_start,
+            before_count: hunk.before_count,
+            after_text: after
+                .lines()
+                .skip(hunk.after_start)
+                .take(hunk.after_count)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        }
+    }
+}
+
+/// One persisted user resolution / manual status (headless store record).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatusRecord {
+    pub path: PathBuf,
+    pub key: HunkKey,
+    pub status: HunkStatus,
+}
+
+/// Per-task review state: baseline + latest agent texts + current diffs.
 pub struct ReviewTracker {
     task_id: String,
     baseline: Baseline,
     baseline_texts: HashMap<PathBuf, String>,
+    /// Latest agent-produced text per file (from the §17 `AgentEdit` store).
+    agent_texts: HashMap<PathBuf, String>,
+    /// User resolutions + manual transitions, keyed by hunk identity.
+    resolved: HashMap<(PathBuf, HunkKey), HunkStatus>,
     diffs: HashMap<PathBuf, FileDiff>,
     rebuild_queued: bool,
     last_rebuild: Option<Instant>,
 }
 
 impl ReviewTracker {
-    /// New tracker for a task with its baseline snapshot.
+    /// Tracker for one task, seeded with baseline versions + texts.
     pub fn new(
         task_id: &str,
         baseline: Baseline,
@@ -67,24 +124,77 @@ impl ReviewTracker {
             task_id: task_id.to_string(),
             baseline,
             baseline_texts,
+            agent_texts: HashMap::new(),
+            resolved: HashMap::new(),
             diffs: HashMap::new(),
             rebuild_queued: false,
             last_rebuild: None,
         }
     }
 
-    /// Owning task.
     pub fn task_id(&self) -> &str {
         &self.task_id
     }
 
-    /// Queue a diff rebuild (call on edit-complete; debounced, §20).
+    /// Feed this task's `AgentEdit` records: the newest record per file (by
+    /// timestamp, then input order) defines what the agent last wrote.
+    /// Records of other tasks are ignored.
+    pub fn attribute(&mut self, edits: &[AgentEdit]) {
+        let mut newest: HashMap<PathBuf, (u64, usize, &AgentEdit)> = HashMap::new();
+        for (i, e) in edits.iter().enumerate() {
+            if e.task_id != self.task_id || e.tool_call_id.is_empty() {
+                continue;
+            }
+            let path = PathBuf::from(&e.file);
+            let replace = newest
+                .get(&path)
+                .map(|(ts, idx, _)| (e.timestamp_ms, i) >= (*ts, *idx))
+                .unwrap_or(true);
+            if replace {
+                newest.insert(path, (e.timestamp_ms, i, e));
+            }
+        }
+        for (path, (_, _, e)) in newest {
+            self.agent_texts.insert(path, e.after.clone());
+        }
+        self.request_rebuild();
+    }
+
+    /// Restore persisted resolutions (applied on the next rebuild).
+    pub fn restore_statuses(&mut self, records: Vec<StatusRecord>) {
+        for r in records {
+            self.resolved.insert((r.path, r.key), r.status);
+        }
+        self.request_rebuild();
+    }
+
+    /// Resolutions to persist (sorted for stable files).
+    pub fn status_records(&self) -> Vec<StatusRecord> {
+        let mut out: Vec<StatusRecord> = self
+            .resolved
+            .iter()
+            .map(|((path, key), status)| StatusRecord {
+                path: path.clone(),
+                key: key.clone(),
+                status: *status,
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            (&a.path, a.key.before_start, &a.key.after_text).cmp(&(
+                &b.path,
+                b.key.before_start,
+                &b.key.after_text,
+            ))
+        });
+        out
+    }
+
+    /// Queue a rebuild (edit completed). Cheap; never diffs inline.
     pub fn request_rebuild(&mut self) {
         self.rebuild_queued = true;
     }
 
-    /// Rebuild queued diffs when the debounce elapsed. Returns rebuilt paths.
-    /// Reads through the host trait so the live store is used (never a copy).
+    /// Rebuild if queued AND the debounce window elapsed. Returns rebuilt paths.
     pub fn rebuild_due(&mut self, host: &dyn WorkspaceHost) -> Vec<PathBuf> {
         if !self.rebuild_queued {
             return Vec::new();
@@ -94,6 +204,11 @@ impl ReviewTracker {
                 return Vec::new();
             }
         }
+        self.rebuild_now(host)
+    }
+
+    /// Rebuild immediately, ignoring the debounce (one-shot CLI, tests).
+    pub fn rebuild_now(&mut self, host: &dyn WorkspaceHost) -> Vec<PathBuf> {
         self.rebuild_queued = false;
         self.last_rebuild = Some(Instant::now());
         let mut rebuilt = Vec::new();
@@ -101,13 +216,24 @@ impl ReviewTracker {
             let before = self.baseline_texts.get(&path).cloned().unwrap_or_default();
             let after = host.read_buffer(&path).unwrap_or_default();
             let hunks = line_diff(&before, &after);
-            let statuses = self.preserve_statuses(&path, hunks.len());
+            let post_agent = self.agent_texts.get(&path).map(|a| line_diff(a, &after));
+            let statuses = hunks
+                .iter()
+                .map(|h| {
+                    let key = HunkKey::of(&after, h);
+                    if let Some(s) = self.resolved.get(&(path.clone(), key)) {
+                        return *s;
+                    }
+                    derive_status(h, post_agent.as_deref())
+                })
+                .collect();
             self.diffs.insert(
                 path.clone(),
                 FileDiff {
                     path: path.to_string_lossy().into_owned(),
                     hunks,
                     statuses,
+                    snapshot: after,
                 },
             );
             rebuilt.push(path);
@@ -115,78 +241,48 @@ impl ReviewTracker {
         rebuilt
     }
 
-    /// Keep user resolutions across rebuilds (same hunk count + same ranges);
-    /// new/changed hunks start `Pending`. Structural change resets to Pending
-    /// (never silently carry an accept onto different lines).
-    fn preserve_statuses(&self, path: &Path, n: usize) -> Vec<HunkStatus> {
-        let old = self.diffs.get(path);
-        match old {
-            Some(FileDiff {
-                hunks, statuses, ..
-            }) if hunks.len() == n => statuses.clone(),
-            _ => vec![HunkStatus::Pending; n],
-        }
-    }
-
-    /// Current diff for a path.
+    /// Diff for one path (after a rebuild).
     pub fn diff(&self, path: &Path) -> Result<&FileDiff, TrackerError> {
         self.diffs.get(path).ok_or_else(|| TrackerError::NoDiff {
             path: path.to_path_buf(),
         })
     }
-    /// Paths with a computed diff (sorted for stable display).
+
+    /// Paths with a computed diff (sorted, stable for rendering).
     pub fn paths(&self) -> Vec<PathBuf> {
         let mut paths: Vec<PathBuf> = self.diffs.keys().cloned().collect();
         paths.sort();
         paths
     }
 
-    /// Accept one hunk: mark only (code is already in the buffer).
-    /// `Unattributed` accepts per-hunk (allowed); bulk accept skips those.
+    /// Accept one hunk: mark only (code already in the buffer). `Interrupted`
+    /// must reconcile to `Unattributed` first; terminal states are idempotent.
     pub fn accept_hunk(&mut self, path: &Path, index: usize) -> Result<(), TrackerError> {
-        let diff = self
-            .diffs
-            .get_mut(path)
-            .ok_or_else(|| TrackerError::NoDiff {
-                path: path.to_path_buf(),
-            })?;
-        let status = diff
-            .statuses
-            .get_mut(index)
-            .ok_or_else(|| TrackerError::BadHunk {
-                path: path.to_path_buf(),
-                index,
-            })?;
+        let (status, key) = self.hunk(path, index)?;
         match status {
             HunkStatus::Pending | HunkStatus::Unattributed | HunkStatus::Stale => {
-                *status = HunkStatus::Accepted;
+                self.set_resolved(path, index, key, HunkStatus::Accepted);
                 Ok(())
             }
-            HunkStatus::Interrupted => Err(TrackerError::BadTransition { status: *status }),
+            HunkStatus::Interrupted => Err(TrackerError::BadTransition { status }),
             HunkStatus::Accepted | HunkStatus::Rejected => Ok(()),
         }
     }
 
-    /// Reject one hunk: apply the inverse patch (restore baseline lines for
-    /// the hunk range) via the buffer store, then mark.
+    /// Reject one hunk: inverse patch back to baseline lines, as one host
+    /// transaction. Refuses `Interrupted` and `Stale` (§18: never auto-reject
+    /// a hunk the user changed after the agent), and refuses when the buffer
+    /// moved since the diff was built (line positions would be wrong).
     pub fn reject_hunk(
         &mut self,
         path: &Path,
         index: usize,
         host: &dyn WorkspaceHost,
     ) -> Result<Version, TrackerError> {
-        let diff = self.diffs.get(path).ok_or_else(|| TrackerError::NoDiff {
-            path: path.to_path_buf(),
-        })?;
-        let hunk = diff.hunks.get(index).ok_or_else(|| TrackerError::BadHunk {
-            path: path.to_path_buf(),
-            index,
-        })?;
-        match diff.statuses[index] {
-            HunkStatus::Interrupted => {
-                return Err(TrackerError::BadTransition {
-                    status: HunkStatus::Interrupted,
-                })
+        let (status, key) = self.hunk(path, index)?;
+        match status {
+            HunkStatus::Interrupted | HunkStatus::Stale => {
+                return Err(TrackerError::BadTransition { status })
             }
             HunkStatus::Accepted | HunkStatus::Rejected => {
                 return host
@@ -195,13 +291,18 @@ impl ReviewTracker {
                         path: path.to_path_buf(),
                     });
             }
-            _ => {}
+            HunkStatus::Pending | HunkStatus::Unattributed => {}
         }
-        // Inverse patch: replace current hunk lines with baseline hunk lines.
-        let before = self.baseline_texts.get(path).cloned().unwrap_or_default();
+        let diff = self.diff(path)?;
+        let hunk = diff.hunks[index].clone();
         let after = host.read_buffer(path).unwrap_or_default();
+        if after != diff.snapshot {
+            return Err(TrackerError::Outdated {
+                path: path.to_path_buf(),
+            });
+        }
+        let before = self.baseline_texts.get(path).cloned().unwrap_or_default();
         let before_lines: Vec<&str> = before.lines().collect();
-        let after_lines: Vec<&str> = after.lines().collect();
         let want: Vec<&str> = before_lines
             .iter()
             .skip(hunk.before_start)
@@ -214,9 +315,12 @@ impl ReviewTracker {
             .ok_or_else(|| TrackerError::NoDiff {
                 path: path.to_path_buf(),
             })?;
+        // Restore the baseline's own line ending at EOF (no newline invented).
+        let at_eof = hunk.before_start + hunk.before_count == before_lines.len();
         let replacement = if want.is_empty() {
-            // Pure deletion of inserted lines: drop the range + one newline when present.
             String::new()
+        } else if at_eof && !before.ends_with('\n') {
+            want.join("\n")
         } else {
             let mut s = want.join("\n");
             s.push('\n');
@@ -233,53 +337,41 @@ impl ReviewTracker {
                 },
             )
             .map_err(|e| TrackerError::Host(e.to_string()))?;
-        if let Some(diff) = self.diffs.get_mut(path) {
-            diff.statuses[index] = HunkStatus::Rejected;
-        }
-        // Hunk ranges shifted — queue a rebuild so the next read is coherent.
+        self.set_resolved(path, index, key, HunkStatus::Rejected);
         self.request_rebuild();
-        // Silence unused binding (after_lines documents the range basis).
-        let _ = after_lines.len();
         Ok(result.new_version)
     }
 
-    /// Bulk accept: every `Pending`/`Stale` hunk, SKIPPING `Unattributed`
-    /// (§17 R2). Returns accepted `(path, hunk)` pairs.
+    /// Accept every `Pending` and `Stale` hunk. SKIPS `Unattributed` and
+    /// `Interrupted` (§17 R2). Returns accepted `(path, index)` pairs.
     pub fn accept_all(&mut self) -> Vec<(PathBuf, usize)> {
-        let mut accepted = Vec::new();
-        for (path, diff) in self.diffs.iter_mut() {
-            for (i, status) in diff.statuses.iter_mut().enumerate() {
+        let mut targets = Vec::new();
+        for path in self.paths() {
+            let diff = &self.diffs[&path];
+            for (i, status) in diff.statuses.iter().enumerate() {
                 if matches!(status, HunkStatus::Pending | HunkStatus::Stale) {
-                    *status = HunkStatus::Accepted;
-                    accepted.push((path.clone(), i));
+                    targets.push((path.clone(), i, HunkKey::of(&diff.snapshot, &diff.hunks[i])));
                 }
             }
         }
-        accepted
+        targets
+            .into_iter()
+            .map(|(path, i, key)| {
+                self.set_resolved(&path, i, key, HunkStatus::Accepted);
+                (path, i)
+            })
+            .collect()
     }
 
-    /// Mark one hunk's status directly (reconciliation: `Interrupted →
-    /// Unattributed`; staleness detector: `→ Stale`). Only the allowed
-    /// transitions; everything else fails closed.
+    /// Drive an allowed non-user transition (§18 R3): `Interrupted →
+    /// Unattributed`, `Pending|Unattributed → Stale`. Same-state is a no-op.
     pub fn set_status(
         &mut self,
         path: &Path,
         index: usize,
         status: HunkStatus,
     ) -> Result<(), TrackerError> {
-        let diff = self
-            .diffs
-            .get_mut(path)
-            .ok_or_else(|| TrackerError::NoDiff {
-                path: path.to_path_buf(),
-            })?;
-        let current = *diff
-            .statuses
-            .get(index)
-            .ok_or_else(|| TrackerError::BadHunk {
-                path: path.to_path_buf(),
-                index,
-            })?;
+        let (current, key) = self.hunk(path, index)?;
         let allowed = match (current, status) {
             (HunkStatus::Interrupted, HunkStatus::Unattributed) => true,
             (HunkStatus::Pending, HunkStatus::Stale) => true,
@@ -290,14 +382,51 @@ impl ReviewTracker {
         if !allowed {
             return Err(TrackerError::BadTransition { status: current });
         }
-        diff.statuses[index] = status;
+        self.set_resolved(path, index, key, status);
         Ok(())
+    }
+
+    fn hunk(&self, path: &Path, index: usize) -> Result<(HunkStatus, HunkKey), TrackerError> {
+        let diff = self.diff(path)?;
+        let hunk = diff.hunks.get(index).ok_or_else(|| TrackerError::BadHunk {
+            path: path.to_path_buf(),
+            index,
+        })?;
+        Ok((diff.statuses[index], HunkKey::of(&diff.snapshot, hunk)))
+    }
+
+    fn set_resolved(&mut self, path: &Path, index: usize, key: HunkKey, status: HunkStatus) {
+        if let Some(diff) = self.diffs.get_mut(path) {
+            diff.statuses[index] = status;
+        }
+        self.resolved.insert((path.to_path_buf(), key), status);
     }
 }
 
-/// Byte offsets of `count` lines starting at line `start` in `text`
-/// (0-based). End extends through the trailing newline when present so pure
-/// insertions remove cleanly.
+/// Status for a hunk with no recorded resolution. No agent record for the
+/// file → `Unattributed`; overlaps a change made after the agent's last write
+/// → `Stale`; else `Pending` (attributed, awaiting review).
+fn derive_status(hunk: &Hunk, post_agent: Option<&[Hunk]>) -> HunkStatus {
+    let Some(post) = post_agent else {
+        return HunkStatus::Unattributed;
+    };
+    let (hs, he) = (hunk.after_start, hunk.after_start + hunk.after_count);
+    let touched = post.iter().any(|p| {
+        let (ps, pe) = (p.after_start, p.after_start + p.after_count);
+        if hs == he || ps == pe {
+            ps <= he && hs <= pe
+        } else {
+            ps < he && hs < pe
+        }
+    });
+    if touched {
+        HunkStatus::Stale
+    } else {
+        HunkStatus::Pending
+    }
+}
+
+/// Byte offsets of `count` lines starting at line `start` (newlines included).
 fn line_range_offsets(text: &str, start: usize, count: usize) -> (usize, usize) {
     let lines: Vec<&str> = text.lines().collect();
     let mut off = 0;
@@ -314,6 +443,129 @@ fn line_range_offsets(text: &str, start: usize, count: usize) -> (usize, usize) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Record what the agent just wrote (§17 snapshot at tool end).
+    fn agent_wrote(tracker: &mut ReviewTracker, store: &cedian_workspace::HostTools) {
+        tracker.attribute(&[AgentEdit {
+            tool_call_id: "c1".to_string(),
+            task_id: "task-1".to_string(),
+            file: "/a.rs".to_string(),
+            before: String::new(),
+            after: store.read_buffer(Path::new("/a.rs")).unwrap(),
+            timestamp_ms: 1,
+        }]);
+    }
+
+    fn edit(store: &cedian_workspace::HostTools, start: usize, end: usize, text: &str) {
+        let v = store.buffer_version(Path::new("/a.rs")).unwrap();
+        store
+            .apply_edit(
+                Path::new("/a.rs"),
+                v,
+                &TextEdit {
+                    start,
+                    end,
+                    replacement: text.into(),
+                },
+            )
+            .unwrap();
+    }
+
+    fn statuses(tracker: &ReviewTracker) -> Vec<HunkStatus> {
+        tracker.diff(Path::new("/a.rs")).unwrap().statuses.clone()
+    }
+
+    #[test]
+    fn no_agent_record_is_unattributed() {
+        let (store, mut tracker) = setup();
+        edit(&store, 4, 7, "TWO"); // e.g. a user edit: nothing attributes it
+        tracker.rebuild_now(&store);
+        assert_eq!(statuses(&tracker), vec![HunkStatus::Unattributed]);
+        assert!(tracker.accept_all().is_empty(), "bulk accept skips it");
+    }
+
+    #[test]
+    fn user_edit_after_agent_goes_stale_and_reject_refuses() {
+        let (store, mut tracker) = setup();
+        edit(&store, 4, 7, "TWO"); // agent: two → TWO
+        agent_wrote(&mut tracker, &store);
+        edit(&store, 4, 7, "Two"); // user rewrites the same line afterwards
+        tracker.rebuild_now(&store);
+        assert_eq!(statuses(&tracker), vec![HunkStatus::Stale]);
+        assert_eq!(
+            tracker.reject_hunk(Path::new("/a.rs"), 0, &store),
+            Err(TrackerError::BadTransition {
+                status: HunkStatus::Stale
+            })
+        );
+        assert_eq!(
+            store.read_buffer(Path::new("/a.rs")).unwrap(),
+            "one\nTwo\nthree\n",
+            "user text untouched"
+        );
+    }
+
+    #[test]
+    fn untouched_agent_hunk_stays_pending_beside_user_edit() {
+        let (store, mut tracker) = setup();
+        edit(&store, 0, 3, "ONE"); // agent: line 0
+        agent_wrote(&mut tracker, &store);
+        edit(&store, 8, 13, "THREE"); // user: line 2, separate hunk
+        tracker.rebuild_now(&store);
+        assert_eq!(
+            statuses(&tracker),
+            vec![HunkStatus::Pending, HunkStatus::Stale]
+        );
+    }
+
+    #[test]
+    fn accept_survives_rebuild_and_roundtrips_records() {
+        let (store, mut tracker) = setup();
+        edit(&store, 0, 3, "ONE");
+        edit(&store, 8, 11, "TWO");
+        agent_wrote(&mut tracker, &store);
+        tracker.rebuild_now(&store);
+        tracker.accept_hunk(Path::new("/a.rs"), 1).unwrap();
+        // Reject hunk 0 → hunk count shrinks; the accepted one keeps its status.
+        tracker.reject_hunk(Path::new("/a.rs"), 0, &store).unwrap();
+        tracker.rebuild_now(&store);
+        assert_eq!(statuses(&tracker), vec![HunkStatus::Accepted]);
+        // Persist → fresh tracker (next CLI invocation) → same status.
+        let records = tracker.status_records();
+        let (_, mut fresh) = setup();
+        agent_wrote(&mut fresh, &store);
+        fresh.restore_statuses(records);
+        fresh.rebuild_now(&store);
+        assert_eq!(statuses(&fresh), vec![HunkStatus::Accepted]);
+    }
+
+    #[test]
+    fn reject_refuses_outdated_diff() {
+        let (store, mut tracker) = setup();
+        edit(&store, 4, 7, "TWO");
+        agent_wrote(&mut tracker, &store);
+        tracker.rebuild_now(&store);
+        edit(&store, 0, 0, "zero\n"); // shifts every line before reject
+        assert!(matches!(
+            tracker.reject_hunk(Path::new("/a.rs"), 0, &store),
+            Err(TrackerError::Outdated { .. })
+        ));
+    }
+
+    #[test]
+    fn reject_keeps_missing_final_newline() {
+        let store = cedian_workspace::HostTools::new(Path::new("/"));
+        store.open(Path::new("/a.rs"), "one\ntwo");
+        let mut baseline = Baseline::new();
+        baseline.snapshot(Path::new("/a.rs"), Version(0));
+        let texts = HashMap::from([(PathBuf::from("/a.rs"), "one\ntwo".to_string())]);
+        let mut tracker = ReviewTracker::new("task-1", baseline, texts);
+        edit(&store, 4, 7, "TWO");
+        agent_wrote(&mut tracker, &store);
+        tracker.rebuild_now(&store);
+        tracker.reject_hunk(Path::new("/a.rs"), 0, &store).unwrap();
+        assert_eq!(store.read_buffer(Path::new("/a.rs")).unwrap(), "one\ntwo");
+    }
 
     fn setup() -> (cedian_workspace::HostTools, ReviewTracker) {
         let store = cedian_workspace::HostTools::new(Path::new("/"));
@@ -341,6 +593,7 @@ mod tests {
             .unwrap();
         tracker.request_rebuild();
         // Debounce: force by resetting the clock.
+        agent_wrote(&mut tracker, &store);
         tracker.last_rebuild = None;
         tracker.request_rebuild();
         let rebuilt = tracker.rebuild_due(&store);
@@ -362,6 +615,7 @@ mod tests {
                 },
             )
             .unwrap();
+        agent_wrote(&mut tracker, &store);
         tracker.last_rebuild = None;
         tracker.request_rebuild();
         tracker.rebuild_due(&store);
@@ -383,6 +637,7 @@ mod tests {
                 },
             )
             .unwrap();
+        agent_wrote(&mut tracker2, &store2);
         tracker2.last_rebuild = None;
         tracker2.request_rebuild();
         tracker2.rebuild_due(&store2);
@@ -420,6 +675,7 @@ mod tests {
                 },
             )
             .unwrap();
+        agent_wrote(&mut tracker, &store);
         tracker.last_rebuild = None;
         tracker.request_rebuild();
         tracker.rebuild_due(&store);
@@ -445,6 +701,7 @@ mod tests {
                 },
             )
             .unwrap();
+        agent_wrote(&mut tracker, &store);
         tracker.last_rebuild = None;
         tracker.request_rebuild();
         tracker.rebuild_due(&store);
@@ -479,6 +736,7 @@ mod tests {
                 },
             )
             .unwrap();
+        agent_wrote(&mut tracker, &store);
         tracker.last_rebuild = None;
         tracker.request_rebuild();
         tracker.rebuild_due(&store);

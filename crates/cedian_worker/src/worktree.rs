@@ -48,7 +48,27 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, WorkerError> {
 
 /// Spawn a worker: new branch `cedian-worker/<id>` from `base`, checked
 /// out at `.worktrees/<id>`.
+/// Worker ids become a path segment (`.worktrees/<id>`) and a branch name
+/// (`cedian-worker/<id>`): only a conservative charset is allowed, so an id
+/// can never escape `.worktrees/` or form an invalid ref.
+pub fn validate_id(id: &str) -> Result<(), WorkerError> {
+    let ok = !id.is_empty()
+        && id.len() <= 64
+        && !id.starts_with('.')
+        && !id.contains("..")
+        && !id.ends_with(".lock")
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if ok {
+        Ok(())
+    } else {
+        Err(WorkerError::BadId(id.to_string()))
+    }
+}
+
 pub fn spawn(repo: &Path, id: &str, base: &str) -> Result<WorkerHead, WorkerError> {
+    validate_id(id)?;
     let branch = format!("cedian-worker/{id}");
     let worktree = format!(".worktrees/{id}");
     git(repo, &["worktree", "add", &worktree, "-b", &branch, base])?;
@@ -72,8 +92,22 @@ pub fn spawn(repo: &Path, id: &str, base: &str) -> Result<WorkerHead, WorkerErro
 /// Uncommitted work is still safe: plain `worktree remove` already fails
 /// loud on a dirty tree before the branch is touched.
 pub fn remove(repo: &Path, head: &WorkerHead) -> Result<(), WorkerError> {
+    // Refuse BEFORE touching the worktree: unmerged commits would be lost.
+    // (`branch -D` used to delete them silently.)
+    let merged = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["merge-base", "--is-ancestor", &head.branch, "HEAD"])
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_WORK_TREE")
+        .status()
+        .map_err(|e| WorkerError::Git(e.to_string()))?;
+    if !merged.success() {
+        return Err(WorkerError::NotMerged(head.branch.clone()));
+    }
     git(repo, &["worktree", "remove", &head.worktree])?;
-    git(repo, &["branch", "-D", &head.branch])?;
+    git(repo, &["branch", "-d", &head.branch])?;
     Ok(())
 }
 
@@ -161,6 +195,16 @@ pub fn merge_back(repo: &Path, head: &WorkerHead, base: &str) -> Result<(), Work
     if !plan.conflicted.is_empty() {
         return Err(WorkerError::Conflicted(plan.conflicted));
     }
+    // `git merge` targets whatever is checked out — it must BE the base the
+    // preview was computed against, or we'd merge into the wrong branch.
+    let want = git(repo, &["rev-parse", "--abbrev-ref", base])?;
+    let checked_out = git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    if want != checked_out || checked_out == "HEAD" {
+        return Err(WorkerError::WrongBase {
+            base: base.to_string(),
+            checked_out,
+        });
+    }
     // The pre-check guarantees clean, so this fast-forwards or merges.
     git(repo, &["merge", &head.branch, "--no-edit"])?;
     Ok(())
@@ -235,8 +279,41 @@ mod tests {
             merge_back(&repo, &head, "main"),
             Err(WorkerError::Conflicted(_))
         ));
-        remove(&repo, &head).unwrap();
+        // Unmerged work: remove refuses and leaves worktree + branch intact.
+        assert!(matches!(
+            remove(&repo, &head),
+            Err(WorkerError::NotMerged(_))
+        ));
+        assert!(repo.join(".worktrees/w1/a.txt").exists());
+        assert!(git(&repo, &["rev-parse", "--verify", "cedian-worker/w1"]).is_ok());
         std::fs::remove_dir_all(&repo).unwrap();
+    }
+
+    #[test]
+    fn merge_back_refuses_when_base_not_checked_out() {
+        let repo = fixture();
+        git(&repo, &["branch", "other"]).unwrap();
+        let head = spawn(&repo, "w2", "other").unwrap();
+        std::fs::write(repo.join(".worktrees/w2/c.txt"), "w\n").unwrap();
+        git(&repo.join(".worktrees/w2"), &["add", "."]).unwrap();
+        git(&repo.join(".worktrees/w2"), &["commit", "-m", "w"]).unwrap();
+        // Main checkout is on `main`; asking to merge into `other` must refuse.
+        assert!(matches!(
+            merge_back(&repo, &head, "other"),
+            Err(WorkerError::WrongBase { .. })
+        ));
+        assert!(!repo.join("c.txt").exists());
+        std::fs::remove_dir_all(&repo).unwrap();
+    }
+
+    #[test]
+    fn unsafe_ids_rejected() {
+        for bad in ["", "../x", "a/b", ".hidden", "a..b", "x.lock", "sp ace"] {
+            assert!(super::validate_id(bad).is_err(), "{bad:?} must be rejected");
+        }
+        for good in ["w1", "fix-login_2", "v1.2"] {
+            assert!(super::validate_id(good).is_ok(), "{good:?} must be allowed");
+        }
     }
     /// Regression: `spawn` works when the parent env carries hook-inherited
     /// `GIT_*` (the `git commit` hook exports relative `GIT_DIR`, which used

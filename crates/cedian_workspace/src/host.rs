@@ -287,11 +287,20 @@ impl HostTools {
     /// Attach a live LSP bridge (S1). Replaces any previous bridge.
     /// Also syncs every currently-open buffer into the server.
     pub fn attach_lsp(&self, bridge: Arc<crate::LspBridge>) {
-        for key in self.store.lock().open_paths() {
-            if let Some((text, _)) = self.store.lock().read(&key) {
-                let local = self.workdir.join(key.strip_prefix("/").unwrap_or(&key));
-                bridge.sync_buffer(&local, &text);
-            }
+        // Snapshot under one short lock: a guard in a `for` head lives for the
+        // whole loop, so re-locking inside it would deadlock (parking_lot is
+        // not reentrant).
+        let open: Vec<(PathBuf, String)> = {
+            let store = self.store.lock();
+            store
+                .open_paths()
+                .into_iter()
+                .filter_map(|key| store.read(&key).map(|(text, _)| (key, text)))
+                .collect()
+        };
+        for (key, text) in open {
+            let local = self.workdir.join(key.strip_prefix("/").unwrap_or(&key));
+            bridge.sync_buffer(&local, &text);
         }
         *self.lsp.lock() = Some(bridge);
     }
