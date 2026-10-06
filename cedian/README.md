@@ -11,9 +11,9 @@
 
 | Slice | State |
 |---|---|
-| S0 Foundation loop | ◐ prompt → cards → edit → review → accept/reject in CLI; streaming text, task attribution + STALE, persisted resolutions fixed 2026-10-06; P1 spawn profile live-verified 2026-10-07 (project yolo/computer-on loses to the overlay) — P2 replay + live re-smoke pending |
+| S0 Foundation loop | ◐ prompt → cards → edit → review → accept/reject in CLI; streaming text, task attribution + STALE, persisted resolutions fixed 2026-10-06; P1 spawn profile live-verified 2026-10-07 (project yolo/computer-on loses to the overlay); P2 hermetic replay 2026-10-07: `cedian prompt` → card → host-tool edit → `review` → `reject` from a recorded OMP turn — gap: OMP-native disk edits are not replayed (fake-omp writes no files) |
 | S1 Language services | ◐ LSP client + symbols + bridge (fake-green); live diagnostics need a warm server (`cedian shell`, P4), DAP-live needs Developer mode |
-| S9a App spike | 🔜 next after P2–P3 (P1 done): Zed fork builds, one GPUI panel streams OMP, one host-tool edit undoes natively |
+| S9a App spike | 🔜 next after P3 (P1, P2 done): Zed fork builds, one GPUI panel streams OMP, one host-tool edit undoes natively |
 | S2 Workflow engine | ◐ gates block completion when driven from CLI; not yet enforced on an OMP turn; A1-narrow decided (ADR-0010): OMP drives, cedian checks |
 | S3 Review agents | 🔜 gated on sandbox profile + audit tuples |
 | S4 Browser evidence | ◐ CDP screenshot/DOM as gate evidence; fresh Chrome per command, so frame seq / same-tab are not real yet (ROADMAP stand-in row D) |
@@ -33,6 +33,7 @@ crates/cedian_workspace/ host tools + cedian:// + buffer txns + ambient context
 crates/cedian_review/    baseline + provenance + hunk accept/reject
 crates/cedian_shell/     settings + palette + session manager (headless)
 crates/cedian_cli/       throwaway harness — full loop without GPUI (dies at S9)
+crates/cedian_fake_omp/  P2 test harness: fake `omp --mode rpc-ui` (record proxy + fixture replay)
 vendor/omp-rpc/          vendored upstream Rust RPC client (pin: vendor/omp-revision.json)
 spike/                   Phase 0.5 throwaway probe (do not grow)
 script/build-omp         build pinned OMP into cedian.app (records commit/tree-hash/builder)
@@ -46,9 +47,11 @@ cargo run -p cedian_cli -- state            # OMP session snapshot
 cargo run -p cedian_cli -- prompt "fix it"      # full turn (needs CEDIAN_WORKDIR)
 cargo run -p cedian_cli -- review              # pending hunks (task state: .cedian/review.json)
 cargo run -p cedian_cli -- review reset        # start a new review task
-cargo test --workspace            # unit (fast, hermetic)
+cargo test --workspace            # unit + fake-omp replay (fast, hermetic)
 cargo test -p cedian_omp -- --ignored --nocapture          # live smoke vs real omp
 cargo test -p cedian_omp --test live_spawn_profile -- --ignored --nocapture  # P1 precedence + auth
+cargo test -p cedian_fake_omp -- --ignored record_       # re-record runtime fixture (live)
+CEDIAN_P2_RECORD=1 cargo test -p cedian_cli --test replay_cli  # re-record CLI fixture (live)
 cargo test -p cedian_agent_ui -- --ignored --nocapture     # live panel + tool cards
 cargo clippy --workspace --all-targets && cargo fmt --all
 ```

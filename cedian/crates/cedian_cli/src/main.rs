@@ -113,7 +113,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 "usage: cedian <prompt|review|accept|reject|accept-all|state|\
                 palette|symbols|diagnostics|browser|workflow|worker> …"
             );
-            eprintln!("env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR");
+            eprintln!("env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR, CEDIAN_OMP_BINARY");
             Ok(())
         }
     }
@@ -166,8 +166,14 @@ fn spawn(
     workdir: &Path,
     host: &std::sync::Arc<HostTools>,
 ) -> Result<OmpRuntime, String> {
+    // `CEDIAN_OMP_BINARY` (absolute) points the harness at another binary —
+    // the hermetic replay lane uses it for fake-omp (§86, P2).
+    let binary = match std::env::var("CEDIAN_OMP_BINARY") {
+        Ok(path) => OmpBinary::Bundled(PathBuf::from(path)),
+        Err(_) => OmpBinary::Path("omp".to_string()),
+    };
     let rt = OmpRuntime::spawn(RuntimeConfig {
-        binary: OmpBinary::Path("omp".to_string()),
+        binary,
         session_dir: session_dir.to_path_buf(),
         cwd: workdir.to_path_buf(),
         ask_dialog: true,
