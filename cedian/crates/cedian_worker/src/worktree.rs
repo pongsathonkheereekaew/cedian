@@ -106,6 +106,8 @@ pub fn merge_preview(repo: &Path, head: &WorkerHead, base: &str) -> Result<Merge
 
 /// Clone `base` to `tmp` and really merge the worker branch there;
 /// return the unmerged (`U`) files. `tmp` cleanup stays with the caller.
+/// `base` may be a rev (`HEAD`); it is resolved to a branch name first
+/// because `clone -b` needs one.
 fn trial_merge(
     repo: &Path,
     tmp: &Path,
@@ -114,10 +116,11 @@ fn trial_merge(
 ) -> Result<Vec<String>, WorkerError> {
     let from = repo.to_string_lossy().to_string();
     let dest = tmp.to_string_lossy().to_string();
+    let base_branch = git(repo, &["rev-parse", "--abbrev-ref", base])?;
     // `-s`: share objects locally — hermetic, no network, cheap.
     git(
         &std::env::temp_dir(),
-        &["clone", "-s", "-b", base, &from, &dest],
+        &["clone", "-s", "-b", &base_branch, &from, &dest],
     )?;
     // The clone tracks the worker branch as `origin/<branch>` only; the
     // trial merge needs a local ref under its real name.

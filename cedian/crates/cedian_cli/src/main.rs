@@ -98,8 +98,12 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "diagnostics" => cmd_diagnostics(&workdir),
         "browser" => cmd_browser(&workdir, &args[1..]),
         "workflow" => cmd_workflow(&workdir, &args[1..]),
+        "worker" => cmd_worker(&workdir, &args[1..]),
         _ => {
-            eprintln!("usage: cedian <prompt|review|accept|reject|accept-all|state|palette|symbols|diagnostics|browser|workflow> …");
+            eprintln!(
+                "usage: cedian <prompt|review|accept|reject|accept-all|state|\
+                palette|symbols|diagnostics|browser|workflow|worker> …"
+            );
             eprintln!("env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR");
             Ok(())
         }
@@ -692,6 +696,171 @@ fn cmd_browser(workdir: &Path, args: &[String]) -> Result<(), String> {
             }
         },
         _ => Err("usage: cedian browser <open|dom|shot|close|status> …".to_string()),
+    }
+}
+
+/// Read `--base <branch>` from `args[from..]`; defaults to `HEAD`.
+fn worker_base(args: &[String], from: usize) -> Result<String, String> {
+    let mut base = "HEAD".to_string();
+    let mut i = from;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--base" => {
+                base = args
+                    .get(i + 1)
+                    .cloned()
+                    .ok_or("usage: cedian worker … [--base <branch>]")?;
+                i += 2;
+            }
+            flag => return Err(format!("unknown flag {flag:?}")),
+        }
+    }
+    Ok(base)
+}
+
+/// Worker commands (S5 headless surface — one-shot per invocation):
+/// ```text
+/// cedian worker spawn <id> <kind> <title> [--base <branch>]
+/// cedian worker list
+/// cedian worker steer <id> <note...>
+/// cedian worker preview <id> [--base <branch>]
+/// cedian worker merge-back <id> [--base <branch>]
+/// cedian worker remove <id>
+/// ```
+///
+/// `CEDIAN_WORKDIR` must be the repo root: the registry lives at
+/// `<repo>/.cedian/workers.json`, worktrees at `<repo>/.worktrees/<id>`.
+/// Base defaults to `HEAD` unless `--base <branch>` is given. `steer`
+/// only records the note (status Running); the actual agent turn in the
+/// worktree is a follow-up invocation.
+fn cmd_worker(workdir: &Path, args: &[String]) -> Result<(), String> {
+    match args.first().map(|s| s.as_str()) {
+        Some("spawn") => {
+            let usage = "usage: cedian worker spawn <id> <kind> <title> [--base B]";
+            let id = args.get(1).ok_or(usage)?;
+            let kind = args.get(2).ok_or(usage)?;
+            let title = args.get(3).ok_or(usage)?;
+            let base = worker_base(args, 4)?;
+            let (mut reg, _) = cedian_worker::Registry::open(workdir);
+            let mut head = cedian_worker::spawn(workdir, id, &base).map_err(|e| e.to_string())?;
+            head.status = cedian_worker::WorkerStatus::Running;
+            head.task_title = title.clone();
+            head.kind = kind.clone();
+            let (worktree, branch) = (head.worktree.clone(), head.branch.clone());
+            reg.insert(head).map_err(|e| e.to_string())?;
+            reg.save(workdir).map_err(|e| e.to_string())?;
+            println!("worker {id} → {worktree} (branch {branch})");
+            Ok(())
+        }
+        Some("list") => {
+            if args.len() > 1 {
+                return Err("usage: cedian worker list".to_string());
+            }
+            let (reg, _) = cedian_worker::Registry::open(workdir);
+            let mut any = false;
+            for head in reg.all() {
+                any = true;
+                let status = format!("{:?}", head.status).to_lowercase();
+                println!(
+                    "{} {} {} {}",
+                    head.id, status, head.worktree, head.task_title
+                );
+            }
+            if !any {
+                println!("no workers");
+            }
+            Ok(())
+        }
+        Some("steer") => {
+            let usage = "usage: cedian worker steer <id> <note...>";
+            let id = args.get(1).ok_or(usage)?;
+            if args.len() < 3 {
+                return Err(usage.to_string());
+            }
+            let note = args[2..].join(" ");
+            let (mut reg, _) = cedian_worker::Registry::open(workdir);
+            let head = reg
+                .get(id)
+                .cloned()
+                .ok_or_else(|| cedian_worker::WorkerError::NoSuch(id.clone()).to_string())?;
+            reg.set_status(id, cedian_worker::WorkerStatus::Running, note.clone())
+                .map_err(|e| e.to_string())?;
+            reg.save(workdir).map_err(|e| e.to_string())?;
+            let wt = workdir.join(&head.worktree);
+            println!("steer {id}: {note}");
+            println!(
+                "hint: run the turn with CEDIAN_WORKDIR={} cedian prompt ...",
+                wt.display()
+            );
+            Ok(())
+        }
+        Some("preview") => {
+            let id = args
+                .get(1)
+                .ok_or("usage: cedian worker preview <id> [--base <branch>]")?;
+            let base = worker_base(args, 2)?;
+            let (reg, _) = cedian_worker::Registry::open(workdir);
+            let head = reg
+                .get(id)
+                .cloned()
+                .ok_or_else(|| cedian_worker::WorkerError::NoSuch(id.clone()).to_string())?;
+            let plan =
+                cedian_worker::merge_preview(workdir, &head, &base).map_err(|e| e.to_string())?;
+            println!("clean:");
+            for f in &plan.clean {
+                println!("  {f}");
+            }
+            println!("conflicted(STALE):");
+            for f in &plan.conflicted {
+                println!("  {f}");
+            }
+            Ok(())
+        }
+        Some("merge-back") => {
+            let id = args
+                .get(1)
+                .ok_or("usage: cedian worker merge-back <id> [--base <branch>]")?;
+            let base = worker_base(args, 2)?;
+            let (mut reg, _) = cedian_worker::Registry::open(workdir);
+            let head = reg
+                .get(id)
+                .cloned()
+                .ok_or_else(|| cedian_worker::WorkerError::NoSuch(id.clone()).to_string())?;
+            match cedian_worker::merge_back(workdir, &head, &base) {
+                Ok(()) => {
+                    reg.set_status(id, cedian_worker::WorkerStatus::Done, String::new())
+                        .map_err(|e| e.to_string())?;
+                    reg.save(workdir).map_err(|e| e.to_string())?;
+                    println!("merged {} → {base}", head.branch);
+                    Ok(())
+                }
+                Err(cedian_worker::WorkerError::Conflicted(files)) => {
+                    println!("refused (STALE):");
+                    for f in &files {
+                        println!("  {f}");
+                    }
+                    Err(format!("refused (STALE): {}", files.join(", ")))
+                }
+                Err(e) => Err(e.to_string()),
+            }
+        }
+        Some("remove") => {
+            let id = args.get(1).ok_or("usage: cedian worker remove <id>")?;
+            if args.len() > 2 {
+                return Err("usage: cedian worker remove <id>".to_string());
+            }
+            let (mut reg, _) = cedian_worker::Registry::open(workdir);
+            let head = reg
+                .get(id)
+                .cloned()
+                .ok_or_else(|| cedian_worker::WorkerError::NoSuch(id.clone()).to_string())?;
+            cedian_worker::remove(workdir, &head).map_err(|e| e.to_string())?;
+            reg.remove(id);
+            reg.save(workdir).map_err(|e| e.to_string())?;
+            println!("removed {id}");
+            Ok(())
+        }
+        _ => Err("usage: cedian worker <spawn|list|steer|preview|merge-back|remove> …".into()),
     }
 }
 
