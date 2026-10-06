@@ -18,6 +18,9 @@ pub enum UriKind {
     ActiveFile,
     Diagnostics,
     OpenEditors,
+    /// LSP symbols: `cedian://symbols/<query>` (workspace) or
+    /// `cedian://symbols/file/<path>` (document). Served by the LSP bridge.
+    Symbols,
     Unknown(String),
 }
 
@@ -30,6 +33,7 @@ impl UriKind {
             "active-file" => Self::ActiveFile,
             "diagnostics" => Self::Diagnostics,
             "open-editors" => Self::OpenEditors,
+            "symbols" => Self::Symbols,
             other => Self::Unknown(other.to_string()),
         }
     }

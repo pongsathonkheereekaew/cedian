@@ -79,30 +79,41 @@ pub trait WorkspaceHost: Send + Sync {
 /// [`HostTools::resolve`] — absolute paths under workdir, `/`-prefixed keys,
 /// and bare relative paths all land on the same buffer; paths escaping the
 /// workspace are rejected (fail closed, never a jailbreak).
-#[derive(Debug)]
 pub struct HostTools {
     store: Mutex<BufferStore>,
     active_file: Mutex<Option<PathBuf>>,
     selection: Mutex<Option<(PathBuf, usize, usize)>>,
     diagnostics: Mutex<HashMap<PathBuf, Vec<Diagnostic>>>,
     workdir: PathBuf,
+    /// Live LSP bridge (S1): `None` until `attach_lsp` runs.
+    lsp: Mutex<Option<Arc<crate::LspBridge>>>,
 }
 
 impl HostTools {
     /// Empty host rooted at `workdir` (disk anchor for resolve + auto-open).
+    /// Canonicalizes (macOS `/tmp` → `/private/tmp`): without this, server
+    /// URIs never match `resolve` and diagnostics silently vanish.
     pub fn new(workdir: &Path) -> Self {
         Self {
             store: Mutex::new(BufferStore::new()),
             active_file: Mutex::new(None),
             selection: Mutex::new(None),
             diagnostics: Mutex::new(HashMap::new()),
-            workdir: workdir.to_path_buf(),
+            workdir: workdir
+                .canonicalize()
+                .unwrap_or_else(|_| workdir.to_path_buf()),
+            lsp: Mutex::new(None),
         }
     }
 
     /// Shared handle (host-tool/URI handlers capture this).
     pub fn shared(workdir: &Path) -> Arc<Self> {
         Arc::new(Self::new(workdir))
+    }
+
+    /// Open buffer keys (for CLI sync + `cedian://open-editors`).
+    pub fn open_keys(&self) -> Vec<PathBuf> {
+        self.store.lock().open_paths()
     }
 
     /// Open a buffer with initial text (test setup / workspace scan). Accepts
@@ -118,8 +129,21 @@ impl HostTools {
     /// absolute-under-workdir, `/`-prefixed key, or bare relative. Rejects
     /// escapes (`..` past root, absolute outside workdir) with a visible error.
     pub fn resolve(&self, path: &Path) -> Result<PathBuf, String> {
-        let rel = if path.is_absolute() {
-            path.strip_prefix(&self.workdir)
+        // Normalize BEFORE prefix-strip: server URIs may use uncanonical
+        // spellings (`/tmp/...` vs `/private/tmp/...`) while workdir is
+        // canonical. `canonicalize` needs existence — lexical `/tmp`
+        // fallback needs none.
+        let canon = path.canonicalize().unwrap_or_else(|_| {
+            let s = path.to_string_lossy();
+            if s.starts_with("/tmp/") {
+                PathBuf::from(s.replacen("/tmp/", "/private/tmp/", 1))
+            } else {
+                path.to_path_buf()
+            }
+        });
+        let rel = if canon.is_absolute() {
+            canon
+                .strip_prefix(&self.workdir)
                 .map(|r| r.to_path_buf())
                 .map_err(|_| format!("path escapes workspace: {}", path.display()))?
         } else {
@@ -133,7 +157,6 @@ impl HostTools {
         }
         Ok(PathBuf::from(format!("/{}", rel.display())))
     }
-
     /// Ensure a buffer is open for a key, loading from disk on first use.
     /// Returns `false` when there is nothing to open (no disk file either) —
     /// callers fail with a visible "not open" error, never an empty buffer.
@@ -257,8 +280,49 @@ impl HostTools {
             UriKind::ActiveFile => Ok(self.render_active_file().into()),
             UriKind::Diagnostics => Ok(self.render_diagnostics(&uri.path).into()),
             UriKind::OpenEditors => Ok(self.render_open_editors().into()),
+            UriKind::Symbols => self.serve_symbols(&uri.path),
             UriKind::Unknown(kind) => Err(format!("unknown cedian:// kind: {kind}").into()),
         }
+    }
+    /// Attach a live LSP bridge (S1). Replaces any previous bridge.
+    /// Also syncs every currently-open buffer into the server.
+    pub fn attach_lsp(&self, bridge: Arc<crate::LspBridge>) {
+        for key in self.store.lock().open_paths() {
+            if let Some((text, _)) = self.store.lock().read(&key) {
+                let local = self.workdir.join(key.strip_prefix("/").unwrap_or(&key));
+                bridge.sync_buffer(&local, &text);
+            }
+        }
+        *self.lsp.lock() = Some(bridge);
+    }
+
+    /// Serve `cedian://symbols/...`: `file/<path>` → document symbols,
+    /// anything else → workspace search. No bridge → visible error (never
+    /// silent empty — the caller must attach LSP first).
+    fn serve_symbols(&self, path: &str) -> Result<omp_rpc::HostUriRead, omp_rpc::HostUriError> {
+        let bridge = self
+            .lsp
+            .lock()
+            .clone()
+            .ok_or_else(|| -> omp_rpc::HostUriError {
+                "no LSP bridge attached (attach_lsp first)"
+                    .to_string()
+                    .into()
+            })?;
+        if let Some(file) = path.strip_prefix("file/") {
+            let key = self
+                .resolve(Path::new(file))
+                .map_err(|e| -> omp_rpc::HostUriError { e.to_string().into() })?;
+            let local = self.workdir.join(key.strip_prefix("/").unwrap_or(&key));
+            let symbols = bridge
+                .document_symbols(&local)
+                .map_err(|e| -> omp_rpc::HostUriError { e.to_string().into() })?;
+            return Ok(crate::lsp_bridge::render_workspace_symbols(&symbols).into());
+        }
+        let symbols = bridge
+            .workspace_symbols(path)
+            .map_err(|e| -> omp_rpc::HostUriError { e.to_string().into() })?;
+        Ok(crate::lsp_bridge::render_workspace_symbols(&symbols).into())
     }
 
     /// Publish diagnostics for a buffer (fork: LSP publishDiagnostics lands here).
@@ -449,5 +513,16 @@ mod tests {
                 path: "/zzz.rs".into()
             })
             .is_err());
+    }
+
+    #[test]
+    fn tmp_symlink_resolves() {
+        // macOS `/tmp` → `/private/tmp`: server URIs use either spelling.
+        std::fs::create_dir_all("/tmp/fake-ws-resolve").unwrap();
+        let h = HostTools::new(Path::new("/tmp/fake-ws-resolve"));
+        let key = h
+            .resolve(Path::new("/tmp/fake-ws-resolve/fake.rs"))
+            .expect("resolves");
+        assert_eq!(key, PathBuf::from("/fake.rs"));
     }
 }
