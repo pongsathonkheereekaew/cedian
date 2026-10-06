@@ -73,9 +73,13 @@ fn live_review_reject() {
 
     // Review: exactly one hunk (the agent's line).
     let mut tracker = ReviewTracker::new("task-1", baseline, texts);
-    tracker.request_rebuild();
-    std::thread::sleep(Duration::from_millis(60));
-    let rebuilt = tracker.rebuild_due(host.as_ref());
+    let edits: Vec<AgentEdit> = provenance
+        .edits_for_task("task-1")
+        .into_iter()
+        .cloned()
+        .collect();
+    tracker.attribute(&edits);
+    let rebuilt = tracker.rebuild_now(host.as_ref());
     assert_eq!(rebuilt, vec![PathBuf::from("/review.txt")]);
     let diff = tracker.diff(path).unwrap();
     assert_eq!(diff.len(), 1, "exactly the agent hunk");

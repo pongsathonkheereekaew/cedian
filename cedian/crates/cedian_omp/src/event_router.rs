@@ -23,7 +23,12 @@ pub enum RouterEvent {
     /// Agent turn ended (terminal or continuation — check flags).
     AgentEnd { yielded: bool, is_terminal: bool },
     /// Streaming text/thinking/toolcall delta with the RPC message id.
-    MessageDelta { message_id: String, kind: DeltaKind },
+    /// `delta` carries the new text for `Text`/`Thinking` (empty otherwise).
+    MessageDelta {
+        message_id: String,
+        kind: DeltaKind,
+        delta: String,
+    },
     /// One message completed (full content in payload).
     MessageEnd { message_id: String },
     /// Tool execution lifecycle from OMP's own tools. `args_preview` is a
@@ -234,20 +239,33 @@ fn classify_agent_event(event: &RpcAgentEvent) -> RouterEvent {
             yielded: end.yielded.unwrap_or(true),
             is_terminal: end.is_terminal.unwrap_or(true),
         },
-        RpcAgentEvent::MessageUpdate(update) => RouterEvent::MessageDelta {
-            message_id: update.message_id.clone().unwrap_or_default(),
-            kind: match &update.assistant_message_event {
-                AssistantMessageEvent::TextStart(_)
-                | AssistantMessageEvent::TextDelta(_)
-                | AssistantMessageEvent::TextEnd(_) => DeltaKind::Text,
-                AssistantMessageEvent::ThinkingStart(_)
-                | AssistantMessageEvent::ThinkingDelta(_)
-                | AssistantMessageEvent::ThinkingEnd(_) => DeltaKind::Thinking,
+        RpcAgentEvent::MessageUpdate(update) => {
+            let (kind, delta) = match &update.assistant_message_event {
+                AssistantMessageEvent::TextDelta(d) => {
+                    (DeltaKind::Text, d.delta.clone().unwrap_or_default())
+                }
+                AssistantMessageEvent::TextStart(_) | AssistantMessageEvent::TextEnd(_) => {
+                    (DeltaKind::Text, String::new())
+                }
+                AssistantMessageEvent::ThinkingDelta(d) => {
+                    (DeltaKind::Thinking, d.delta.clone().unwrap_or_default())
+                }
+                AssistantMessageEvent::ThinkingStart(_) | AssistantMessageEvent::ThinkingEnd(_) => {
+                    (DeltaKind::Thinking, String::new())
+                }
                 AssistantMessageEvent::ToolcallStart(_)
                 | AssistantMessageEvent::ToolcallDelta(_)
-                | AssistantMessageEvent::ToolcallEnd(_) => DeltaKind::ToolCall,
-                _ => DeltaKind::Other,
-            },
+                | AssistantMessageEvent::ToolcallEnd(_) => (DeltaKind::ToolCall, String::new()),
+                _ => (DeltaKind::Other, String::new()),
+            };
+            RouterEvent::MessageDelta {
+                message_id: update.message_id.clone().unwrap_or_default(),
+                kind,
+                delta,
+            }
+        }
+        RpcAgentEvent::MessageEnd(end) => RouterEvent::MessageEnd {
+            message_id: end.message_id.clone().unwrap_or_default(),
         },
         RpcAgentEvent::ToolExecutionStart(start) => RouterEvent::ToolStart {
             tool_call_id: start.tool_call_id.clone(),
@@ -286,7 +304,7 @@ fn summarize_args(name: &str, args: Option<&serde_json::Value>) -> String {
             .collect::<String>()
     };
     let preview: String = match name {
-        "read" | "write" | "glob" => get("path").to_string(),
+        "read" | "write" | "glob" | "cedian_apply_edit" => get("path").to_string(),
         "edit" => get("input")
             .lines()
             .next()
@@ -371,6 +389,42 @@ fn summarize_result(name: &str, result: Option<&serde_json::Value>) -> String {
 mod tests {
     use super::*;
     use omp_rpc::wire::{PromptResultEvent, SessionSettledEvent};
+
+    fn agent_event(json: serde_json::Value) -> RpcAgentEvent {
+        RpcAgentEvent::from_value(json).expect("valid agent event")
+    }
+
+    #[test]
+    fn text_delta_carries_text_and_message_end_classified() {
+        let message = serde_json::json!({"role": "assistant", "content": [], "timestamp": 0});
+        let update = agent_event(serde_json::json!({
+            "type": "message_update",
+            "messageId": "m1",
+            "message": message,
+            "assistantMessageEvent": {"type": "text_delta", "contentIndex": 0, "delta": "hel"},
+        }));
+        match classify_agent_event(&update) {
+            RouterEvent::MessageDelta {
+                message_id,
+                kind,
+                delta,
+            } => {
+                assert_eq!(message_id, "m1");
+                assert_eq!(kind, DeltaKind::Text);
+                assert_eq!(delta, "hel");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        let end = agent_event(serde_json::json!({
+            "type": "message_end",
+            "messageId": "m1",
+            "message": message,
+        }));
+        assert!(matches!(
+            classify_agent_event(&end),
+            RouterEvent::MessageEnd { message_id } if message_id == "m1"
+        ));
+    }
 
     #[test]
     fn interrupted_set_empty_when_balanced() {

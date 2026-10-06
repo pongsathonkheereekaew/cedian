@@ -1,74 +1,181 @@
-//! Review input persistence for the CLI harness (headless stopgap).
+//! Review store for the CLI harness (headless stopgap, plan §§16–17, §75).
 //!
-//! The app shell (§2.5) will own a real mapping store with `snapshot_version`.
-//! Until then: per-workdir baseline (path → version + text) saved beside the
-//! OMP session dir, so `review`/`accept`/`reject` in later invocations compare
-//! against the pre-prompt baseline, not against whatever the last command left.
+//! One file per workdir, `.cedian/review.json`, holding the current review
+//! TASK: baseline texts (taken the first time a file is seen in the task —
+//! task baseline, not per-turn), the cedian-owned `AgentEdit` records (§17 R1:
+//! never derived from the OMP transcript), and the user's hunk resolutions.
+//! Versioned (`snapshot_version`): a mismatch or a corrupt file fails closed
+//! with "re-baseline" — never silently misread (§75 herdr lesson 3).
+//! `cedian review reset` deletes it to start a new task.
 
-use cedian_review::Baseline;
-use cedian_workspace::{HostTools, Version, WorkspaceHost};
+use cedian_review::{AgentEdit, Baseline, ProvenanceStore, StatusRecord};
+use cedian_workspace::Version;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Review store dir: `<workdir>/.cedian/` (gitignored by convention).
-fn store_dir(workdir: &Path) -> PathBuf {
-    workdir.join(".cedian")
+/// Bump on any schema change — older files fail closed.
+pub const REVIEW_SNAPSHOT_VERSION: u32 = 1;
+
+/// The CLI's single review task id (the app shell owns real task ids).
+pub const CLI_TASK: &str = "cli";
+
+/// Persisted review task.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewStore {
+    pub snapshot_version: u32,
+    pub task_id: String,
+    /// Buffer key → text at task start.
+    pub baseline: BTreeMap<String, String>,
+    /// §17 `AgentEdit` records, oldest first.
+    pub provenance: Vec<AgentEdit>,
+    /// User resolutions keyed by hunk identity.
+    pub statuses: Vec<StatusRecord>,
 }
 
-fn baseline_path(workdir: &Path) -> PathBuf {
-    store_dir(workdir).join("baseline.json")
+impl ReviewStore {
+    /// Empty task.
+    pub fn new() -> Self {
+        Self {
+            snapshot_version: REVIEW_SNAPSHOT_VERSION,
+            task_id: CLI_TASK.to_string(),
+            baseline: BTreeMap::new(),
+            provenance: Vec::new(),
+            statuses: Vec::new(),
+        }
+    }
+
+    /// Record the task-start text for a file the first time it is seen.
+    pub fn baseline_once(&mut self, key: &Path, text: &str) {
+        self.baseline
+            .entry(key.to_string_lossy().into_owned())
+            .or_insert_with(|| text.to_string());
+    }
+
+    /// Append one agent edit record (keyed task + tool call).
+    pub fn record(&mut self, edit: AgentEdit) {
+        let mut store = ProvenanceStore::from_records(std::mem::take(&mut self.provenance));
+        store.record(edit);
+        self.provenance = store.all();
+    }
+
+    /// Baseline in tracker shape (versions re-anchor at 0: review diffs text).
+    pub fn tracker_inputs(&self) -> (Baseline, HashMap<PathBuf, String>) {
+        let mut baseline = Baseline::new();
+        let mut texts = HashMap::new();
+        for (key, text) in &self.baseline {
+            let key = PathBuf::from(key);
+            baseline.snapshot(&key, Version(0));
+            texts.insert(key, text.clone());
+        }
+        (baseline, texts)
+    }
 }
 
-/// Save the pre-prompt baseline (versions are in-process only — persist the
-/// TEXTS; versions re-anchor at load since text-vs-text is what review diffs).
-pub fn save_review_inputs(workdir: &Path, texts: &HashMap<PathBuf, String>) -> Result<(), String> {
-    std::fs::create_dir_all(store_dir(workdir)).map_err(|e| e.to_string())?;
-    let flat: HashMap<String, String> = texts
-        .iter()
-        .map(|(k, v)| (k.to_string_lossy().into_owned(), v.clone()))
-        .collect();
-    let raw = serde_json::to_string_pretty(&flat).map_err(|e| e.to_string())?;
-    std::fs::write(baseline_path(workdir), raw).map_err(|e| e.to_string())
+impl Default for ReviewStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-/// Load-or-rebuild review inputs: baseline from disk when present, else fresh
-/// snapshot at current versions (first `review` after a prompt in the same
-/// workdir gets the saved baseline via mtimes — see below).
-pub fn load_review_inputs(
-    workdir: &Path,
-    keys: &[PathBuf],
-    host: &HostTools,
-) -> Result<(Baseline, HashMap<PathBuf, String>), String> {
-    // Headless v1: fresh baseline at CURRENT versions would hide pending
-    // edits, so instead compare against files on disk: buffers were synced to
-    // disk after the turn, and `review` re-reads disk — pending edits are the
-    // DIFF between disk-at-baseline-save and disk-now. We approximate by
-    // storing the baseline TEXTS at save time.
-    let path = baseline_path(workdir);
-    let mut baseline = Baseline::new();
-    let mut texts = HashMap::new();
-    if let Ok(raw) = std::fs::read_to_string(&path) {
-        if let Ok(saved) = serde_json::from_str::<HashMap<String, String>>(&raw) {
-            for (key_str, text) in saved {
-                let key = PathBuf::from(&key_str);
-                // Version unknown across processes — snapshot at a sentinel and
-                // let the tracker diff text-vs-text (versions only gate edits).
-                baseline.snapshot(&key, Version(0));
-                texts.insert(key, text);
+fn store_path(workdir: &Path) -> PathBuf {
+    workdir.join(".cedian").join("review.json")
+}
+
+/// Load the review task. `Ok(None)` when no task exists yet. Corrupt or
+/// version-mismatched files fail closed.
+pub fn load(workdir: &Path) -> Result<Option<ReviewStore>, String> {
+    let path = store_path(workdir);
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(_) => {
+            if workdir.join(".cedian").join("baseline.json").exists() {
+                return Err(
+                    "review state too old (.cedian/baseline.json), re-baseline: run `cedian review reset`"
+                        .to_string(),
+                );
             }
-            // Refresh buffers from CURRENT disk so rebuild compares saved-vs-now.
-            // (Buffers already hold disk text from load_workspace; texts hold baseline.)
-            return Ok((baseline, texts));
+            return Ok(None);
         }
+    };
+    let store: ReviewStore = serde_json::from_str(&raw).map_err(|e| {
+        format!(
+            "corrupt {}: {e} — re-baseline: run `cedian review reset`",
+            path.display()
+        )
+    })?;
+    if store.snapshot_version != REVIEW_SNAPSHOT_VERSION {
+        return Err(format!(
+            "review state too old (got v{}, want v{REVIEW_SNAPSHOT_VERSION}), re-baseline: run `cedian review reset`",
+            store.snapshot_version
+        ));
     }
-    // No saved baseline: snapshot current as baseline (empty diff).
-    for key in keys {
-        if let Some(v) = host.buffer_version(key) {
-            baseline.snapshot(key, v);
-        }
-        if let Some(t) = host.read_buffer(key) {
-            texts.insert(key.clone(), t);
-        }
+    Ok(Some(store))
+}
+
+/// Save atomically (write temp + rename) so a crash never leaves half a file.
+pub fn save(workdir: &Path, store: &ReviewStore) -> Result<(), String> {
+    let path = store_path(workdir);
+    std::fs::create_dir_all(path.parent().unwrap_or(workdir)).map_err(|e| e.to_string())?;
+    let raw = serde_json::to_string_pretty(store).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, raw).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+/// Delete the review task (and the legacy baseline file).
+pub fn reset(workdir: &Path) {
+    let _ = std::fs::remove_file(store_path(workdir));
+    let _ = std::fs::remove_file(workdir.join(".cedian").join("baseline.json"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("cedian-review-store-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
     }
-    Ok((baseline, texts))
+
+    #[test]
+    fn roundtrip_and_baseline_once() {
+        let dir = tmp("rt");
+        assert!(load(&dir).unwrap().is_none());
+        let mut store = ReviewStore::new();
+        store.baseline_once(Path::new("/a.rs"), "v1");
+        store.baseline_once(Path::new("/a.rs"), "v2");
+        store.record(AgentEdit {
+            tool_call_id: "c1".into(),
+            task_id: CLI_TASK.into(),
+            file: "/a.rs".into(),
+            before: "v1".into(),
+            after: "v3".into(),
+            timestamp_ms: 1,
+        });
+        save(&dir, &store).unwrap();
+        let back = load(&dir).unwrap().unwrap();
+        assert_eq!(back.baseline["/a.rs"], "v1", "task baseline kept");
+        assert_eq!(back.provenance.len(), 1);
+        reset(&dir);
+        assert!(load(&dir).unwrap().is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn version_mismatch_and_legacy_fail_closed() {
+        let dir = tmp("ver");
+        let mut store = ReviewStore::new();
+        store.snapshot_version = 0;
+        save(&dir, &store).unwrap();
+        assert!(load(&dir).unwrap_err().contains("re-baseline"));
+        reset(&dir);
+        std::fs::write(dir.join(".cedian").join("baseline.json"), "{}").unwrap();
+        assert!(load(&dir).unwrap_err().contains("re-baseline"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

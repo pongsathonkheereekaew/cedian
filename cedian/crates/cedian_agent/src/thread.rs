@@ -94,11 +94,15 @@ impl Thread {
                     is_terminal: *is_terminal,
                 });
             }
-            RouterEvent::MessageDelta { message_id, kind } => {
+            RouterEvent::MessageDelta {
+                message_id,
+                kind,
+                delta,
+            } => {
                 let buf = self.streaming.entry(message_id.clone()).or_default();
                 match kind {
-                    DeltaKind::Text => buf.text.push('▍'),
-                    DeltaKind::Thinking => buf.thinking.push('▍'),
+                    DeltaKind::Text => buf.text.push_str(delta),
+                    DeltaKind::Thinking => buf.thinking.push_str(delta),
                     _ => {}
                 }
                 self.upsert_assistant(message_id);
@@ -269,6 +273,7 @@ mod tests {
         RouterEvent::MessageDelta {
             message_id: id.to_string(),
             kind,
+            delta: "ab".to_string(),
         }
     }
 
@@ -277,6 +282,7 @@ mod tests {
         let mut t = Thread::new();
         t.apply(&delta("m1", DeltaKind::Text));
         t.apply(&delta("m1", DeltaKind::Text));
+        assert_eq!(t.streaming_text("m1"), Some("abab"));
         assert!(matches!(
             &t.events()[0],
             ThreadEvent::Assistant {

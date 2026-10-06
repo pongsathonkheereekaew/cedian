@@ -21,4 +21,4 @@ pub use baseline::{Baseline, BaselineError};
 pub use diff::{line_diff, FileDiff, Hunk, HunkStatus};
 pub use findings::{ReviewFeedback, ReviewFinding};
 pub use provenance::{AgentEdit, ProvenanceStore};
-pub use tracker::{ReviewTracker, TrackerError};
+pub use tracker::{HunkKey, ReviewTracker, StatusRecord, TrackerError};

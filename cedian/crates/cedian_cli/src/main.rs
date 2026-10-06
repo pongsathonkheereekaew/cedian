@@ -8,6 +8,7 @@
 //! ```text
 //! cedian prompt "fix the typo"        # one turn: prompt → stream → cards → review pending
 //! cedian review                       # show pending hunks (baseline → current)
+//! cedian review reset                 # drop the review task (new baseline next prompt)
 //! cedian accept <path> <hunk>         # accept one hunk (mark)
 //! cedian reject <path> <hunk>         # reject one hunk (inverse patch)
 //! cedian accept-all                   # bulk accept (skips unattributed)
@@ -15,9 +16,9 @@
 //! ```
 //!
 //! State lives in-process per invocation EXCEPT the OMP session (adopted via
-//! `--session-dir` + `open_session`) and workspace files. Review baseline is
-//! rebuilt from file mtimes per invocation (headless limitation — the app
-//! shell will persist it; see plan §17 AgentEdit store design).
+//! `--session-dir` + `open_session`), workspace files, and the review task in
+//! `.cedian/review.json` (baseline + AgentEdit records + resolutions, see
+//! `session.rs`). `cedian review reset` starts a new review task.
 
 mod browser_store;
 mod session;
@@ -26,7 +27,7 @@ mod workspace_files;
 
 use cedian_agent_ui::Panel;
 use cedian_omp::{OmpBinary, OmpRuntime, RuntimeConfig};
-use cedian_review::{Baseline, ReviewTracker};
+use cedian_review::{AgentEdit, ReviewTracker};
 use cedian_workspace::{HostTools, WorkspaceHost};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -63,7 +64,15 @@ fn run(args: Vec<String>) -> Result<(), String> {
             }
             cmd_prompt(&session_dir, &workdir, message)
         }
-        "review" => cmd_review(&workdir),
+        "review" => match args.get(1).map(|s| s.as_str()) {
+            None => cmd_review(&workdir),
+            Some("reset") => {
+                session::reset(&workdir);
+                println!("review task reset (next prompt takes a fresh baseline)");
+                Ok(())
+            }
+            Some(other) => Err(format!("usage: cedian review [reset] (got {other:?})")),
+        },
         "accept" => {
             let path = args.get(1).ok_or("usage: cedian accept <path> <hunk>")?;
             let hunk: usize = args
@@ -157,20 +166,22 @@ fn load_workspace(host: &HostTools, workdir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Tools whose successful completion may have changed files on disk.
+const EDIT_TOOLS: &[&str] = &["edit", "write", "ast_edit", "cedian_apply_edit"];
+
 fn cmd_prompt(session_dir: &Path, workdir: &Path, message: &str) -> Result<(), String> {
+    let mut store = session::load(workdir)?.unwrap_or_default();
     let host = HostTools::shared(workdir);
     let keys = load_workspace(&host, workdir);
 
-    // Baseline = current versions (review shows only THIS turn's edits;
-    // cross-invocation baselines need the shell store — §2.5).
-    let mut baseline = Baseline::new();
-    let mut texts = HashMap::new();
+    // Pre-turn texts (disk == buffer right after load). The task baseline for
+    // a file is its pre-turn text the FIRST time a turn changes it (§16), so
+    // the store holds only files this task touched — user edits to other
+    // files never enter review.
+    let mut pre: HashMap<PathBuf, String> = HashMap::new();
     for key in &keys {
-        if let Some(v) = host.buffer_version(key) {
-            baseline.snapshot(key, v);
-        }
         if let Some(t) = host.read_buffer(key) {
-            texts.insert(key.clone(), t);
+            pre.insert(key.clone(), t);
         }
     }
 
@@ -180,12 +191,12 @@ fn cmd_prompt(session_dir: &Path, workdir: &Path, message: &str) -> Result<(), S
     let mut panel = Panel::new();
     let task_id = panel.new_task("cli", workdir.to_path_buf());
     let router = rt.router();
-    let (_sub, rx) = router.subscribe();
+    let (sub, rx) = router.subscribe();
 
     // Pump router events into the panel on a thread while the turn runs.
     let pump = std::thread::spawn(move || {
         let mut panel = panel;
-        for event in rx.iter().take(2000) {
+        for event in rx.iter() {
             let done = matches!(event, cedian_omp::RouterEvent::Settled);
             panel.dispatch(&event);
             if done {
@@ -203,10 +214,17 @@ fn cmd_prompt(session_dir: &Path, workdir: &Path, message: &str) -> Result<(), S
     } else {
         format!("{ambient}\n{message}")
     };
-    let turn = rt.prompt(&full, vec![]).map_err(|e| e.to_string())?;
+    let turn = rt.prompt(&full, vec![]);
+    // Shutdown stops the reader; unsubscribing drops our sender so the pump
+    // always finishes, even when the turn failed or no `Settled` arrived.
+    let shutdown = rt.shutdown();
+    router.unsubscribe(sub);
+    drop(router);
     let panel = pump.join().map_err(|_| "pump thread died".to_string())?;
+    let turn = turn.map_err(|e| e.to_string())?;
+    shutdown.map_err(|e| e.to_string())?;
 
-    // Render the turn: assistant text + tool cards + review hunks.
+    // Render the turn: assistant text + tool cards.
     if let Some(text) = turn.assistant_text.as_deref() {
         println!("{text}");
     }
@@ -216,41 +234,132 @@ fn cmd_prompt(session_dir: &Path, workdir: &Path, message: &str) -> Result<(), S
         println!("[{}] {}", card.status_glyph(), card.display_line());
     }
 
-    // Persist review inputs for the next invocation (baseline + texts).
-    session::save_review_inputs(workdir, &texts).map_err(|e| e.to_string())?;
-    // Sync edited buffers back to disk (headless save: buffers are the source
-    // of truth during the turn; Agent Sync marks them saved).
-    let dirty = host.agent_sync();
-    for key in keys {
-        if let Some(local) = workspace_files::local_path(workdir, &key) {
-            if let Some(text) = host.read_buffer(&key) {
-                let _ = std::fs::write(&local, text);
-            }
+    // Write back ONLY buffers cedian itself changed (host-tool edits), and
+    // never over a file that changed on disk during the turn: OMP's native
+    // `edit`/`write` write the filesystem directly (plan §84 row G), so disk
+    // is authoritative for them.
+    let mut conflicts = Vec::new();
+    let mut synced = 0;
+    for key in &keys {
+        let (Some(before), Some(buffer)) = (pre.get(key), host.read_buffer(key)) else {
+            continue;
+        };
+        if &buffer == before {
+            continue;
+        }
+        let Some(local) = workspace_files::local_path(workdir, key) else {
+            continue;
+        };
+        let disk = std::fs::read_to_string(&local).unwrap_or_default();
+        if &disk != before {
+            conflicts.push(key.display().to_string());
+            continue;
+        }
+        std::fs::write(&local, &buffer).map_err(|e| e.to_string())?;
+        synced += 1;
+    }
+    if synced > 0 {
+        eprintln!("(synced {synced} buffer(s) to disk)");
+    }
+    for c in &conflicts {
+        eprintln!(
+            "conflict: {c} changed on disk AND in the buffer during the turn — buffer NOT written"
+        );
+    }
+
+    // Provenance (§17): snapshot every file the turn changed, read from disk
+    // (new files included). Pin to a tool call when one edit-class card names
+    // the file, or when the turn had exactly one; otherwise no record → the
+    // hunks review as UNATTRIBUTED (never misattributed).
+    let edit_cards: Vec<&cedian_agent_ui::ToolCard> = cards
+        .iter()
+        .filter(|c| {
+            c.status == cedian_agent_ui::ToolCardStatus::Done
+                && EDIT_TOOLS.contains(&c.name.as_str())
+        })
+        .collect();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let mut unattributed = 0;
+    for path in workspace_files::scan_text_files(workdir) {
+        let Some(key) = workspace_files::buffer_key(workdir, &path) else {
+            continue;
+        };
+        let Ok(after) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let before = pre.get(&key).cloned().unwrap_or_default();
+        if after == before {
+            continue;
+        }
+        store.baseline_once(&key, &before); // first change in task (new file: empty)
+        let rel = key.to_string_lossy().trim_start_matches('/').to_string();
+        let pinned =
+            edit_cards
+                .iter()
+                .find(|c| c.preview.contains(&rel))
+                .or(if edit_cards.len() == 1 {
+                    edit_cards.first()
+                } else {
+                    None
+                });
+        match pinned {
+            Some(card) => store.record(AgentEdit {
+                tool_call_id: card.call_id.clone(),
+                task_id: session::CLI_TASK.to_string(),
+                file: key.to_string_lossy().into_owned(),
+                before,
+                after,
+                timestamp_ms: now_ms,
+            }),
+            None => unattributed += 1,
         }
     }
-    if !dirty.is_empty() {
-        eprintln!("(synced {} buffer(s) to disk)", dirty.len());
+    if unattributed > 0 {
+        eprintln!(
+            "({unattributed} changed file(s) not pinned to a tool call → UNATTRIBUTED in review)"
+        );
     }
-
-    rt.shutdown().map_err(|e| e.to_string())?;
-    let _ = panel;
-    Ok(())
+    session::save(workdir, &store)
 }
 
-fn load_tracker(workdir: &Path, host: &HostTools) -> Result<ReviewTracker, String> {
-    let keys = load_workspace(host, workdir);
-    let (baseline, texts) =
-        session::load_review_inputs(workdir, &keys, host).map_err(|e| e.to_string())?;
-    let mut tracker = ReviewTracker::new("cli", baseline, texts);
-    tracker.request_rebuild();
-    std::thread::sleep(Duration::from_millis(60));
-    tracker.rebuild_due(host as &dyn WorkspaceHost);
-    Ok(tracker)
+/// Load the review task + tracker, rebuilt against current disk state.
+/// No task yet → empty tracker (review shows nothing).
+fn load_tracker(
+    workdir: &Path,
+    host: &HostTools,
+) -> Result<(session::ReviewStore, ReviewTracker), String> {
+    load_workspace(host, workdir);
+    let store = session::load(workdir)?.unwrap_or_default();
+    let (baseline, texts) = store.tracker_inputs();
+    // Files in the baseline that no longer exist on disk review as deletions.
+    for key in texts.keys() {
+        if host.read_buffer(key).is_none() {
+            host.open(key, "");
+        }
+    }
+    let mut tracker = ReviewTracker::new(&store.task_id, baseline, texts);
+    tracker.attribute(&store.provenance);
+    tracker.restore_statuses(store.statuses.clone());
+    tracker.rebuild_now(host as &dyn WorkspaceHost);
+    Ok((store, tracker))
+}
+
+/// Persist the tracker's resolutions back into the review task.
+fn save_statuses(
+    workdir: &Path,
+    mut store: session::ReviewStore,
+    tracker: &ReviewTracker,
+) -> Result<(), String> {
+    store.statuses = tracker.status_records();
+    session::save(workdir, &store)
 }
 
 fn cmd_review(workdir: &Path) -> Result<(), String> {
     let host = HostTools::new(workdir);
-    let tracker = load_tracker(workdir, &host)?;
+    let (_store, tracker) = load_tracker(workdir, &host)?;
     let mut any = false;
     for path in tracker.paths() {
         let diff = tracker.diff(&path).map_err(|e| e.to_string())?;
@@ -279,8 +388,9 @@ fn cmd_review(workdir: &Path) -> Result<(), String> {
 
 fn cmd_accept(workdir: &Path, path: &Path, hunk: usize) -> Result<(), String> {
     let host = HostTools::new(workdir);
-    let mut tracker = load_tracker(workdir, &host)?;
+    let (store, mut tracker) = load_tracker(workdir, &host)?;
     tracker.accept_hunk(path, hunk).map_err(|e| e.to_string())?;
+    save_statuses(workdir, store, &tracker)?;
     println!(
         "accepted {} hunk {hunk} (marked; code already in buffer)",
         path.display()
@@ -290,7 +400,7 @@ fn cmd_accept(workdir: &Path, path: &Path, hunk: usize) -> Result<(), String> {
 
 fn cmd_reject(workdir: &Path, path: &Path, hunk: usize) -> Result<(), String> {
     let host = HostTools::new(workdir);
-    let mut tracker = load_tracker(workdir, &host)?;
+    let (store, mut tracker) = load_tracker(workdir, &host)?;
     let v = tracker
         .reject_hunk(path, hunk, &host as &dyn WorkspaceHost)
         .map_err(|e| e.to_string())?;
@@ -300,6 +410,7 @@ fn cmd_reject(workdir: &Path, path: &Path, hunk: usize) -> Result<(), String> {
             std::fs::write(&local, text).map_err(|e| e.to_string())?;
         }
     }
+    save_statuses(workdir, store, &tracker)?;
     println!(
         "rejected {} hunk {hunk} (inverse patch → v{})",
         path.display(),
@@ -310,8 +421,9 @@ fn cmd_reject(workdir: &Path, path: &Path, hunk: usize) -> Result<(), String> {
 
 fn cmd_accept_all(workdir: &Path) -> Result<(), String> {
     let host = HostTools::new(workdir);
-    let mut tracker = load_tracker(workdir, &host)?;
+    let (store, mut tracker) = load_tracker(workdir, &host)?;
     let accepted = tracker.accept_all();
+    save_statuses(workdir, store, &tracker)?;
     println!("accepted {} hunk(s) (unattributed skipped)", accepted.len());
     for (path, i) in accepted {
         println!("  {} hunk {i}", path.display());

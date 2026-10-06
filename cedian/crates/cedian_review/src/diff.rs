@@ -19,7 +19,8 @@ pub struct Hunk {
 
 /// Review state of one hunk (§18 R3 precedence: Interrupted > Unattributed >
 /// Stale; accepted/rejected are terminal user resolutions).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HunkStatus {
     /// Attributed agent edit, awaiting review.
     #[default]
@@ -42,6 +43,9 @@ pub struct FileDiff {
     pub path: String,
     pub hunks: Vec<Hunk>,
     pub statuses: Vec<HunkStatus>,
+    /// Buffer text this diff was computed against. A reject whose buffer no
+    /// longer matches refuses (`Outdated`) instead of patching shifted lines.
+    pub snapshot: String,
 }
 
 impl FileDiff {

@@ -16,32 +16,25 @@ fn fake_bridge_publishes_diagnostics() {
     let host = HostTools::shared(workdir);
     host.open(Path::new("/fake.rs"), "fn main() {}");
 
-    let dir = env!("CARGO_MANIFEST_DIR").to_string();
-    let _ = dir;
-    // Bridge::spawn hardcodes the server cmd — spawn the client directly and
-    // drive the pump path manually: attach via HostTools::attach_lsp needs a
-    // bridge. Instead: build a bridge against the fake by spawning the fake
-    // through a wrapper argv. LspBridge::spawn takes a bare command; use `sh`
-    // wrapper? No — simplest: test pump logic via LspClient + manual publish.
-    //
-    // Full fake-bridge path needs LspBridge::spawn_argv — added below if missing.
-    let fake = "/tmp/fake-lsp-entry.sh";
-    std::fs::write(
-        fake,
-        "#!/bin/sh\nexec python3 /Users/pond/cedian/crates/cedian_lsp/tests/fake-lsp-server.py\n",
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    let argv = [
-        "python3",
-        "/Users/pond/cedian/crates/cedian_lsp/tests/fake-lsp-server.py",
-    ];
-    let bridge = LspBridge::spawn_argv(&argv, workdir, &host).expect("fake bridge");
-    bridge.sync_buffer(&workdir.join("fake.rs"), "fn main() {}");
+    // Fake server lives beside cedian_lsp's tests (manifest-relative: CI-safe).
+    let fake = format!(
+        "{}/../cedian_lsp/tests/fake-lsp-server.py",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let argv = ["python3", fake.as_str()];
+    let bridge =
+        std::sync::Arc::new(LspBridge::spawn_argv(&argv, workdir, &host).expect("fake bridge"));
+    // attach_lsp syncs every open buffer (didOpen) — with a buffer open this
+    // used to deadlock on the store lock; must return promptly now.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let attach_host = std::sync::Arc::clone(&host);
+    let attach_bridge = std::sync::Arc::clone(&bridge);
+    std::thread::spawn(move || {
+        attach_host.attach_lsp(attach_bridge);
+        let _ = tx.send(());
+    });
+    rx.recv_timeout(Duration::from_secs(5))
+        .expect("attach_lsp with an open buffer must not deadlock");
 
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     let mut found = Vec::new();
