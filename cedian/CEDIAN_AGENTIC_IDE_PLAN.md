@@ -2965,9 +2965,13 @@ Implement:
 first-run onboarding (Zed import? → OMP bundled check → bundled-OMP trust banner (§6) → sample workspace)
 command palette entries (every agent action: prompt/abort/steer/review/PR/automation — all palette-discoverable)
 keybindings (agent panel/composer/tool-card/review navigation; no clash with Zed defaults; user-overridable, versioned with snapshot_version §75)
-settings UI (permission TOML + Seatbelt profile viewer (read-only, edit = file) + reviewer allow-list + automation schedules + update channel)
+settings UI (permission TOML + reviewer allow-list + automation schedules + update channel + Seatbelt status line only)
+model picker (dropdown beside composer: OMP provider/model routing via set_model; per-task override, persisted per workspace — OMP owns the catalog, cedian renders it)
+session manager (new/switch/archive/delete task, resume-checkbox state per §76, storage meter per task — thin UI over open_session/new_session/switch_session)
 auto-update (cedian.app + bundled omp as ONE unit: version check → download → verify triple (§6) → relaunch; OMP revision change shows [Review changes] [Continue], never silent)
 ```
+
+> **Settings audit (2026-10-06).** ADDED vs draft: model picker (no UI existed for set_model/provider routing), session manager (no surface for session lifecycle). CUT: Seatbelt profile viewer — `.sbpl` is a generated artifact, unreadable in UI; replaced by a status line (`enforcing: Seatbelt profile vX`) + open-file button.
 
 Rules: settings UI EDITS the same TOML/policy files CI gates (Q10b) — no second source of truth; palette/shortcut registry reuses gpui-kit action/keybinding primitives (§84 stack lock), never hand-rolled dispatch. Onboarding must complete WITHOUT network (bundled OMP is local; no account, no sign-in).
 
