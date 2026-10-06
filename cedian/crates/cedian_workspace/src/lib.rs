@@ -11,12 +11,14 @@
 //! this crate as owner; overlay-filesystem semantics replace it once the
 //! `clock::Global` baseline (§16) is solid.
 
+pub mod ambient;
 pub mod buffer;
 pub mod host;
 pub mod service;
 pub mod uri;
 
+pub use ambient::{capture_ambient, render_snapshot, AmbientSnapshot};
 pub use buffer::{ApplyEditResult, BufferStore, TextEdit, Version};
-pub use host::{HostTools, WorkspaceHost};
+pub use host::{Diagnostic, DiagnosticSeverity, HostTools, WorkspaceHost};
 pub use service::{HostService, ServiceId};
-pub use uri::{parse_cedian_uri, CedianUri};
+pub use uri::{parse_cedian_uri, CedianUri, UriKind};

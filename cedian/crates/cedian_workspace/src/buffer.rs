@@ -123,6 +123,11 @@ impl BufferStore {
         self.buffers.get(path).map(|b| b.version)
     }
 
+    /// Open buffer paths (for `cedian://open-editors`).
+    pub fn open_paths(&self) -> Vec<PathBuf> {
+        self.buffers.keys().cloned().collect()
+    }
+
     /// Whether the buffer differs from the last save.
     pub fn is_dirty(&self, path: &Path) -> bool {
         self.buffers
