@@ -13,7 +13,7 @@
 |---|---|
 | S0 Foundation loop | ◐ prompt → cards → edit → review → accept/reject in CLI; streaming text, task attribution + STALE, persisted resolutions fixed 2026-10-06; P1 spawn profile live-verified 2026-10-07 (project yolo/computer-on loses to the overlay); P2 hermetic replay 2026-10-07: `cedian prompt` → card → host-tool edit → `review` → `reject` from a recorded OMP turn — gap: OMP-native disk edits are not replayed (fake-omp writes no files) |
 | S1 Language services | ◐ LSP client + symbols + bridge (fake-green); live diagnostics need a warm server (`cedian shell`, P4), DAP-live needs Developer mode |
-| S9a App spike | 🔜 next after P3 (P1, P2 done): Zed fork builds, one GPUI panel streams OMP, one host-tool edit undoes natively |
+| S9a App spike | 🔜 next (P1–P3 done): Zed fork builds, one GPUI panel streams OMP, one host-tool edit undoes natively |
 | S2 Workflow engine | ◐ gates block completion when driven from CLI; not yet enforced on an OMP turn; A1-narrow decided (ADR-0010): OMP drives, cedian checks |
 | S3 Review agents | 🔜 gated on sandbox profile + audit tuples |
 | S4 Browser evidence | ◐ CDP screenshot/DOM as gate evidence; fresh Chrome per command, so frame seq / same-tab are not real yet (ROADMAP stand-in row D) |

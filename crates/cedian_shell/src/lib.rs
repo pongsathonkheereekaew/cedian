@@ -11,5 +11,7 @@ pub mod session_manager;
 pub mod settings;
 
 pub use palette::{Palette, PaletteAction};
-pub use session_manager::{SessionEntry, SessionManager};
-pub use settings::{default_settings_toml, load_settings, Settings, SettingsError, Verdict};
+pub use session_manager::{SessionEntry, SessionManager, SESSIONS_SNAPSHOT_VERSION};
+pub use settings::{
+    default_settings_toml, load_settings, Settings, SettingsError, Verdict, SETTINGS_SCHEMA,
+};

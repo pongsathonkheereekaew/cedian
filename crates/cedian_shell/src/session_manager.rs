@@ -28,7 +28,54 @@ pub struct SessionManager {
     active: Option<String>,
 }
 
+/// Persisted session-manager schema version (ADR-0016 / P3).
+pub const SESSIONS_SNAPSHOT_VERSION: u32 = 1;
+
+/// On-disk shape the owner writes (CLI `.cedian/sessions.json`, app store).
+#[derive(Serialize, Deserialize)]
+struct Snapshot {
+    /// Missing in unversioned files → 0 → rejected.
+    #[serde(default)]
+    snapshot_version: u32,
+    entries: Vec<SessionEntry>,
+    active: Option<String>,
+}
+
 impl SessionManager {
+    /// Serialize for the owner's store, stamped with `snapshot_version`.
+    pub fn to_snapshot(&self) -> String {
+        serde_json::to_string_pretty(&Snapshot {
+            snapshot_version: SESSIONS_SNAPSHOT_VERSION,
+            entries: self.entries.clone(),
+            active: self.active.clone(),
+        })
+        .unwrap_or_default()
+    }
+
+    /// Restore from [`Self::to_snapshot`] output. Corrupt or other-version
+    /// input fails closed ("state too old, re-baseline"), never half-read.
+    pub fn from_snapshot(raw: &str) -> Result<Self, String> {
+        let snap: Snapshot =
+            serde_json::from_str(raw).map_err(|e| format!("corrupt session snapshot: {e}"))?;
+        if snap.snapshot_version != SESSIONS_SNAPSHOT_VERSION {
+            return Err(format!(
+                "session state too old (got v{}, want v{SESSIONS_SNAPSHOT_VERSION}), re-baseline",
+                snap.snapshot_version
+            ));
+        }
+        if let Some(active) = &snap.active {
+            if !snap.entries.iter().any(|e| &e.task_id == active) {
+                return Err(format!(
+                    "corrupt session snapshot: active {active:?} not listed"
+                ));
+            }
+        }
+        Ok(Self {
+            entries: snap.entries,
+            active: snap.active,
+        })
+    }
+
     /// Empty manager.
     pub fn new() -> Self {
         Self::default()
@@ -123,5 +170,22 @@ mod tests {
         assert!(m.archive("a"));
         assert_eq!(m.active().unwrap().task_id, "b");
         assert_eq!(m.total_bytes(), 100);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_and_fail_closed() {
+        let mut m = SessionManager::new();
+        m.add(entry("a"));
+        let back = SessionManager::from_snapshot(&m.to_snapshot()).unwrap();
+        assert_eq!(back.active().map(|e| e.task_id.as_str()), Some("a"));
+        assert!(
+            SessionManager::from_snapshot(r#"{"entries":[],"active":null}"#)
+                .unwrap_err()
+                .contains("too old")
+        );
+        assert!(SessionManager::from_snapshot(
+            r#"{"snapshot_version":1,"entries":[],"active":"ghost"}"#
+        )
+        .is_err());
     }
 }

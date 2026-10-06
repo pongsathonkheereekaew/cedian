@@ -888,7 +888,7 @@ fn cmd_worker(workdir: &Path, args: &[String]) -> Result<(), String> {
             let kind = args.get(2).ok_or(usage)?;
             let title = args.get(3).ok_or(usage)?;
             let base = worker_base(args, 4)?;
-            let (mut reg, _) = cedian_worker::Registry::open(workdir);
+            let (mut reg, _) = cedian_worker::Registry::open(workdir).map_err(|e| e.to_string())?;
             let mut head = cedian_worker::spawn(workdir, id, &base).map_err(|e| e.to_string())?;
             head.status = cedian_worker::WorkerStatus::Running;
             head.task_title = title.clone();
@@ -903,7 +903,7 @@ fn cmd_worker(workdir: &Path, args: &[String]) -> Result<(), String> {
             if args.len() > 1 {
                 return Err("usage: cedian worker list".to_string());
             }
-            let (reg, _) = cedian_worker::Registry::open(workdir);
+            let (reg, _) = cedian_worker::Registry::open(workdir).map_err(|e| e.to_string())?;
             let mut any = false;
             for head in reg.all() {
                 any = true;
@@ -925,7 +925,7 @@ fn cmd_worker(workdir: &Path, args: &[String]) -> Result<(), String> {
                 return Err(usage.to_string());
             }
             let note = args[2..].join(" ");
-            let (mut reg, _) = cedian_worker::Registry::open(workdir);
+            let (mut reg, _) = cedian_worker::Registry::open(workdir).map_err(|e| e.to_string())?;
             let head = reg
                 .get(id)
                 .cloned()
@@ -946,7 +946,7 @@ fn cmd_worker(workdir: &Path, args: &[String]) -> Result<(), String> {
                 .get(1)
                 .ok_or("usage: cedian worker preview <id> [--base <branch>]")?;
             let base = worker_base(args, 2)?;
-            let (reg, _) = cedian_worker::Registry::open(workdir);
+            let (reg, _) = cedian_worker::Registry::open(workdir).map_err(|e| e.to_string())?;
             let head = reg
                 .get(id)
                 .cloned()
@@ -968,7 +968,7 @@ fn cmd_worker(workdir: &Path, args: &[String]) -> Result<(), String> {
                 .get(1)
                 .ok_or("usage: cedian worker merge-back <id> [--base <branch>]")?;
             let base = worker_base(args, 2)?;
-            let (mut reg, _) = cedian_worker::Registry::open(workdir);
+            let (mut reg, _) = cedian_worker::Registry::open(workdir).map_err(|e| e.to_string())?;
             let head = reg
                 .get(id)
                 .cloned()
@@ -996,7 +996,7 @@ fn cmd_worker(workdir: &Path, args: &[String]) -> Result<(), String> {
             if args.len() > 2 {
                 return Err("usage: cedian worker remove <id>".to_string());
             }
-            let (mut reg, _) = cedian_worker::Registry::open(workdir);
+            let (mut reg, _) = cedian_worker::Registry::open(workdir).map_err(|e| e.to_string())?;
             let head = reg
                 .get(id)
                 .cloned()

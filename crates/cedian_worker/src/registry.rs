@@ -42,6 +42,8 @@ pub enum WorkerError {
     Conflicted(Vec<String>),
     /// Worker id is not a safe path/branch segment.
     BadId(String),
+    /// `workers.json` is corrupt or another snapshot version (fail closed).
+    Snapshot(String),
     /// Branch has commits not in the main checkout — removing would lose them.
     NotMerged(String),
     /// The main checkout is not on the requested merge base.
@@ -57,6 +59,7 @@ impl std::fmt::Display for WorkerError {
             Self::Exists(id) => write!(f, "worker {id:?} already exists"),
             Self::NoSuch(id) => write!(f, "no worker {id:?}"),
             Self::Io(e) => write!(f, "worker registry io: {e}"),
+            Self::Snapshot(e) => write!(f, "worker registry: {e}"),
             Self::Git(e) => write!(f, "worker git failed: {e}"),
             Self::Conflicted(files) => {
                 write!(f, "worker merge refused (STALE): {}", files.join(", "))
@@ -81,23 +84,49 @@ fn registry_path(repo: &Path) -> PathBuf {
     repo.join(".cedian").join("workers.json")
 }
 
-/// Persisted worker heads, shaped `{"workers": {id: head}}`.
-#[derive(Debug, Default, Serialize, Deserialize)]
+/// `workers.json` schema version (ADR-0016 / P3). Bump on any shape change.
+pub const REGISTRY_SNAPSHOT_VERSION: u32 = 1;
+
+/// Persisted worker heads, shaped `{"snapshot_version": N, "workers": {id: head}}`.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Registry {
+    /// Missing in pre-P3 files → 0 → rejected.
+    #[serde(default)]
+    snapshot_version: u32,
     workers: BTreeMap<String, WorkerHead>,
 }
 
+impl Default for Registry {
+    fn default() -> Self {
+        Self {
+            snapshot_version: REGISTRY_SNAPSHOT_VERSION,
+            workers: BTreeMap::new(),
+        }
+    }
+}
+
 impl Registry {
-    /// Open the registry; a missing/unreadable file yields an empty one.
-    /// Returns the registry plus whether the file already existed.
-    pub fn open(repo: &Path) -> (Self, bool) {
+    /// Open the registry; a missing file yields an empty one. Returns the
+    /// registry plus whether the file already existed. An unreadable, corrupt
+    /// or other-version file fails closed — never silently emptied, since the
+    /// next save would forget live worktrees.
+    pub fn open(repo: &Path) -> Result<(Self, bool), WorkerError> {
         let path = registry_path(repo);
         if !path.exists() {
-            return (Self::default(), false);
+            return Ok((Self::default(), false));
         }
-        let raw = std::fs::read_to_string(&path).unwrap_or_default();
-        let reg: Self = serde_json::from_str(&raw).unwrap_or_default();
-        (reg, true)
+        let raw = std::fs::read_to_string(&path).map_err(|e| WorkerError::Io(e.to_string()))?;
+        let reg: Self = serde_json::from_str(&raw)
+            .map_err(|e| WorkerError::Snapshot(format!("corrupt {}: {e}", path.display())))?;
+        if reg.snapshot_version != REGISTRY_SNAPSHOT_VERSION {
+            return Err(WorkerError::Snapshot(format!(
+                "workers.json state too old (got v{}, want v{REGISTRY_SNAPSHOT_VERSION}), \
+                 re-baseline: inspect `git worktree list`, then remove {}",
+                reg.snapshot_version,
+                path.display()
+            )));
+        }
+        Ok((reg, true))
     }
 
     /// Persist (creates `.cedian/`).
@@ -158,7 +187,7 @@ mod tests {
     fn registry_roundtrip() {
         let repo = std::env::temp_dir().join(format!("cedian-reg-test-{}", std::process::id()));
         std::fs::create_dir_all(repo.join(".cedian")).unwrap();
-        let (mut reg, existed) = Registry::open(&repo);
+        let (mut reg, existed) = Registry::open(&repo).unwrap();
         assert!(!existed);
         reg.insert(WorkerHead {
             id: "w1".into(),
@@ -182,9 +211,36 @@ mod tests {
             })
             .is_err());
         reg.save(&repo).unwrap();
-        let (reg2, existed2) = Registry::open(&repo);
+        let (reg2, existed2) = Registry::open(&repo).unwrap();
         assert!(existed2);
         assert_eq!(reg2.get("w1").unwrap().task_title, "fix login");
         std::fs::remove_dir_all(&repo).unwrap();
+    }
+
+    #[test]
+    fn stale_or_corrupt_registry_fails_closed() {
+        let repo = std::env::temp_dir().join(format!("cedian-reg-stale-{}", std::process::id()));
+        std::fs::create_dir_all(repo.join(".cedian")).unwrap();
+        // Pre-P3 shape: no snapshot_version.
+        std::fs::write(registry_path(&repo), r#"{"workers":{}}"#).unwrap();
+        assert!(matches!(
+            Registry::open(&repo),
+            Err(WorkerError::Snapshot(_))
+        ));
+        std::fs::write(
+            registry_path(&repo),
+            r#"{"snapshot_version":99,"workers":{}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            Registry::open(&repo),
+            Err(WorkerError::Snapshot(_))
+        ));
+        std::fs::write(registry_path(&repo), "{not json").unwrap();
+        assert!(matches!(
+            Registry::open(&repo),
+            Err(WorkerError::Snapshot(_))
+        ));
+        let _ = std::fs::remove_dir_all(&repo);
     }
 }
