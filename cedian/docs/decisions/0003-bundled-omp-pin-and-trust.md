@@ -18,3 +18,4 @@ The bundled `omp` inherits the user's uid and sandbox profile at spawn — a sil
 
 - Auto-update (S9) ships cedian.app + omp as ONE unit and re-verifies the triple.
 - Open item: the triple is still `TODO` in the pin file and the handshake does not check it yet.
+- **How the triple is verified (2026-10-06):** OMP's `ready` frame carries no revision, so the check cannot happen in the RPC handshake. cedian hashes the bundled binary at startup and compares it with the hash `script/build-omp` records next to the triple in `vendor/omp-revision.json`. The handshake still verifies the protocol version.

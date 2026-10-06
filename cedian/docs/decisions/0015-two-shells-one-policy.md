@@ -15,3 +15,4 @@ Agent commands never execute in the user's PTY (rendered as-if-terminal from the
 ## Consequences
 
 Grant scopes (`once|task|session`) bind to the agent context only.
+- **Amended by ADR-0020 (how):** the scrubbed environment is applied to the OMP child at spawn as an allow-list. OMP provider auth comes from OMP's auth store, not inherited variables.

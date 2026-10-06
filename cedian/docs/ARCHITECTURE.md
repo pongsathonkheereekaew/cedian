@@ -1,5 +1,7 @@
 # cedian — Architecture
 
+**cedian is an agentic IDE built in Rust + GPUI (a Zed fork), with OMP as its only harness: OMP decides, cedian executes, renders, and verifies.** Scope and priorities: [ADR-0023](decisions/0023-product-scope.md).
+
 > **cedian = environment. OMP = intelligence.** A minimal Zed fork turned into a fully native agentic IDE, powered by one and only one harness: OMP (Oh My Pi). cedian is personal: no other agent harnesses, no ACP agents, no generic third-party runtimes, no public agent marketplace. The user experiences one product: **cedian**.
 
 This file holds the rules that are true NOW. Why a rule exists lives in [`decisions/`](decisions/) (ADRs); what is scheduled lives in [`ROADMAP.md`](ROADMAP.md); what is done lives in [`../README.md`](../README.md) only. Section numbers (`§NN`) are kept from the original plan so existing references in code and commits still resolve.
@@ -90,8 +92,8 @@ model calls
 tool decisions
 context/token budget
 subagents
-workflow
-verification
+workflow (profile, playbook, phases)
+verification (gathering evidence)
 review reasoning
 task isolation
 sessions
@@ -359,39 +361,23 @@ This minimizes upstream merge pain.
 
 **Stack lock: Rust + GPUI only.** No TypeScript/Electron/WebView/Tauri in the cedian process. The only TS in scope is OMP-side additions under `packages/coding-agent/src/` (§8) — that code lives in the OMP repo, not cedian. `gpui-kit` (gpui-base unstyled primitives + gpui-component, Apache-2.0, `github.com/longbridge/gpui-kit`) and `elygpui.com` (Ely GPUI components, MIT/Apache-2.0) are approved UI accelerators: prefer them over hand-rolling panel/composer/tool-card/message/settings/dialog/toast components, but editor/buffer/multibuffer/diff surfaces stay Zed-native. *(→ [ADR-0001](decisions/0001-environment-vs-intelligence.md))*
 
-### §8 OMP-Side Layout
+### §8 OMP-Side Additions (minimal)
 
-Avoid rewriting the OMP core.
+Avoid rewriting the OMP core, and keep the OMP fork minimal ([ADR-0023](decisions/0023-product-scope.md)). In order of preference:
 
-Suggested additions:
+1. **Host tools + `cedian://` URIs** registered by cedian over RPC — no OMP change ([ADR-0022](decisions/0022-host-tool-first.md)).
+2. **OMP skills** in `.omp/skills/` — playbooks and the project verification profile ([ADR-0025](decisions/0025-playbooks-are-omp-skills.md)).
+3. **Spawn profile** — argv + config overlay ([ADR-0020](decisions/0020-omp-spawn-profile.md)).
+4. **TypeScript in `packages/coding-agent/src/`** — only for what 1–3 cannot do. Current list (owners and slices in ROADMAP "OMP-side work"):
 
 ```text
 packages/coding-agent/src/
-
-  integrations/
-    cedian/
-      host-services.ts
-      context.ts
-      events.ts
-      workspace.ts
-      lsp.ts
-      debug.ts
-
-  workflow/
-    profile.ts
-    playbook.ts
-    gate.ts
-    evidence.ts
-    review.ts
-    parallel.ts
-
-  tools/
-    ios.ts
+  integrations/cedian/workspace.ts   route native edit/write through cedian_apply_edit (row G)
+  (plan mode, optional)              ADR-0014
+  tools/ios.ts                       S8, if a host tool cannot carry it
 ```
 
-Only add browser/cedian-specific support where actually needed.
-
-Avoid modifying the agent loop unless required.
+Avoid modifying the agent loop unless required; upstream anything general.
 
 ---
 
@@ -547,6 +533,8 @@ Optional handshake:
 
 > **Bundled-binary trust.** The bundled `omp` is a silent privilege boundary: it inherits the user's uid + Seatbelt profile at spawn. Therefore: (a) `script/build-omp` records `{commit, normalized-source-tree hash, builder identity}` into `vendor/omp-revision.json` — the handshake verifies this triple, not just a version string; (b) at first run after an OMP revision change, cedian shows `OMP runtime updated <old→new> [Review changes] [Continue]` — protocol mismatch AND revision change both fail closed, never silently fall back. *(→ [ADR-0003](decisions/0003-bundled-omp-pin-and-trust.md))*
 
+The `ready` frame carries no OMP revision, so the triple is checked by hashing the bundled binary at startup against the hash recorded beside it in `vendor/omp-revision.json`; the handshake itself checks the protocol version ([ADR-0003](decisions/0003-bundled-omp-pin-and-trust.md)).
+
 If there is a mismatch:
 
 ```text
@@ -561,12 +549,12 @@ When opening a project:
 
 ```text
 1. cedian opens workspace
-2. start OMP child
+2. start OMP child with the cedian spawn profile (argv + overlay, [ADR-0020](decisions/0020-omp-spawn-profile.md))
 3. wait ready
 4. negotiate RPC v2
 5. verify cedian protocol version
-6. register host services
-7. register host URIs
+6. register host tools (`set_host_tools`, the complete cedian set)
+7. register host URI schemes (`set_host_uri_schemes`)
 8. enable ask dialog
 9. subscribe subagents
 10. apply event filters
@@ -607,6 +595,12 @@ TextDeltaBuffer
 ```
 
 Flush approximately every frame or every ~16–33 ms.
+
+---
+
+### Headless process shape (pre-S9)
+
+All headless work that needs live state (an open OMP session, a browser tab, a warm language server, a scheduler) runs inside ONE foreground `cedian shell` process per workspace; one-shot CLI commands are limited to store-backed or stateless operations and refuse to mutate while a live shell holds `.cedian/shell.lock`. Not a daemon — it dies with its terminal ([ADR-0021](decisions/0021-headless-host-process.md)).
 
 ---
 
@@ -691,7 +685,7 @@ eligible ⇒ turn resumes as blocked "resumed after restart — [Continue] [Dism
 ineligible (completed / archived / newer work exists / project gone / intent unrecorded) ⇒ stays interrupted, visible in history
 ```
 
-Rules: resume defaults to BLOCKED requiring one click (never auto-continue mutating work while the user was away — matches the (b) decision); `computer` actuation from a resumed turn requires fresh `Ask` even if previously granted (grants don't survive restart). Crash (not quit) follows §74 reconcile, then the same blocked-resume.
+Rules: resume defaults to BLOCKED requiring one click (never auto-continue mutating work while the user was away); `computer` actuation from a resumed turn requires fresh `Ask` even if previously granted (grants don't survive restart). Crash (not quit) follows §74 reconcile, then the same blocked-resume.
 
 > **Composer drafts (plan gap, added 2026-10-06).** The transcript restores via OMP — but unsent composer text had NO store. Every composer persists its draft per task (debounced ~500ms, `snapshot_version`-stamped §75) including attachments/refs; on reopen the draft restores verbatim with an "unsent draft" hint. Drafts die with their task (archived/deleted ⇒ draft deleted, never orphaned). *(→ [ADR-0016](decisions/0016-crash-persistence-resume.md))*
 
@@ -720,20 +714,20 @@ Target: OMP should retain access to all useful existing OMP tools while gaining 
 | Capability | Owner | Integration |
 |---|---|---|
 | `read` | OMP | OMP tool + cedian workspace awareness |
-| `edit` | OMP | OMP semantics → cedian editor transaction |
-| `write` | OMP | OMP semantics → cedian project/buffer |
+| `edit` | OMP | target: OMP semantics → cedian editor transaction (needs the OMP-side route, ROADMAP row G); today OMP writes disk |
+| `write` | OMP | target: OMP semantics → cedian project/buffer (same route as `edit`) |
 | `grep/glob/find` | OMP | existing OMP |
 | `ast_grep/ast_edit` | OMP | existing OMP |
 | `bash` | OMP | existing OMP + cedian tool card |
 | `eval` | OMP | existing OMP |
-| `lsp` | OMP API / cedian backend | use Zed LSP instance |
-| `debug` | OMP API / cedian backend | use Zed DAP session |
+| `lsp` | OMP | reads Zed language-server state via `cedian://` + host tools (§21) |
+| `debug` | OMP | reads/writes the Zed debug session via `cedian://` + host tools (§22) |
 | `task` | OMP | native OMP subagents |
 | `hub/wait` | OMP | native |
 | `todo` | OMP | projected into Workflow UI |
 | `ask` | OMP | native GPUI dialog |
 | `browser` | OMP | shared Chromium/CDP + cedian browser surface |
-| `computer` | OMP | CUA-driver backend (`trycua/cua` `cua-driver` Rust crates, MIT) behind OMP tool semantics — default-deny, per-action `ask`, audit-logged; never raw OS input outside the driver contract. **Driver-only first** — `cua-driver` (inspect + operate via typed contract) now; Lume/Spaces VM sandbox is deferred (§89). **Pin:** pin `cua-driver` by git rev + cargo vendor, update on a fixed cadence alongside `vendor/omp-revision.json` — never float on latest. |
+| `computer` | OMP | CUA-driver backend (`trycua/cua` `cua-driver` Rust crates, MIT) behind OMP tool semantics — default-deny, per-action `ask`, audit-logged; never raw OS input outside the driver contract. Until the atomic landing it is disabled with `computer.enabled: false` in the cedian spawn overlay — it is an `eval` prelude, not a separate tool, so a tool allow-list cannot remove it ([ADR-0020](decisions/0020-omp-spawn-profile.md)). **Driver-only first** — `cua-driver` (inspect + operate via typed contract) now; Lume/Spaces VM sandbox is deferred (§89). **Pin:** pin `cua-driver` by git rev + cargo vendor, update on a fixed cadence alongside `vendor/omp-revision.json` — never float on latest. |
 | Git/GitHub | OMP + cedian | OMP execution, cedian visualization |
 | Images | OMP | native RPC image content |
 | Review | OMP + cedian | OMP reasoning, cedian UI |
@@ -837,7 +831,7 @@ artifact://    → OMP
 
 normal project text
         ↓
-cedian workspace backend if required
+cedian:// buffer reads when unsaved state matters (§13, §40)
 ```
 
 ### §39 Ambient Context
@@ -916,6 +910,8 @@ keymaps
 window state
 ```
 
+The cedian spawn overlay ([ADR-0020](decisions/0020-omp-spawn-profile.md)) is GENERATED from `cedian.toml` into a cedian-owned path at spawn; cedian never writes the user's `.omp/`.
+
 Permission policy + sandbox profiles live on the cedian side (TOML + Seatbelt `.sbpl`, §64): they are enforced at the IDE process's OS layer, so they version with cedian, not `.omp/`. OMP never ships its own copy.
 
 ---
@@ -973,7 +969,7 @@ trait cedianWorkspaceHost {
 
 > **Upstream fact (zed `crates/text`, `crates/clock`, `crates/buffer_diff`, `crates/acp_thread/src/diff.rs`, verified 2026-10-06).** No `BufferVersion` type exists — versions are `clock::Global` on `text::BufferSnapshot.version`; undo/txn API is `History::{start,end,push,group}` + `Transaction{id: Lamport, edit_ids, start: Global}`; there is no `AgentDiff` symbol — agent review is `acp_thread::diff::{DiffPatch,DiffPatchFile,DiffPatchHunk}` over `MultiBuffer` excerpts; the buffer review primitive is `buffer_diff::{BufferDiff,BufferDiffSnapshot}` with `DiffOperations::{stage,unstage,restore}`. The cedian review crate (§15–20) is a thin projection over THESE types, not a parallel model. Bonus: `clock::ReplicaId::AGENT` already reserves agent edit identity in the CRDT — provenance (§17) should key off it where possible. *(→ [ADR-0006](decisions/0006-review-baseline-provenance-precedence.md))*
 
-OMP side: **superseded by §10's upstream fact** — there is no `WorkspaceBackend` seam inside OMP. The OMP-side addition (§8, `integrations/cedian/workspace.ts`) routes cedian-relevant edits OUT through the `cedian_apply_edit` host tool; OMP's `EditTool` itself stays unchanged. Until that addition lands, OMP's native `edit`/`write` write the filesystem directly, and cedian must treat disk as authoritative for those edits (see §84 Headless stand-in rule, row G).
+OMP side: **superseded by §10's upstream fact** — there is no `WorkspaceBackend` seam inside OMP. The OMP-side addition (§8, `integrations/cedian/workspace.ts`) routes cedian-relevant edits OUT through the `cedian_apply_edit` host tool; OMP's `EditTool` itself stays unchanged. Until that addition lands, OMP's native `edit`/`write` write the filesystem directly, and cedian must treat disk as authoritative for those edits (see [ROADMAP](ROADMAP.md) headless stand-in row G).
 
 Benefits (once the host-tool route lands):
 
@@ -1318,19 +1314,17 @@ cedian renders:
 
 ### §24 PTY Integration
 
-If OMP RPC mode disables PTY behavior by default, add a cedian PTY backend.
-
-Target:
+Agent and user terminals stay separate (§23, [ADR-0015](decisions/0015-two-shells-one-policy.md)):
 
 ```text
-OMP BashTool
- ↓
-cedian PTY service
- ↓
-Zed terminal PTY
+OMP bash (incl. interactive commands)          user terminal
+ ↓ OMP's own PTY / exec channel                 ↓
+cedian renders output as a terminal card        Zed terminal PTY (user only)
 ```
 
-This gives interactive commands a real native terminal session.
+- OMP keeps its own PTY execution (it has PTY support; `--no-pty` exists to turn it off). cedian never swaps OMP's `bash` backend (§10) and never runs agent commands in the user's PTY.
+- "Open full output" on a terminal card opens a read-only view of the agent's output, not a shell the user types into.
+- Headless (pre-S9): the agent PTY lives inside the `cedian shell` process lifetime ([ADR-0021](decisions/0021-headless-host-process.md)).
 
 ---
 
@@ -1489,7 +1483,7 @@ This keeps interaction responsive.
 
 > **Upstream fact (oh-my-pi `modes/rpc/rpc-output.ts`, verified 2026-10-06) — RPC backpressure is DISK-SPOOL, not credit-based.** While the reader keeps up, stdout flows direct; otherwise OMP spills to a private temp file and drains 64KiB preserving order — disk can grow UNBOUNDED, spool failure disposes with exit 1. Clients MUST keep reading after stdin close. CONSEQUENCE for cedian: (a) never assume bounded memory — the EventRouter reader thread must drain continuously even when GPUI is busy (backpressure at the GPUI batch layer, §73, never by pausing the read); (b) treat `exit 1` + spool-failure signature as a distinct crash class in §74 recovery (transcript may be truncated — reconcile, don't assume intact); (c) the CDP screencast latest-frame-wins above is a SEPARATE policy at the presentation layer and must not be confused with RPC transport backpressure. *(→ [ADR-0002](decisions/0002-omp-child-process-rpc-v2.md))*
 
-> **Evidence frame binding.** Dropped frames must never become evidence. Every `ScreenshotEvidence`/`BrowserEvidence.screenshot` carries the CDP frame id it was captured from; a gate holding evidence whose frame id is older than the latest rendered frame marks it `stale-frame` and requires re-capture before `required: true` passes. Displayed screenshots render their capture sequence number in the corner — what the user sees is what the gate evaluated. *(→ [ADR-0007](decisions/0007-shared-browser-and-evidence-frames.md))*
+> **Evidence frame binding.** Dropped frames must never become evidence. Every `ScreenshotEvidence`/`BrowserEvidence.screenshot` carries the CDP frame id it was captured from; a gate holding evidence whose frame id is older than the latest rendered frame marks it `stale-frame` and requires re-capture before `required: true` passes. Displayed screenshots render their capture sequence number in the corner — what the user sees is what the gate evaluated. This is the presentation-layer case of the general rule that all evidence is bound to the code state it verified (§53, [ADR-0024](decisions/0024-evidence-bound-to-code-state.md)). *(→ [ADR-0007](decisions/0007-shared-browser-and-evidence-frames.md))*
 
 ### §80 Browser + Agent Shared State
 
@@ -1617,7 +1611,7 @@ struct cedianTask {
 
 OMP `ask` should render as a native cedian GPUI dialog.
 
-> **Upstream fact (oh-my-pi `docs/approval-mode.md` + RPC Extension UI Sub-Protocol, verified 2026-10-06).** OMP approvals DEFAULT TO YOLO (auto-allow all) — strictness must be CONFIGURED, never assumed. `ask` requires explicit opt-in via `set_ask_dialog(true)` (default off; without it, headless/no-UI approval-needing tools FAIL CLOSED — treat that as normal control flow, not an error). `ask` ≠ approval: `ask` is `extension_ui_request{method:ask, questions[{id,question,options[],multi?,recommended?}], timeout?}` with strictly-ordered answers; approvals run through a separate extension runner. Subagents are headless-yolo inside the parent task boundary (residual prompts REJECT). The runtime MUST set `approvalMode: always-ask|write` + `approval.*` + `bash.patterns` + `set_ask_dialog(true)` at spawn, before any agent turn (ROADMAP S3 gate 1) — the plan's strict-wins (§64) only has teeth once yolo is off. *(→ [ADR-0012](decisions/0012-permissions-strict-wins-at-cedian-gate.md))*
+> **Upstream fact (oh-my-pi `docs/approval-mode.md` + RPC Extension UI Sub-Protocol, verified 2026-10-06).** OMP approvals DEFAULT TO YOLO (auto-allow all) — strictness must be CONFIGURED, never assumed. `ask` requires explicit opt-in via `set_ask_dialog(true)` (default off; without it, headless/no-UI approval-needing tools FAIL CLOSED — treat that as normal control flow, not an error). `ask` ≠ approval: `ask` is `extension_ui_request{method:ask, questions[{id,question,options[],multi?,recommended?}], timeout?}` with strictly-ordered answers; approvals run through a separate extension runner. Subagents are headless-yolo inside the parent task boundary (residual prompts REJECT). The runtime MUST set `approvalMode: always-ask|write` + `approval.*` + `bash.patterns` + `set_ask_dialog(true)` at spawn, before any agent turn (ROADMAP S3 gate 1). RPC has no command for these — they are set through the cedian spawn profile (argv + config overlay), [ADR-0020](decisions/0020-omp-spawn-profile.md) — the plan's strict-wins (§64) only has teeth once yolo is off. *(→ [ADR-0012](decisions/0012-permissions-strict-wins-at-cedian-gate.md))*
 
 Example:
 
@@ -1874,14 +1868,14 @@ cedian should not create a second subagent scheduler.
 
 ### §43 Worktrees
 
-> **cedian owns worktrees, OMP requests.** Zed Project/worktree is the single owner of worktree lifecycle (`git worktree add/remove`, `WorktreeId`). OMP never creates OS-level worktrees directly — it emits a typed request via host service; cedian executes, returns `WorktreeId`, and renders it. OMP keeps orchestration/merge *policy*; cedian keeps *mechanism*. `cedianTask.worktree` stores the id, not the ownership.
+> **cedian owns worktrees, OMP requests.** Zed Project/worktree is the single owner of worktree lifecycle (`git worktree add/remove`, `WorktreeId`). OMP never creates OS-level worktrees directly — it requests one through the host tool `cedian_worktree_request`; cedian executes, returns `WorktreeId`, and renders it. OMP keeps orchestration/merge *policy*; cedian keeps *mechanism*. `cedianTask.worktree` stores the id, not the ownership.
 >
-> Worktree *mechanism* (`git worktree add/remove` + `WorktreeId` plumbing + host-service request) lands together with the visualization in slice S5 — mechanism without UI is untestable by the hermetic contract (§86), UI without mechanism is a mock. *(→ [ADR-0009](decisions/0009-worktree-mechanism-vs-policy.md))*
+> Worktree *mechanism* (`git worktree add/remove` + `WorktreeId` plumbing + the `cedian_worktree_request` host tool) lands together with the visualization in slice S5 — mechanism without UI is untestable by the hermetic contract (§86), UI without mechanism is a mock. *(→ [ADR-0009](decisions/0009-worktree-mechanism-vs-policy.md))*
 
 Flow:
 
 ```text
-OMP requests isolated worktree (host service)
+OMP requests isolated worktree (host tool `cedian_worktree_request`, [ADR-0022](decisions/0022-host-tool-first.md))
  ↓
 cedian creates worktree (Zed Project primitive)
  ↓
@@ -1981,7 +1975,9 @@ Rules:
 
 - OMP decides; cedian never schedules work, spawns agents, or gathers evidence itself (§54, §88 "second workflow engine").
 - The gate floor (required gates per task kind × risk) lives in cedian policy beside permissions. OMP may ADD gates; it can never remove or weaken a floor gate.
-- Until OMP emits workflow events, `cedian_workflow`'s profile/playbook/phase code is a headless stand-in (ROADMAP row A) driven from the CLI.
+- OMP reports profile, playbook, phase transitions and evidence claims through host tools (`cedian_workflow_update`, `cedian_complete`) — [ADR-0022](decisions/0022-host-tool-first.md). Evidence counts as attributed only when its `tool_call_id`s are in the router log.
+- Playbooks and the project verification profile are OMP **skills** in `.omp/skills/`, not TypeScript and not cedian code ([ADR-0025](decisions/0025-playbooks-are-omp-skills.md)).
+- Until those host tools land, `cedian_workflow`'s profile/playbook/phase code is a headless stand-in (ROADMAP row A) driven from the CLI.
 
 ### §47 Workflow Data Model
 
@@ -2053,7 +2049,7 @@ interface WorkflowState {
 
 ### §49 Start with a Small Playbook Set
 
-Do not begin with 20+ playbooks.
+Do not begin with 20+ playbooks. Playbooks are OMP skills ([ADR-0025](decisions/0025-playbooks-are-omp-skills.md)); each tells the agent when to call `cedian_workflow_update` / `cedian_complete`.
 
 V1:
 
@@ -2153,6 +2149,7 @@ Results:
 
 ```ts
 interface GateResult {
+  // evidence counted here is fresh, attributed, and outcome = "pass" (§53)
   status:
     | "pending"
     | "passed"
@@ -2181,7 +2178,14 @@ type Evidence =
   | FileEvidence;
 ```
 
-> **Evidence carries provenance.** Every evidence variant carries `provenance: { tool_call_id: string } | { unattributed: true }` linking it to the §17 `AgentEdit` store. A `required: true` gate REJECTS `unattributed` evidence — the agent must reproduce the result inside a tracked edit before the gate passes. Optional gates may accept unattributed evidence but must surface it as `unverified-origin` in the UI. *(→ [ADR-0010](decisions/0010-gate-checker-a1-narrow.md))*
+> **Evidence carries provenance.** Every evidence variant carries `provenance: { tool_call_id: string } | { unattributed: true }`. Evidence is attributed only when its `tool_call_id` appears in the router log with a successful `ToolEnd` ([ADR-0022](decisions/0022-host-tool-first.md)); file evidence additionally links to the §17 `AgentEdit` store. A `required: true` gate REJECTS `unattributed` evidence — the agent must re-produce the result through a tracked tool call before the gate passes. Optional gates may accept unattributed evidence but must surface it as `unverified-origin` in the UI. *(→ [ADR-0010](decisions/0010-gate-checker-a1-narrow.md))*
+
+Every evidence item also carries ([ADR-0024](decisions/0024-evidence-bound-to-code-state.md)):
+
+- `code_state` — the buffer versions (or worktree tree fingerprint) it verified. Any later change to a bound file makes it `stale`; required gates never count stale evidence.
+- `outcome ∈ pass | fail | inconclusive` — "could not run" is `inconclusive`, never pass and never silently fail.
+- Measurements (performance) carry `{runs, median, range, limiter, build_profile}`; any missing field ⇒ `inconclusive`.
+- Gates may name a feature-map id from the project verification profile (`verify-<app>` OMP skill, [ADR-0025](decisions/0025-playbooks-are-omp-skills.md)).
 
 Example browser evidence:
 
@@ -2237,11 +2241,13 @@ Before OMP says:
 Done.
 ```
 
-It must pass (evaluated by cedian at the completion boundary, [ADR-0010](decisions/0010-gate-checker-a1-narrow.md)):
+It must pass — the agent calls host tool `cedian_complete` ([ADR-0022](decisions/0022-host-tool-first.md)); a turn that never passes it leaves the workflow not complete (evaluated by cedian at the completion boundary, [ADR-0010](decisions/0010-gate-checker-a1-narrow.md)):
 
 ```ts
 workflow.canComplete()
 ```
+
+`cedian_complete` takes a **claims ledger**: each claim labelled `measured | inferred | guess` with evidence ids; a `measured` claim needs fresh attributed `pass` evidence, and the completion view shows every claim with its label and evidence — unbacked claims are flagged, never hidden ([ADR-0024](decisions/0024-evidence-bound-to-code-state.md)).
 
 If required evidence is missing:
 
@@ -2294,6 +2300,14 @@ conditional:
 ○ review
 ```
 
+##### Performance
+
+```text
+required:
+✓ baseline measurement (runs, median, range, limiter, build profile)
+✓ after measurement, same fields, same build profile
+```
+
 ##### Refactor
 
 ```text
@@ -2324,7 +2338,7 @@ workflow_completed
 workflow_blocked
 ```
 
-cedian renders them directly.
+cedian generates these events itself from host-tool calls (`cedian_workflow_update`, `cedian_complete`, `cedian_review_finding`) and from gate evaluations ([ADR-0022](decisions/0022-host-tool-first.md)); OMP does not need to emit them. cedian renders them directly.
 
 ### §62 Task Complexity Budget
 
@@ -2418,7 +2432,7 @@ major core refactor
 
 ### §58 Reviewers Must Be Read-Only
 
-> **Reviewer sandbox profile.** "Generally receive" is not enforcement. Reviewer subagents run under a dedicated OS-enforced profile: `edit`, `write`, and `computer`-actuate are `Deny` at the sandbox layer (same Seatbelt mechanism as §64/Q9), not merely absent from the tool list. `bash` for reviewers is allow-listed to read-only prefixes (`git diff`, `git status`, test-status queries) via execpolicy-style rules (§64 lesson 1) — a reviewer invoking anything outside the list gets `Deny`, not an `Ask`. A reviewer that needs a write to prove a point must file a finding; it cannot self-escalate. The reviewer `bash` allow-list lives in the same policy file as §64 (same CI gate, Q10b) — one owner, no drift. *(→ [ADR-0011](decisions/0011-reviewers-read-only-sandbox.md))*
+> **Reviewer sandbox profile.** "Generally receive" is not enforcement. Reviewer subagents run under a dedicated OS-enforced profile: `edit`, `write`, and `computer`-actuate are `Deny` at the sandbox layer (same Seatbelt mechanism as §64 mechanism 2), not merely absent from the tool list. `bash` for reviewers is allow-listed to read-only prefixes (`git diff`, `git status`, test-status queries) via execpolicy-style rules (§64 lesson 1) — a reviewer invoking anything outside the list gets `Deny`, not an `Ask`. A reviewer that needs a write to prove a point must file a finding; it cannot self-escalate. Reviewers run with a fresh context and, where OMP routing allows, a different model from the implementer; a finding is dismissed only with a recorded reason (audit log). The reviewer `bash` allow-list lives in the same policy file as §64 (same CI policy gate, §64) — one owner, no drift. *(→ [ADR-0011](decisions/0011-reviewers-read-only-sandbox.md))*
 
 Review workers receive:
 
@@ -2502,7 +2516,7 @@ Because cedian is personal, use a simple policy.
 
 > **strict-wins.** OMP `ask`/tool policy and the cedian policy TOML are evaluated independently; the stricter verdict wins (`Deny > Ask > Allow`). cedian policy can never be loosened by an OMP decision, and OMP can never be forced to act by a cedian `Allow`. Every `ask` renders as a native GPUI dialog (§63) with the requesting side labeled.
 >
-> **Upstream fact (oh-my-pi `docs/approval-mode.md` resolver, verified 2026-10-06) — strict-wins is NOT how OMP resolves.** OMP's real order: tool-`Deny` absolute → user-`Deny` absolute → yolo-mode: explicit tool allow/prompt wins, else user policy, else allow (bare `override` ignored) → non-yolo: `override:true` allows ONLY with tool-allow else prompt; then tool→user→mode-tier. Provider `pendingSafetyChecks` force-prompt EVEN UNDER YOLO; no-UI prompt-needing tools FAIL CLOSED. CONSEQUENCE: cedian strict-wins applies at the CEDIAN GATE (host-tool dispatch + sandbox), never inside OMP's resolver — cedian cannot reorder OMP's pipeline, only refuse at its own boundary. So: (a) the runtime MUST set (at spawn) `approvalMode: always-ask|write` + `approval.*` + `bash.patterns` + `eval`-gate + `set_ask_dialog(true)` to make OMP's resolver strict in the first place; (b) cedian's gate re-evaluates every granted action independently and can still `Deny` what OMP allowed; (c) fail-closed (no-UI, safety-check) is NORMAL CONTROL FLOW the UI renders, not an error path. *(→ [ADR-0012](decisions/0012-permissions-strict-wins-at-cedian-gate.md))*
+> **Upstream fact (oh-my-pi `docs/approval-mode.md` resolver, verified 2026-10-06) — strict-wins is NOT how OMP resolves.** OMP's real order: tool-`Deny` absolute → user-`Deny` absolute → yolo-mode: explicit tool allow/prompt wins, else user policy, else allow (bare `override` ignored) → non-yolo: `override:true` allows ONLY with tool-allow else prompt; then tool→user→mode-tier. Provider `pendingSafetyChecks` force-prompt EVEN UNDER YOLO; no-UI prompt-needing tools FAIL CLOSED. CONSEQUENCE: cedian strict-wins applies at the CEDIAN GATE (host-tool dispatch + sandbox), never inside OMP's resolver — cedian cannot reorder OMP's pipeline, only refuse at its own boundary. So: (a) the runtime MUST set (at spawn, via the spawn profile — [ADR-0020](decisions/0020-omp-spawn-profile.md)) `approvalMode: always-ask|write` + `approval.*` + `bash.patterns` + `eval`-gate + `set_ask_dialog(true)` to make OMP's resolver strict in the first place; (b) cedian's gate re-evaluates every granted action independently and can still `Deny` what OMP allowed; (c) fail-closed (no-UI, safety-check) is NORMAL CONTROL FLOW the UI renders, not an error path. *(→ [ADR-0012](decisions/0012-permissions-strict-wins-at-cedian-gate.md))*
 
 ##### Safe
 
@@ -2552,6 +2566,12 @@ project_write = "allow"
 dangerous = "ask"
 ```
 
+How the pieces combine: the tiers above are the DEFAULT verdict per action class; prefix/network rules (below) refine individual commands; OMP's own resolver runs first (configured strict, [ADR-0020](decisions/0020-omp-spawn-profile.md)); the effective verdict is the strictest of all of them (`Deny > Ask > Allow`).
+
+**Eval gate.** `eval` runs Python/JS and is as powerful as `bash`, but `bash.patterns` do not cover it — so `eval` is never auto-approved: `Ask` interactively, `Deny` for reviewers and automations ([ADR-0020](decisions/0020-omp-spawn-profile.md)).
+
+**CI policy gate.** `cedian.toml` is validated in CI: it must parse, every rule's `match`/`not_match` examples must hold (mechanism 1), and the reviewer allow-list must contain only read-only prefixes. The settings UI edits the same file, so there is one source of truth.
+
 Mechanisms adopted from Codex (`openai/codex`); research and exact upstream semantics in the ADR:
 
 1. **Three-valued decisions.** Rules are `prefix_rule(pattern, decision?, justification?, match?, not_match?)`, `network_rule(host, protocol, decision, justification?)`, `host_executable(name, paths)`. Canonical spelling `Allow | Ask | Deny`. Each rule's `match`/`not_match` examples are validated per rule (violations report file + line/col). Effective decision = the STRICTEST of all matching rules; no match = decision omitted (never an implicit allow).
@@ -2575,7 +2595,7 @@ Use `computer` as a fallback.
 
 Use explicit `ios` for iOS because it is more deterministic and structured.
 
-> "Desktop automation" here means the CUA `cua-driver` contract ONLY (§9, AGENTS.md) — never raw AX calls outside the driver. The driver + macOS Seatbelt profile + bypass-proof test land atomically; until then `computer` stays hard-disabled, including as a fallback. *(→ [ADR-0008](decisions/0008-computer-tool-cua-driver-only.md))*
+> "Desktop automation" here means the CUA `cua-driver` contract ONLY (§9, AGENTS.md) — never raw AX calls outside the driver. The driver + macOS Seatbelt profile + bypass-proof test land atomically; until then `computer` stays hard-disabled, including as a fallback — enforced today by `computer.enabled: false` in the cedian spawn overlay ([ADR-0020](decisions/0020-omp-spawn-profile.md)). *(→ [ADR-0008](decisions/0008-computer-tool-cua-driver-only.md))*
 
 ---
 

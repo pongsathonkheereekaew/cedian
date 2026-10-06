@@ -1,19 +1,19 @@
 # cedian
 
-Zed-fork (GPUI/Rust) environment + OMP sidecar as sole intelligence runtime.
-Rule: `cedian = environment, OMP = intelligence`.
+**cedian is an agentic IDE built in Rust + GPUI (a Zed fork), with OMP as its only harness: OMP decides, cedian executes, renders, and verifies.**
 
 > Docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (rules) · [`docs/decisions/`](docs/decisions/) (why) · [`docs/ROADMAP.md`](docs/ROADMAP.md) (slices, exits, stand-ins). This table is the only status source.
 > Stack lock: Rust + GPUI only in the cedian process. No TypeScript/Electron/WebView/Tauri.
 
-## Status (slices — value order, see ROADMAP)
+## Status (slices; execution order in ROADMAP)
 
 ✅ = exit holds through an OMP turn or hermetic replay; ◐ = partial, gap named (ROADMAP exit-criterion rule).
 
 | Slice | State |
 |---|---|
 | S0 Foundation loop | ◐ prompt → cards → edit → review → accept/reject in CLI; streaming text, task attribution + STALE, persisted resolutions fixed 2026-10-06 — live re-smoke pending |
-| S1 Language services | ✅ LSP client + symbols + bridge (fake-green); diagnostics-live = follow-up (needs warm server), DAP-live needs Developer mode |
+| S1 Language services | ◐ LSP client + symbols + bridge (fake-green); live diagnostics need a warm server (`cedian shell`, P4), DAP-live needs Developer mode |
+| S9a App spike | 🔜 next after P1–P3: Zed fork builds, one GPUI panel streams OMP, one host-tool edit undoes natively |
 | S2 Workflow engine | ◐ gates block completion when driven from CLI; not yet enforced on an OMP turn; A1-narrow decided (ADR-0010): OMP drives, cedian checks |
 | S3 Review agents | 🔜 gated on sandbox profile + audit tuples |
 | S4 Browser evidence | ◐ CDP screenshot/DOM as gate evidence; fresh Chrome per command, so frame seq / same-tab are not real yet (ROADMAP stand-in row D) |

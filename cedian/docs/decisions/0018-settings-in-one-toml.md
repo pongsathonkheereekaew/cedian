@@ -6,7 +6,7 @@
 
 ## Context
 
-The plan, the CI policy gate and the settings UI all assume one permission TOML; the headless shell implemented `cedian.json`.
+The plan, the CI policy gate (ARCHITECTURE §64) and the settings UI all assume one permission TOML; the headless shell implemented `cedian.json`.
 
 ## Decision
 

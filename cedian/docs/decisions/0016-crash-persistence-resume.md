@@ -6,7 +6,7 @@
 
 ## Context
 
-Crashes mid-stream can leave half tool calls; quits leave running turns; persisted state drifts across versions. Studied herdr (Rust agent runtime) and Synara (quit dialog + guarded resume). `pstack` (Cursor plugin) was checked and contributed nothing implementable.
+Crashes mid-stream can leave half tool calls; quits leave running turns; persisted state drifts across versions. Studied herdr (Rust agent runtime) and Synara (quit dialog + guarded resume). `pstack` (Cursor plugin) was first judged a non-finding here; see the correction under Consequences.
 
 ## Decision
 
@@ -18,6 +18,7 @@ Crashes mid-stream can leave half tool calls; quits leave running turns; persist
 ## Consequences
 
 Daemon-style survival across reboot is deferred (ADR-0019).
+- **Correction (2026-10-06):** the research note below calls pstack a non-finding. A closer read found transferable mechanisms (evidence bound to patch state, inconclusive outcomes, verification profiles, independent verdicts). They are adopted in ADR-0024 and ADR-0025. The note is kept verbatim as history.
 
 ## Original research notes (verbatim from the 2026-10-06 plan)
 
