@@ -6,20 +6,20 @@ Rule: `cedian = environment, OMP = intelligence`.
 > Spec: [`CEDIAN_AGENTIC_IDE_PLAN.md`](CEDIAN_AGENTIC_IDE_PLAN.md) (~3640 lines, §§1–91).
 > Stack lock: Rust + GPUI only in the cedian process. No TypeScript/Electron/WebView/Tauri.
 
-## Status
+## Status (slices — value order; phases stay as work-breakdown in the plan §84)
 
-| Phase | State |
+| Slice | State |
 |---|---|
-| 0.5 RPC Spike | ✅ `spike/` — 14/14 vs omp 18.6.1, see `spike/CAPABILITY_TABLE.md` |
-| 1 OMP Runtime | ✅ `crates/cedian_omp/` — spawn, v2, prompt/abort/restore/images |
-| 2 Agent Panel (headless) | ✅ `crates/cedian_agent/` + `crates/cedian_agent_ui/` |
-| 3 Tool Cards | ✅ args preview + result summary, no raw JSON |
-| 4 Edit Surface (headless) | ✅ `crates/cedian_workspace/` — host tools + `cedian://` + txns |
-| 5 Provenance + Review | ✅ `crates/cedian_review/` — baseline, hunks, accept/reject |
-| 6 Native Context | ✅ `cedian://` kinds + diagnostics + ambient snapshot |
-| CLI harness | ✅ `cargo run -p cedian_cli` — full loop without GPUI |
-| 2.5 Shell (headless) | ✅ `crates/cedian_shell/` — settings + palette + sessions |
-| 7 LSP surface | ▶ next |
+| S0 Foundation loop | ✅ prompt → cards → edit → review → accept/reject in CLI |
+| S1 Language services | ▶ next — real LSP/DAP via `cedian://` + host tools |
+| S2 Workflow engine | 🔜 gates + playbooks as pure functions |
+| S3 Review agents | 🔜 gated on sandbox profile + audit tuples |
+| S4 Browser evidence | 🔜 CDP screenshot/DOM as gate evidence |
+| S5 Parallel workers | 🔜 worktrees + swarm/arena presets |
+| S6 PR workspace | 🔜 `gh`, PR baselines, merge Deny-by-default |
+| S7 Local automations | 🔜 cron + history, no cloud ever |
+| S8 iOS track | 🔜 extension track, after v0.3 |
+| S9 Real app | 🔜 fork + GPUI binding (the only slice that yields `cedian.app`) |
 
 ## Layout
 
@@ -27,6 +27,10 @@ Rule: `cedian = environment, OMP = intelligence`.
 crates/cedian_omp/       process + protocol boundary (runtime, event_router, session)
 crates/cedian_agent/     task / thread / state (one task = one OMP session)
 crates/cedian_agent_ui/  panel / composer / message / tool_card / ask (headless models)
+crates/cedian_workspace/ host tools + cedian:// + buffer txns + ambient context
+crates/cedian_review/    baseline + provenance + hunk accept/reject
+crates/cedian_shell/     settings + palette + session manager (headless)
+crates/cedian_cli/       throwaway harness — full loop without GPUI (dies at S9)
 vendor/omp-rpc/          vendored upstream Rust RPC client (pin: vendor/omp-revision.json)
 spike/                   Phase 0.5 throwaway probe (do not grow)
 script/build-omp         build pinned OMP into cedian.app (records commit/tree-hash/builder)
