@@ -2540,6 +2540,35 @@ Avoid duplicating full chat history unless necessary.
 
 OMP is a child process.
 
+> **Market pattern (Synara quit-dialog + guarded resume, verified 2026-10-06).** Synara lists running chats on quit (Cancel / Quit + persistent "Resume chats automatically" checkbox) and resumes ELIGIBLY on relaunch — skipping completed/archived/newer-work/dead-project chats, with a bounded quit-wait that falls back to plain interruption if the intent can't be recorded. cedian adopts the same shape, adapted to one harness:
+
+When the user quits with running turns:
+
+```text
+quit requested
+ ↓
+dialog lists running tasks (Cancel / Quit)
+ ↓
+[✓] Resume on next launch (persisted choice)
+ ↓
+bounded wait (record resume-intent per task, else mark interrupted)
+ ↓
+stdin closes → OMP persists/disposes session
+```
+
+On restart:
+
+```text
+open_session(...) per task
+ ↓
+eligible ⇒ turn resumes as blocked "resumed after restart — [Continue] [Dismiss]"
+ineligible (completed / archived / newer work exists / project gone / intent unrecorded) ⇒ stays interrupted, visible in history
+```
+
+Rules: resume defaults to BLOCKED requiring one click (never auto-continue mutating work while the user was away — matches the (b) decision); `computer` actuation from a resumed turn requires fresh `Ask` even if previously granted (grants don't survive restart). Crash (not quit) follows §74 reconcile, then the same blocked-resume.
+
+> **Composer drafts (plan gap, added 2026-10-06).** The transcript restores via OMP — but unsent composer text had NO store. Every composer persists its draft per task (debounced ~500ms, `snapshot_version`-stamped §75) including attachments/refs; on reopen the draft restores verbatim with an "unsent draft" hint. Drafts die with their task (archived/deleted ⇒ draft deleted, never orphaned).
+
 When cedian closes:
 
 ```text
