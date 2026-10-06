@@ -20,3 +20,4 @@ cedian is a personal IDE built on a minimal Zed fork. The risk of an agentic IDE
 - Every feature must answer "who decides (OMP) / who renders (cedian)".
 - The "must not build" list (§88) is the enforcement tool for this ADR.
 - One deliberate exception exists for verification checking: ADR-0010.
+- **Amended by ADR-0027:** "TS only in the OMP repo" no longer applies — OMP is never forked, so cedian has no TypeScript in scope at all.

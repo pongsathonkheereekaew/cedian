@@ -41,7 +41,7 @@ OMP-only multi-provider note: cedian speaks to ONE harness. Multi-model choice l
 
 ## Headless stand-ins (pre-S9)
 
-Before the Zed fork lands (S9), some capabilities the plan assigns to Zed or to OMP-side additions (§8) are built as **headless stand-ins** inside cedian crates so slices stay triable. A stand-in is allowed only if it has a row below: owner crate, the plan section it temporarily deviates from, and the slice that deletes or moves it. A stand-in with no row is a violation of ARCHITECTURE §88. Rationale: [ADR-0017](decisions/0017-slices-exit-rule-stand-ins.md).
+Before the Zed fork lands (S9), some capabilities the plan assigns to Zed are built as **headless stand-ins** inside cedian crates so slices stay triable. A stand-in is allowed only if it has a row below: owner crate, the plan section it temporarily deviates from, and the slice that deletes or moves it. A stand-in with no row is a violation of ARCHITECTURE §88. Rationale: [ADR-0017](decisions/0017-slices-exit-rule-stand-ins.md).
 
 | Row | Stand-in (today) | Deviates from | Fate |
 |---|---|---|---|
@@ -50,7 +50,7 @@ Before the Zed fork lands (S9), some capabilities the plan assigns to Zed or to 
 | C | `cedian_worker` — user-driven `git worktree` registry | §43 (OMP requests via host tool), §42 (subagent tree) | Stays as the mechanism. Missing pieces before S5 counts as ✅: host tool `cedian_worktree_request` (OMP asks, cedian creates — P5) + router handling of `subagent_lifecycle/progress` for the visualization + steer through a live session (P4). |
 | D | `cedian_browser` — separate cedian-owned headless Chrome, one per CLI invocation | §25 (one shared Chromium with OMP), §29 R4 (frame binding) | S9: single long-lived Chrome, OMP `browser` connects to the same CDP endpoint. Until then evidence from it is labelled `headless-capture` and cannot satisfy a `required: true` browser gate. |
 | E | Settings in `cedian.json` (JSON) | §64/§2.5 (permission TOML) | **Decision: TOML wins** (the plan, the CI policy gate — ARCHITECTURE §64 — and the settings UI all assume one TOML file). Migrate `cedian_shell` to `cedian.toml` before S3; JSON is not accepted after that. |
-| G | OMP native `edit`/`write` write the filesystem directly (no host-tool route yet) | §10/§12 (edits as buffer transactions) | The OMP-side route is listed under "OMP-side work". Until it lands: disk is authoritative for OMP-native edits; cedian never writes a buffer back over a file that changed on disk during the turn (fail closed + report), and provenance for such edits is recorded per turn from disk diffs (attribution = turn, not tool call → hunks the turn cannot pin to a tool call are `UNATTRIBUTED`). |
+| G | Headless form of the agent-edit import: no Zed buffers yet, so writes stay on disk | §12 (agent writes imported as Zed transactions, [ADR-0027](decisions/0027-zero-omp-fork.md)) | At S9 each OMP write is imported as one agent transaction (S9a proves it). Until then: disk is authoritative for OMP-native edits; cedian never writes a buffer back over a file that changed on disk during the turn (fail closed + report), and provenance for such edits is recorded per turn from disk diffs (attribution = turn, not tool call → hunks the turn cannot pin to a tool call are `UNATTRIBUTED`). |
 
 ## Cross-cutting prerequisites
 
@@ -79,14 +79,9 @@ Shared foundations that several slice exits depend on. Each is small; build it b
 | S7 | P4 (scheduler runs inside the shell), S3 gate 4 (run history = audit log) |
 | S9 | all ✅ slices it binds; deletes stand-ins B and D |
 
-## OMP-side work (TypeScript in the OMP repo)
+## OMP changes
 
-Only items a host tool cannot do ([ADR-0022](decisions/0022-host-tool-first.md)). Each needs an owner and a slice before it blocks anything.
-
-| Item | Why a host tool is not enough | Owner | Slice |
-|---|---|---|---|
-| Route native `edit`/`write` through `cedian_apply_edit` (row G) | OMP's own tools write the filesystem; the model is not asked | user (TBD) | before S9 (needed for buffer-native undo, ARCHITECTURE §12) |
-| Plan mode (ADR-0014) | modes are launch-time in OMP; no RPC switch exists | user (TBD) | optional, not gating |
+None. cedian runs pinned upstream OMP and never forks it ([ADR-0027](decisions/0027-zero-omp-fork.md)). If a real need for an OMP change appears, open an upstream PR and wait; record the workaround (or the cut) as an ADR meanwhile.
 
 ## Slices
 
@@ -304,7 +299,7 @@ Acceptance:
 
 Retire the biggest unknown early: does the headless core bind to the Zed fork and GPUI at all?
 
-**Exit:** the Zed fork builds as `cedian` on this machine; one GPUI panel inside it spawns OMP through the P1 spawn profile and renders a streamed reply from the existing `Thread` model (no CLI involved); `Version` is mapped to `clock::Global` for one buffer and one host-tool edit lands as a Zed transaction that native undo reverts. Findings that change the plan become ADRs before S2 starts.
+**Exit:** the Zed fork builds as `cedian` on this machine; one GPUI panel inside it spawns OMP through the P1 spawn profile and renders a streamed reply from the existing `Thread` model (no CLI involved); `Version` is mapped to `clock::Global` for one buffer, and a file that OMP's own `edit` writes to disk is imported as ONE agent-attributed Zed transaction (keyed by its `tool_call_id`) that native undo reverts — no OMP change ([ADR-0027](decisions/0027-zero-omp-fork.md)). Findings that change the plan become ADRs before S2 starts.
 
 ### S2 — Workflow core
 
@@ -614,7 +609,7 @@ Build:
 
 ```text
 Zed fork builds
-OMP builds from the pinned upstream commit (an OMP fork only if ROADMAP "OMP-side work" items land)
+OMP builds from the pinned upstream commit (never forked — [ADR-0027](decisions/0027-zero-omp-fork.md))
 pinned upstream remotes
 upstream rebase cadence + conflict owner
 Zed license audit for redistributed binary (GPL terms)
