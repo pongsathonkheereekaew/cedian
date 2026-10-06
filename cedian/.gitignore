@@ -1,0 +1,50 @@
+# Rust / Cargo
+/target/
+**/target/
+Cargo.lock
+*.rs.bk
+
+# Bundled OMP build output (rebuilt by script/build-omp; pin lives in vendor/omp-revision)
+cedian.app/
+*.app/
+vendor/omp-build/
+
+# CUA driver vendored sources (pin by git rev + cargo vendor)
+vendor/cua-driver/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Xcode / iOS artifacts (Phase 13-15)
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.direnv/
+
+# Env / secrets — NEVER commit
+.env
+.env.*
+*.pem
+*.key
+
+# Hermetic test fixtures with live data (keep recorded frames, not credentials)
+tests/fixtures/live/
+
+# Logs / local state
+*.log
+/tmp/
