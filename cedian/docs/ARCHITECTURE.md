@@ -920,7 +920,7 @@ Final target ([ADR-0027](decisions/0027-zero-omp-fork.md)):
 ```text
 OMP edit (writes disk)
    ↓
-cedian imports it as ONE agent transaction (ReplicaId::AGENT, tool_call_id)
+cedian imports it as ONE agent transaction (Buffer::reload at tool end, keyed by tool_call_id — ADR-0029)
    ↓
 Zed undo stack
    ↓
