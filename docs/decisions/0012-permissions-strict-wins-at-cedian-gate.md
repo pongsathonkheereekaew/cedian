@@ -19,6 +19,8 @@ OMP approvals default to YOLO; OMP's own resolver order is not "strict-wins" and
 
 Linux replication is out of scope (macOS-only). Open item: the runtime does not set `approvalMode` yet — S3 gate 1.
 
+- **Amended by ADR-0020 (how):** RPC cannot set approval policy; strictness is applied through the spawn profile (`--approval-mode` + generated `--config` overlay).
+
 ## Original research notes (verbatim from the 2026-10-06 plan)
 
 > **Grill R2 — Codex lessons (`openai/codex`, Rust, 128k⭐, studied 2026-10-05; deep-dived 2026-10-06).** Adopt four mechanisms, adapted to the cedian ownership split. Corrections from the deep-dive are inline:

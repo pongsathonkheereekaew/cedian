@@ -24,3 +24,5 @@ A2 makes the agent its own verifier: the evidence it would check (router log, `A
 - Same trust logic as permissions (ADR-0012): the checked party is not the checker.
 - §88 "no second workflow engine" stays true because cedian never schedules, spawns, or gathers.
 - `cedian_workflow`'s profile/playbook/phase code is a stand-in (row A) until OMP emits workflow events; no new features there.
+- **Amended by ADR-0025:** "OMP owns playbooks" means OMP *skills* plus host tools, not TypeScript in an OMP fork.
+- **Extended by ADR-0024:** evidence is bound to code state, has three outcomes, and completion takes a claims ledger.

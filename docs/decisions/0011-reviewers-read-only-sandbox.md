@@ -15,3 +15,4 @@ Reviewer subagents run under a dedicated Seatbelt profile: `edit`/`write`/`compu
 ## Consequences
 
 This is S3's gate: profile + bypass-proof test before any reviewer runs.
+- **Independent verdict (2026-10-06, from pstack):** a reviewer runs with a fresh context and, where OMP routing allows, a different model from the implementer. A finding is dismissed only with a recorded reason (audit log), never silently.

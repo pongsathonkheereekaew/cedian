@@ -18,3 +18,5 @@ Desktop automation is the most dangerous capability: raw OS input outside a type
 ## Consequences
 
 Resumed turns and automation runs need a fresh `Ask` for actuation (grants don't survive restart).
+
+- **Amended by ADR-0020 (how):** `computer` is an `eval` prelude in OMP; it is disabled via `computer.enabled: false` in the cedian spawn overlay, not via a tool allow-list.

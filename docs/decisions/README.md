@@ -23,3 +23,9 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0017](0017-slices-exit-rule-stand-ins.md) | Plan by vertical slices, with an exit-criterion rule and registered stand-ins |
 | [0018](0018-settings-in-one-toml.md) | Settings and policy live in one TOML file |
 | [0019](0019-scope-cuts.md) | Scope cuts: PR v1, local-only automations, out-of-scope list, daemon track |
+| [0020](0020-omp-spawn-profile.md) | OMP strictness via a cedian spawn profile (argv + config overlay), not RPC |
+| [0021](0021-headless-host-process.md) | Headless work runs in one long-lived `cedian shell` process |
+| [0022](0022-host-tool-first.md) | Host-tool-first: OMP reports to cedian through host tools |
+| [0023](0023-product-scope.md) | Product scope — what cedian is |
+| [0024](0024-evidence-bound-to-code-state.md) | Evidence is bound to code state, has three outcomes, and claims must cite it |
+| [0025](0025-playbooks-are-omp-skills.md) | Playbooks and project verification profiles are OMP skills |
