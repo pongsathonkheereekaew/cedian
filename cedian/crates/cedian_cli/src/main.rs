@@ -17,9 +17,10 @@
 //! State lives in-process per invocation EXCEPT the OMP session (adopted via
 //! `--session-dir` + `open_session`) and workspace files. Review baseline is
 //! rebuilt from file mtimes per invocation (headless limitation — the app
-//! shell will persist it; see `docs/` when that lands).
+//! shell will persist it; see plan §17 AgentEdit store design).
 
 mod session;
+mod workflow_store;
 mod workspace_files;
 
 use cedian_agent_ui::Panel;
@@ -94,8 +95,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
             cmd_symbols(&workdir, query)
         }
         "diagnostics" => cmd_diagnostics(&workdir),
+        "workflow" => cmd_workflow(&workdir, &args[1..]),
         _ => {
-            eprintln!("usage: cedian <prompt|review|accept|reject|accept-all|state|palette|symbols|diagnostics> …");
+            eprintln!("usage: cedian <prompt|review|accept|reject|accept-all|state|palette|symbols|diagnostics|workflow> …");
             eprintln!("env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR");
             Ok(())
         }
@@ -407,6 +409,194 @@ fn cmd_diagnostics(workdir: &Path) -> Result<(), String> {
         println!("no diagnostics (clean)");
     }
     Ok(())
+}
+
+/// Workflow commands (S2 headless surface):
+/// ```text
+/// cedian workflow run <kind> <title> [--risk low|medium|high]  # start (overwrites)
+/// cedian workflow status                                       # §51 render + gates
+/// cedian workflow evidence <gate> <summary> [--fail] [--unattributed]
+/// cedian workflow advance [--fail]                             # pass/fail current phase
+/// cedian workflow complete                                     # §55 completion gate
+/// ```
+fn cmd_workflow(workdir: &Path, args: &[String]) -> Result<(), String> {
+    match args.first().map(|s| s.as_str()) {
+        Some("run") => {
+            let kind = args
+                .get(1)
+                .ok_or("usage: cedian workflow run <kind> <title> [--risk R]")?;
+            let title = args
+                .get(2)
+                .ok_or("usage: cedian workflow run <kind> <title> [--risk R]")?;
+            let kind = match kind.as_str() {
+                "investigation" => cedian_workflow::TaskKind::Investigation,
+                "bug_fix" => cedian_workflow::TaskKind::BugFix,
+                "feature" => cedian_workflow::TaskKind::Feature,
+                "refactor" => cedian_workflow::TaskKind::Refactor,
+                "performance" => cedian_workflow::TaskKind::Performance,
+                "prototype" => cedian_workflow::TaskKind::Prototype,
+                _ => return Err(format!("unknown kind {kind:?} (investigation|bug_fix|feature|refactor|performance|prototype)")),
+            };
+            let mut profile = cedian_workflow::TaskProfile::new(title, kind);
+            let mut i = 3;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--risk" => {
+                        let r = args.get(i + 1).ok_or("usage: --risk low|medium|high")?;
+                        profile.risk = match r.as_str() {
+                            "low" => cedian_workflow::Risk::Low,
+                            "medium" => cedian_workflow::Risk::Medium,
+                            "high" => cedian_workflow::Risk::High,
+                            _ => return Err(format!("unknown risk {r:?}")),
+                        };
+                        i += 2;
+                    }
+                    flag => return Err(format!("unknown flag {flag:?}")),
+                }
+            }
+            let state =
+                cedian_workflow::WorkflowState::start(profile).map_err(|e| e.to_string())?;
+            workflow_store::save(workdir, &state)?;
+            render_workflow(&state);
+            Ok(())
+        }
+        Some("status") => {
+            let state = workflow_store::load(workdir)?;
+            render_workflow(&state);
+            Ok(())
+        }
+        Some("evidence") => {
+            let gate = args.get(1).ok_or(
+                "usage: cedian workflow evidence <gate> <summary> [--fail] [--unattributed]",
+            )?;
+            let summary = args.get(2).ok_or(
+                "usage: cedian workflow evidence <gate> <summary> [--fail] [--unattributed]",
+            )?;
+            let mut ok = true;
+            let mut attributed = true;
+            for flag in &args[3..] {
+                match flag.as_str() {
+                    "--fail" => ok = false,
+                    "--unattributed" => attributed = false,
+                    _ => return Err(format!("unknown flag {flag:?}")),
+                }
+            }
+            let mut state = workflow_store::load(workdir)?;
+            // Attributed items link the CLI turn as the producing tool call
+            // (headless stand-in for the §17 AgentEdit link).
+            let id = format!("e{}", state.evidence.len() + 1);
+            let item = if attributed {
+                cedian_workflow::Evidence::attributed(
+                    &id,
+                    cedian_workflow::EvidenceKind::Command,
+                    &[gate],
+                    summary,
+                    ok,
+                    "cli",
+                    format!("cli-turn-{}", state.evidence.len() + 1),
+                )
+            } else {
+                cedian_workflow::Evidence::unattributed(
+                    &id,
+                    cedian_workflow::EvidenceKind::File,
+                    &[gate],
+                    summary,
+                    ok,
+                )
+            };
+            state.attach(item).map_err(|e| e.to_string())?;
+            workflow_store::save(workdir, &state)?;
+            match state.gate_result(gate) {
+                Ok(r) => println!(
+                    "evidence {id} → gate {gate:?}: {:?} ({})",
+                    r.status, r.reason
+                ),
+                Err(e) => println!("evidence {id} attached ({}).", e),
+            }
+            Ok(())
+        }
+        Some("advance") => {
+            let passed = !args[1..].contains(&"--fail".to_string());
+            let mut state = workflow_store::load(workdir)?;
+            state.advance(passed).map_err(|e| e.to_string())?;
+            if !passed {
+                println!("phase failed — workflow failed");
+            }
+            workflow_store::save(workdir, &state)?;
+            render_workflow(&state);
+            Ok(())
+        }
+        Some("complete") => {
+            let mut state = workflow_store::load(workdir)?;
+            match state.complete() {
+                Ok(()) => {
+                    workflow_store::save(workdir, &state)?;
+                    println!("complete");
+                    Ok(())
+                }
+                Err(missing) => {
+                    workflow_store::save(workdir, &state)?;
+                    Err(format!("blocked:\n  - {}", missing.join("\n  - ")))
+                }
+            }
+        }
+        _ => Err("usage: cedian workflow <run|status|evidence|advance|complete> …".to_string()),
+    }
+}
+
+/// §51 render: title, kind · risk, phase checklist, gate states.
+fn render_workflow(state: &cedian_workflow::WorkflowState) {
+    let kind = match state.task.kind {
+        cedian_workflow::TaskKind::Investigation => "Investigation",
+        cedian_workflow::TaskKind::BugFix => "Bug Fix",
+        cedian_workflow::TaskKind::Feature => "Feature",
+        cedian_workflow::TaskKind::Refactor => "Refactor",
+        cedian_workflow::TaskKind::Performance => "Performance",
+        cedian_workflow::TaskKind::Prototype => "Prototype",
+    };
+    let risk = match state.task.risk {
+        cedian_workflow::Risk::Low => "Low",
+        cedian_workflow::Risk::Medium => "Medium",
+        cedian_workflow::Risk::High => "High",
+    };
+    println!("{}", state.task.title);
+    println!("{kind} · {risk} risk · {:?}", state.status);
+    println!();
+    for ps in &state.phases {
+        let glyph = match ps.status {
+            cedian_workflow::PhaseStatus::Pending => "○",
+            cedian_workflow::PhaseStatus::Running => "●",
+            cedian_workflow::PhaseStatus::Passed => "✓",
+            cedian_workflow::PhaseStatus::Failed => "✗",
+            cedian_workflow::PhaseStatus::Blocked => "!",
+            cedian_workflow::PhaseStatus::Skipped => "–",
+        };
+        if ps.status == cedian_workflow::PhaseStatus::Skipped {
+            let reason = ps.skip_reason.as_deref().unwrap_or("conditional");
+            println!("{glyph} {} (skipped: {reason})", ps.id);
+            continue;
+        }
+        println!("{glyph} {}", ps.id);
+    }
+    println!();
+    for (id, r) in state.all_gates() {
+        let glyph = match r.status {
+            cedian_workflow::GateStatus::Pending => "○",
+            cedian_workflow::GateStatus::Passed => "✓",
+            cedian_workflow::GateStatus::Failed => "✗",
+            cedian_workflow::GateStatus::Blocked => "!",
+            cedian_workflow::GateStatus::Skipped => "–",
+        };
+        let unverified = if r.unverified_origin {
+            " [unverified-origin]"
+        } else {
+            ""
+        };
+        println!(
+            "{glyph} gate {id}: {:?}{unverified} — {}",
+            r.status, r.reason
+        );
+    }
 }
 
 fn status_glyph(s: cedian_review::HunkStatus) -> &'static str {
