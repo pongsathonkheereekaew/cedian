@@ -69,7 +69,45 @@ impl SessionBinding {
         }
         Ok(())
     }
+}
 
+/// Version-drift error for binding restore (fails closed, re-baseline).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotVersionMismatch {
+    /// Version found in the stored record.
+    pub got: u32,
+    /// Version this build understands.
+    pub want: u32,
+}
+
+impl std::fmt::Display for SnapshotVersionMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "state too old, re-baseline (got v{}, want v{})",
+            self.got, self.want
+        )
+    }
+}
+
+impl std::error::Error for SnapshotVersionMismatch {}
+
+/// Validate a restored binding: version match (typed) + absolute paths.
+/// Fails closed — never silently misread old state.
+pub fn validate_binding(binding: &SessionBinding) -> Result<(), SnapshotVersionMismatch> {
+    if binding.snapshot_version != SNAPSHOT_VERSION {
+        return Err(SnapshotVersionMismatch {
+            got: binding.snapshot_version,
+            want: SNAPSHOT_VERSION,
+        });
+    }
+    binding.validate().map_err(|_| SnapshotVersionMismatch {
+        got: binding.snapshot_version,
+        want: SNAPSHOT_VERSION,
+    })
+}
+
+impl SessionBinding {
     /// Restart consumes any grant: `Granted → Blocked`, rest unchanged.
     pub fn on_restart(&mut self) {
         if self.resume == ResumeState::Granted {

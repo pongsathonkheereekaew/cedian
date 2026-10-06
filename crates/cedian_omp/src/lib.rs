@@ -15,4 +15,6 @@ pub use errors::OmpError;
 pub use event_router::{DeltaKind, EventRouter, LogEntry, PromptStatus, RouterEvent};
 pub use respawn::{validate, RespawnRequest, RespawnValidation};
 pub use runtime::{image_content, last_text, OmpBinary, OmpRuntime, RuntimeConfig, RuntimeState};
-pub use session::{ResumeState, SessionBinding, SNAPSHOT_VERSION};
+pub use session::{
+    validate_binding, ResumeState, SessionBinding, SnapshotVersionMismatch, SNAPSHOT_VERSION,
+};
