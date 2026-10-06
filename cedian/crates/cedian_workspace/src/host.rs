@@ -16,6 +16,13 @@ use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+/// Normalize any key-shaped path to canonical `/rel` form (leading `/`
+/// enforced, `.` components kept — keys never touch disk by themselves).
+fn normalize_key(path: &Path) -> PathBuf {
+    let s = path.to_string_lossy();
+    let stripped = s.strip_prefix('/').unwrap_or(&s);
+    PathBuf::from(format!("/{stripped}"))
+}
 
 /// One published diagnostic (headless subset of LSP `Diagnostic`; the fork
 /// binding converts real `lsp::Diagnostic` into this shape).
@@ -66,28 +73,83 @@ pub trait WorkspaceHost: Send + Sync {
 /// Headless host: in-memory buffers + caller-set editor chrome + published
 /// diagnostics (headless stand-in for Zed `Project::diagnostics`; the fork
 /// binding publishes real LSP diagnostics here).
-#[derive(Debug, Default)]
+///
+/// Path discipline: buffers are keyed by workspace-RELATIVE keys (`/src/a.rs`);
+/// `workdir` anchors them to disk. Host-tool/URI paths resolve through
+/// [`HostTools::resolve`] — absolute paths under workdir, `/`-prefixed keys,
+/// and bare relative paths all land on the same buffer; paths escaping the
+/// workspace are rejected (fail closed, never a jailbreak).
+#[derive(Debug)]
 pub struct HostTools {
     store: Mutex<BufferStore>,
     active_file: Mutex<Option<PathBuf>>,
     selection: Mutex<Option<(PathBuf, usize, usize)>>,
     diagnostics: Mutex<HashMap<PathBuf, Vec<Diagnostic>>>,
+    workdir: PathBuf,
 }
 
 impl HostTools {
-    /// Empty host.
-    pub fn new() -> Self {
-        Self::default()
+    /// Empty host rooted at `workdir` (disk anchor for resolve + auto-open).
+    pub fn new(workdir: &Path) -> Self {
+        Self {
+            store: Mutex::new(BufferStore::new()),
+            active_file: Mutex::new(None),
+            selection: Mutex::new(None),
+            diagnostics: Mutex::new(HashMap::new()),
+            workdir: workdir.to_path_buf(),
+        }
     }
 
     /// Shared handle (host-tool/URI handlers capture this).
-    pub fn shared() -> Arc<Self> {
-        Arc::new(Self::new())
+    pub fn shared(workdir: &Path) -> Arc<Self> {
+        Arc::new(Self::new(workdir))
     }
 
-    /// Open a buffer with initial text (test setup / workspace scan later).
+    /// Open a buffer with initial text (test setup / workspace scan). Accepts
+    /// canonical keys directly — no re-resolve (a `/`-key is absolute-shaped
+    /// but is NOT outside workdir; resolving it again would wrongly reject).
+    /// Untrusted spellings go through [`HostTools::resolve`] first.
     pub fn open(&self, path: &Path, text: &str) {
-        self.store.lock().open(path, text);
+        let key = normalize_key(path);
+        self.store.lock().open(&key, text);
+    }
+
+    /// Resolve any workspace path spelling to its canonical buffer key:
+    /// absolute-under-workdir, `/`-prefixed key, or bare relative. Rejects
+    /// escapes (`..` past root, absolute outside workdir) with a visible error.
+    pub fn resolve(&self, path: &Path) -> Result<PathBuf, String> {
+        let rel = if path.is_absolute() {
+            path.strip_prefix(&self.workdir)
+                .map(|r| r.to_path_buf())
+                .map_err(|_| format!("path escapes workspace: {}", path.display()))?
+        } else {
+            path.strip_prefix("/").unwrap_or(path).to_path_buf()
+        };
+        if rel
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(format!("path escapes workspace: {}", path.display()));
+        }
+        Ok(PathBuf::from(format!("/{}", rel.display())))
+    }
+
+    /// Ensure a buffer is open for a key, loading from disk on first use.
+    /// Returns `false` when there is nothing to open (no disk file either) —
+    /// callers fail with a visible "not open" error, never an empty buffer.
+    fn ensure_open(&self, key: &Path) -> bool {
+        if self.store.lock().version(key).is_some() {
+            return true;
+        }
+        let rel = key.strip_prefix("/").unwrap_or(key);
+        let local = self.workdir.join(rel);
+        match std::fs::read_to_string(&local) {
+            Ok(text) => {
+                self.store.lock().open(key, &text);
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     /// Set the active file (Zed binding: cursor moves).
@@ -137,16 +199,23 @@ impl HostTools {
             "Apply one edit to a cedian workspace buffer transactionally (preferred over filesystem writes for project files).",
             params,
             move |args, _ctx| {
-                let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                let raw = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                let key = match host.resolve(Path::new(raw)) {
+                    Ok(key) => key,
+                    Err(e) => return Err(e.to_string().into()),
+                };
+                if !host.ensure_open(&key) {
+                    return Err(format!("buffer not open (no file on disk): {raw}").into());
+                }
                 let edit = TextEdit {
                     start: args.get("start").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
                     end: args.get("end").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
                     replacement: args.get("replacement").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                 };
                 let expected = Version(args.get("expected_version").and_then(|v| v.as_u64()).unwrap_or(0));
-                match host.apply_edit(Path::new(path), expected, &edit) {
+                match host.apply_edit(&key, expected, &edit) {
                     Ok(result) => Ok(format!("applied, now at version {}", result.new_version.0).into()),
-                    Err(e) => Err(format!("{e}").into()),
+                    Err(e) => Err(e.to_string().into()),
                 }
             },
         )
@@ -159,7 +228,7 @@ impl HostTools {
         let host = Arc::clone(self);
         HostUri::new("cedian", move |url, _ctx| {
             let uri = crate::parse_cedian_uri(url)
-                .map_err(|e| -> omp_rpc::HostUriError { format!("{e}").into() })?;
+                .map_err(|e| -> omp_rpc::HostUriError { e.to_string().into() })?;
             host.serve_uri(&uri)
         })
         .expect("cedian scheme is valid")
@@ -173,12 +242,17 @@ impl HostTools {
     ) -> Result<omp_rpc::HostUriRead, omp_rpc::HostUriError> {
         use crate::UriKind;
         match &uri.kind {
-            UriKind::Buffer => self
-                .read_buffer(Path::new(&uri.path))
-                .map(|text| text.into())
-                .ok_or_else(|| -> omp_rpc::HostUriError {
-                    format!("buffer not open: {}", uri.path).into()
-                }),
+            UriKind::Buffer => {
+                let key = self
+                    .resolve(Path::new(&uri.path))
+                    .map_err(|e| -> omp_rpc::HostUriError { e.to_string().into() })?;
+                if !self.ensure_open(&key) {
+                    return Err(format!("buffer not open: {}", uri.path).into());
+                }
+                self.read_buffer(&key).map(|text| text.into()).ok_or_else(
+                    || -> omp_rpc::HostUriError { format!("buffer not open: {}", uri.path).into() },
+                )
+            }
             UriKind::Selection => Ok(self.render_selection().into()),
             UriKind::ActiveFile => Ok(self.render_active_file().into()),
             UriKind::Diagnostics => Ok(self.render_diagnostics(&uri.path).into()),
@@ -186,6 +260,7 @@ impl HostTools {
             UriKind::Unknown(kind) => Err(format!("unknown cedian:// kind: {kind}").into()),
         }
     }
+
     /// Publish diagnostics for a buffer (fork: LSP publishDiagnostics lands here).
     pub fn publish_diagnostics(&self, path: &Path, diagnostics: Vec<Diagnostic>) {
         self.diagnostics
@@ -311,7 +386,7 @@ mod tests {
 
     #[test]
     fn sync_saves_dirty() {
-        let h = HostTools::new();
+        let h = HostTools::new(Path::new("/"));
         h.open(Path::new("/a.rs"), "hi");
         h.apply_edit(
             Path::new("/a.rs"),
@@ -330,7 +405,7 @@ mod tests {
     #[test]
     fn uri_kinds_serve() {
         use crate::{CedianUri, UriKind};
-        let h = HostTools::new();
+        let h = HostTools::new(Path::new("/"));
         h.open(Path::new("/a.rs"), "hello\nworld\n");
         h.open(Path::new("/b.rs"), "x\n");
         h.set_active_file(Some(PathBuf::from("/a.rs")));
