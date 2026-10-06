@@ -1,0 +1,593 @@
+# cedian — Roadmap
+
+The ONE schedule: vertical slices S0–S9 in value order. Each slice is a thin cut that ends triable in the `cedian` CLI (or the app once S9 lands). Never start a slice whose exit can't be exercised in this repo — integration risk first, never accumulate untested layers. Old phase numbers survive only as the "Scope from Phase N" blocks under each slice.
+
+Rules live in [`ARCHITECTURE.md`](ARCHITECTURE.md); reasons in [`decisions/`](decisions/) (method: [ADR-0017](decisions/0017-slices-exit-rule-stand-ins.md)); **status lives only in [`../README.md`](../README.md)** — this file never says done/partial.
+
+> **Exit-criterion rule.** Every exit criterion names WHO acts and WHAT is observed: "an OMP turn is blocked by X" is an exit; "the CLI prints blocked" is not. A slice is ✅ in `README.md` only when its exit holds through an OMP turn (live lane) or a hermetic fake-omp replay (§86). Anything weaker is marked `◐ partial` with the gap named. Persisted state (`.cedian/*.json`) carries `snapshot_version` from the slice that introduces it (§75).
+
+## Releases
+
+Version numbers exist only once the app exists:
+
+| Release | = | Notes |
+|---|---|---|
+| — (pre-S9) | S0–S8 headless work | no version numbers |
+| **v0.1** | **S9 exit** | binds every slice that is ✅ in README at that point (target: S0–S5); gate = the "fully native" checklist under S9 |
+| **v0.2** | S6 + S7 | PR workspace + local automations |
+| iOS | S8 | extension track, after v0.1, never gating |
+
+OMP-only multi-provider note: cedian speaks to ONE harness. Multi-model choice lives INSIDE OMP (provider/model routing, `set_model`) — cedian never adds a second harness adapter to chase providers. If OMP gains a provider, cedian gains it for free.
+
+## Headless stand-ins (pre-S9)
+
+Before the Zed fork lands (S9), some capabilities the plan assigns to Zed or to OMP-side additions (§8) are built as **headless stand-ins** inside cedian crates so slices stay triable. A stand-in is allowed only if it has a row below: owner crate, the plan section it temporarily deviates from, and the slice that deletes or moves it. A stand-in with no row is a violation of ARCHITECTURE §88. Rationale: [ADR-0017](decisions/0017-slices-exit-rule-stand-ins.md).
+
+| Row | Stand-in (today) | Deviates from | Fate |
+|---|---|---|---|
+| A | `cedian_workflow` — TaskProfile/Playbook/phase state driven from the CLI | §46 split (OMP owns profile/playbook/phases) | **Decided: A1-narrow ([ADR-0010](decisions/0010-gate-checker-a1-narrow.md)).** KEEP permanently: evidence store, `Gate::evaluate`, `can_complete`, `max_continue`, gate-floor policy. MOVE to OMP (§8 `workflow/`): task classification, playbook choice, phase advancement. CLI `workflow run/advance` stay as stand-ins until OMP emits workflow events (§61). |
+| B | `cedian_lsp` / `cedian_dap` — own rust-analyzer / lldb-dap subprocesses | §21/§22 (one LSP/DAP, Zed's), §88 "custom LSP/DAP" | Deleted at S9; host tools + `cedian://` rebind to Zed's `Project` LSP/DAP. Until then: never spawned implicitly per prompt, and the duplicate-server cost (cedian + OMP `lsp`) is accepted for headless only. |
+| C | `cedian_worker` — user-driven `git worktree` registry | §43 (OMP requests via host tool), §42 (subagent tree) | Stays as the mechanism. Missing pieces before S5 counts as ✅: host tool `cedian_worktree_request` (OMP asks, cedian creates) + router handling of `subagent_lifecycle/progress` for the visualization. |
+| D | `cedian_browser` — separate cedian-owned headless Chrome, one per CLI invocation | §25 (one shared Chromium with OMP), §29 R4 (frame binding) | S9: single long-lived Chrome, OMP `browser` connects to the same CDP endpoint. Until then evidence from it is labelled `headless-capture` and cannot satisfy a `required: true` browser gate. |
+| E | Settings in `cedian.json` (JSON) | §64/§2.5 (permission TOML) | **Decision: TOML wins** (the plan, Q10b CI gate and the settings UI all assume one TOML file). Migrate `cedian_shell` to `cedian.toml` before S3; JSON is not accepted after that. |
+| G | OMP native `edit`/`write` write the filesystem directly (no host-tool route yet) | §10/§12 (edits as buffer transactions) | Until the OMP-side route lands: disk is authoritative for OMP-native edits; cedian never writes a buffer back over a file that changed on disk during the turn (fail closed + report), and provenance for such edits is recorded per turn from disk diffs (attribution = turn, not tool call → hunks the turn cannot pin to a tool call are `UNATTRIBUTED`). |
+
+## Slices
+
+### S0 — Foundation loop
+
+**Exit:** `prompt → cards → edit → review → accept/reject` in one CLI process, where: streamed text reaches the thread (not only `prompt_result`); review shows only task-attributed hunks (ARCHITECTURE §16), user edits after the agent show `STALE` (§18), accept/reject persist across invocations, and no OMP disk edit is ever overwritten by a buffer write-back (row G). A hermetic fake-omp replay (§86) covers router → thread.
+
+#### Scope from Phase 0.5 — RPC Spike (gating)
+
+Nothing in §§4–8 / 71–73 is locked until this spike passes. Prove it against the real `omp --mode rpc-ui` binary (observed present in `omp v18.6.1`):
+
+```text
+spawn omp --mode rpc-ui from a minimal Rust host
+ready handshake
+RPC v2 negotiation via generated Rust client
+prompt → streamed text reply
+abort mid-stream
+open_session restore
+```
+
+Record a capability table (have / missing / unstable):
+
+```text
+request correlation
+streaming events
+cancellation
+protocol negotiation
+frame chunking
+backpressure
+subagent events
+host tools
+host URIs
+UI request/response
+prompt images
+session restore
+generated Rust client usable from Zed fork
+mode parity (normal | plan | deep | goal)
+```
+
+If any row is missing: either scope Phase 1 down to what exists, or explicitly schedule the OMP-side addition in `packages/coding-agent/src/` (§8) before proceeding. Do not start Phase 1 on assumed capabilities.
+
+Consumer map — a missing row auto-defers its consumers, no separate decision needed:
+
+```text
+request correlation, streaming events, cancellation → Phase 1, 2
+protocol negotiation, frame chunking, backpressure → Phase 1
+prompt images → Phase 1, 2
+session restore → Phase 1, 5 (provenance restore)
+subagent events → Phase 16, 17
+host tools → Phase 4, 7, 8
+host URIs → Phase 6
+UI request/response → Phase 2 (ask dialog)
+generated Rust client usable from Zed fork → Phase 1 (all)
+mode parity → Phase 2 (§65)
+```
+
+Acceptance:
+
+> Capability table filled from a real run. Every "missing" row has an owner + phase, or Phase 1 scope is cut to match.
+
+#### Scope from Phase 1 — OMP Runtime Inside cedian
+
+Implement:
+
+```text
+spawn bundled OMP
+Rust RPC client
+v2 negotiation
+prompt
+stream text
+abort
+session restore
+images
+```
+
+Acceptance:
+
+> Open cedian → type prompt → OMP replies without a terminal.
+
+#### Scope from Phase 2 — Native Agent Panel
+
+Implement:
+
+```text
+OMP thread
+composer
+streaming markdown
+images
+tool calls
+tool outputs
+ask
+model state
+thinking state
+```
+
+Acceptance:
+
+> Full OMP session usable entirely inside cedian.
+
+#### Scope from Phase 3 — Tool Card Registry
+
+Support at least:
+
+```text
+read
+edit
+write
+bash
+grep
+glob
+find
+lsp
+debug
+task
+eval
+browser
+todo
+```
+
+Acceptance:
+
+> Normal UX shows no raw RPC JSON or ugly terminal transcript for ordinary tools.
+
+#### Scope from Phase 4 — Editor-Native Edit Surface (host tools + cedian:// URIs; no OMP backend seam — §10)
+
+> **Ordering.** this phase MUST precede Review (Phase 5). `clock::Global` baselines (§16) have no meaning before `cedianWorkspaceHost::buffer_version` exists.
+
+Implement:
+
+```text
+HostService protocol
+WorkspaceHost
+Zed buffer transactions
+undo support
+save synchronization
+```
+
+Acceptance:
+
+> OMP `edit` modifies the Zed buffer transaction directly and native undo works.
+
+#### Scope from Phase 5 — Edit Provenance + Review Changes
+
+> **Ordering.** requires Phase 4 (baseline type + transaction hook). Do not start without `buffer_version` + `apply_edit` landing.
+
+Implement:
+
+```text
+task baseline
+toolCallId provenance
+agent edit tracker
+DiffPatch/MultiBuffer projection (acp_thread::diff — no "AgentDiff" symbol exists)
+accept/reject
+stale detection
+```
+
+Acceptance:
+
+> OMP changes 10 files → Review Changes accurately shows only OMP task changes.
+
+This is one of the most important milestones.
+
+#### Scope from Phase 6 — Native Context
+
+Implement:
+
+```text
+active file
+selection
+diagnostics
+open editors
+host URI
+@selection
+@file
+```
+
+Acceptance:
+
+> Highlight code → say “fix this” → OMP operates on the correct target.
+
+### S1 — Language services
+
+Stand-in row B. OMP `lsp`/`debug` tools stay unchanged.
+
+**Exit:** CLI shows REAL diagnostics/symbols for a Rust file; an agent breakpoint round-trips on a headless debug adapter.
+
+#### Scope from Phase 7 — Zed LSP Surface (no OMP backend seam — §10)
+
+Implement (cedian host tools + cedian:// URIs surfacing Zed LSP state; OMP `lsp` tool unchanged):
+
+```text
+cedian host tools (definitions/references/hover/symbols/rename/code-action/diagnostics)
+cedian:// diagnostics + symbol URIs
+```
+
+Acceptance:
+
+> OMP and cedian use the same language server state.
+
+#### Scope from Phase 8 — Zed DAP Surface (no OMP backend seam — §10)
+
+Implement (cedian host tools + cedian:// URIs surfacing Zed DAP state; OMP `debug` tool unchanged):
+
+```text
+cedian host tools (breakpoint sync/stack/variables/step/continue)
+```
+
+Acceptance:
+
+> Agent-created breakpoints appear in native debugger and both user/agent control the same session.
+
+### S2 — Workflow core
+
+Split per [ADR-0010](decisions/0010-gate-checker-a1-narrow.md) (A1-narrow), stand-in row A.
+
+**Exit:** a bugfix playbook runs reproduce → verify; OMP drives profile/playbook/phases, cedian stores evidence and evaluates gates (pure, `max_continue: 3`), and an OMP turn that claims completion while a required gate is unmet is blocked (status `blocked`, missing gates surfaced). Evidence is attributed only when it carries a real `tool_call_id` from the router log — CLI-typed evidence is `unattributed` by default.
+
+#### Scope from Phase 10 — Workflow Engine [GATED TRACK — requires Phase 0.5 signal on `host tools` + gate pure-function contract (§54)]
+
+Implement:
+
+```text
+TaskProfile
+Playbook
+Gate
+Evidence
+WorkflowState
+RPC events
+```
+
+Acceptance:
+
+```text
+Bug Fix
+✓ Reproduce
+✓ Investigate
+✓ Implement
+● Verify
+○ Review
+```
+
+### S3 — Review agents
+
+**Gate (must ALL hold before S3 work starts):**
+1. OMP resolver made strict at runtime spawn: `approvalMode` (`always-ask` or `write`), `approval.*`, `bash.patterns`, `eval` gate and `set_ask_dialog(true)` set before the first turn (ARCHITECTURE §63/§64), verified by a test that a write tool prompts instead of auto-running.
+2. Reviewer Seatbelt profile at `policy/reviewer.sbpl`, generated per §64 mechanism 2 (deny-default, only `/usr/bin/sandbox-exec`), plus a **bypass-proof test**: a reviewer process attempting a write inside the workspace and a non-allow-listed `bash` command gets `Deny` from the kernel, not from a policy check.
+3. Reviewer `bash` allow-list lives in `cedian.toml` (row E) beside `[permissions]` — one file, one CI gate.
+4. Audit tuple `{timestamp, ordinal, tool, command/prefix, decision, scope}` appended as JSONL to `.cedian/audit.jsonl` for every cedian-gate decision, including `Abstain`; a test replays the file.
+
+**Exit:** structured findings annotate a diff; completion gates require evidence; CLI `review --agent`.
+
+#### Scope from Phase 12 — Review Agents [GATED TRACK — requires reviewer sandbox profile (§58) + audit-tuple logging (§64) landing first]
+
+Implement:
+
+```text
+ReviewPolicy
+correctness reviewer
+regression reviewer
+security reviewer
+architecture reviewer
+structured findings
+```
+
+Acceptance:
+
+> Findings annotate native diff/editor.
+
+### S4 — Browser evidence
+
+Stand-in row D.
+
+**Exit:** CLI drives a page, captures screenshot + DOM, a gate consumes it as evidence; captures within one session carry a monotonic frame seq so `stale-frame` (ARCHITECTURE §29) is real, not always-fresh.
+
+#### Scope from Phase 9 — Shared Browser
+
+Implement:
+
+```text
+cedian-owned Chromium lifecycle
+CDP endpoint
+OMP browser connects to same Chromium
+screencast
+mouse/keyboard forwarding
+browser pane
+console/network integration
+```
+
+Acceptance:
+
+> User and OMP interact with the same tab.
+
+> User input preempts the agent in a shared tab — rule in [ARCHITECTURE §25](ARCHITECTURE.md#25-browser-architecture) (*[ADR-0007](decisions/0007-shared-browser-and-evidence-frames.md)*).
+
+#### Scope from Phase 11 — Browser Verification
+
+Browser becomes an evidence provider.
+
+Acceptance:
+
+> OMP cannot mark a browser-facing task complete while a required browser verification gate is missing.
+
+### S5 — Parallel workers
+
+Stand-in row C. Swarm/arena are presets — no new engine.
+
+**Exit:** an OMP turn requests a worktree through a host tool and cedian creates it; parallel workers on worktrees are visible (from subagent events) and steerable (a steer reaches the worker's OMP session); merge-back merges into the stated base only, and removing an unmerged worker is refused.
+
+#### Scope from Phase 16 — Subagent / Worktree UI
+
+> Worktree mechanism and visualization land together — [ADR-0009](decisions/0009-worktree-mechanism-vs-policy.md).
+
+Implement:
+
+```text
+subagent tree
+progress
+cancel
+steer
+worktree mechanism (add/remove, WorktreeId, host-service request)
+worktree visualization
+```
+
+Acceptance:
+
+> Parallel OMP workers are visible, while OMP remains the only orchestrator.
+
+#### Scope from Phase 17 — Swarm / Arena
+
+Implement last.
+
+```text
+Swarm = task partition preset
+Arena = same-task parallel preset
+Architect = design Arena preset
+Interrogate = ReviewPolicy preset
+```
+
+No new engine.
+
+### S6 — PR workspace
+
+**Exit:** open PR → review → comment → Fix → CI green → merge via CLI; PR baselines labelled separately from task baselines; merge is `Deny`-by-default (explicit per-action `Ask`).
+
+#### Scope from Phase 18 — PR Workspace
+
+> **Rationale (market parity, 2026-10-06).** Synara + Claude Desktop both ship browse/review/merge PRs + stacked PRs + CI auto-fix in-app. cedian's Review Changes (§§15–20) stops at the working tree — the PR is where review actually ships. Cheap to build: `gh` CLI + existing review pipeline, no new engine. *(→ [ADR-0019](decisions/0019-scope-cuts.md))*
+
+Implement (all via `gh`, cedian renders natively) — v1 scope ONLY (Fix-button, stacked-PR position, pinned list are follow-ups with their own acceptance, not this phase):
+
+```text
+PR list (per repo)
+diff review (reuse §15–20 pipeline on PR range, not task baseline)
+inline comments → ReviewFeedback payload (§19) → OMP Fix
+CI status bar + auto-fix toggle (read check output → iterate, bounded like §54 max_continue)
+merge (explicit confirm; method = squash default)
+```
+
+Rules: PR diffs use the PR base as baseline (§16 task-baseline stays for working-tree review — two baselines, labeled in UI, never mixed). Destructive actions (merge, close) are `Deny`-by-default in §64 policy (explicit per-action `Ask`, never auto-allow). CI auto-fix turns count against the task's `max_continue`.
+
+> **Cut from v1 (2026-10-06).** Dropped from v1: Fix-button (comment grouping), stacked-PR position/readiness, pinned repos, safe-prefix merge — each is a separate feature needing its own acceptance; bundling them guarantees a half-done phase.
+
+Acceptance:
+
+> Open PR → review diff → comment → Fix → CI green → merge, without leaving cedian.
+
+### S7 — Local automations
+
+No cloud, ever (ARCHITECTURE §89).
+
+**Exit:** a scheduled run fires while the machine is awake → history + evidence visible on return; same gates and provenance as interactive turns.
+
+#### Scope from Phase 19 — Automations (Scheduled Runs)
+
+> **Rationale + scope (user decision, 2026-10-06).** Synara ships scheduled recurring runs; cedian adopts a LOCAL-only version — no cloud runner, no remote queue. Justification: the machine stays on 24/7, so a local scheduler suffices and avoids an entire second infrastructure (server, auth, billing, remote sandbox). *(→ [ADR-0019](decisions/0019-scope-cuts.md))*
+
+Implement:
+
+```text
+schedule (cron expr; plain-language → cron is a follow-up, not v1)
+run history (reuse audit-tuple log, §64)
+stop conditions (evaluated as pure predicates, §54-style: bounded, no I/O)
+consecutive-failure limit (default 3 → auto-pause + notify, same shape as max_continue)
+wake = spawn turn in existing workspace (same lifecycle as §71, steps 1–12)
+```
+
+Rules: automations run under the SAME permission profile as interactive turns (no privilege elevation for background); `computer` actuation is `Deny` for automation runs until the user explicitly allows per-automation. Every scheduled run emits the same provenance (§17) and evidence (§53) as interactive work — gates apply identically. No cloud/SSH execution, EVER (out of scope, §91).
+
+> **Cut from v1 (2026-10-06).** Dropped from v1: NL→cron parsing (cron expr typed directly; OMP translation is its own feature with its own misparse risk), lid-closed guarantee (acceptance is "history + evidence visible on return from sleep", not a power-management promise — no `IOPMAssertion`, no wake-from-sleep; machine-on-24/7 is the user's setup, not cedian's contract).
+
+Acceptance:
+
+> Scheduled run fires while the machine is awake → history + evidence visible on return.
+
+### S8 — iOS extension track
+
+Off the native critical path; ships after v0.1 and never gates it.
+
+**Exit:** OMP builds, launches and drives the app on a simulator through the `ios` tool, semantic UI first, with the simulator visible in cedian.
+
+#### Scope from Phase 13 — iOS Core [EXTENSION TRACK — off the fully-native critical path]
+
+Implement:
+
+```text
+devices
+boot
+build
+install
+launch
+terminate
+screenshot
+logs
+```
+
+Acceptance:
+
+> OMP can build and launch the iOS app without manual external steps.
+
+#### Scope from Phase 14 — iOS Semantic Interaction [EXTENSION TRACK]
+
+Implement:
+
+```text
+WDA/XCTest
+UI tree
+tap
+type
+swipe
+wait
+```
+
+Acceptance:
+
+> OMP can reproduce UI flows without relying mainly on pixel coordinates.
+
+#### Scope from Phase 15 — iOS Native Panel [EXTENSION TRACK]
+
+Implement:
+
+```text
+ScreenCaptureKit
+Simulator window capture
+GPUI rendering
+input forwarding
+```
+
+Acceptance:
+
+> Simulator appears live inside cedian.
+
+### S9 — The real app (fork + GPUI)
+
+Fork hygiene, signing/notarization, app-shell UI, GPUI binding of every headless model, and deletion of stand-ins B and D. THIS — not S1–S8 — is what makes cedian triable as an app.
+
+**Exit:** `cargo run -p cedian -- …` → onboard → prompt → answer with zero terminal, AND every non-extension item of the checklist below is true.
+
+#### Definition of "fully native" (v0.1 gate)
+
+Do not call cedian “fully native OMP-integrated” until all critical items below are true. iOS is on the extension track and NOT required for this label (tracked separately in §86 iOS Tests):
+
+```text
+□ cedian starts OMP automatically
+□ no OMP terminal required
+
+□ prompt/stream/cancel native
+□ image input native
+□ ask native
+□ permissions native
+
+□ every OMP tool has a structured UI fallback
+□ edit/write integrate editor buffers
+□ native undo works
+□ Review Changes works per task
+□ hunk accept/reject works
+□ stale hunk detection works
+
+□ active selection reaches OMP
+□ diagnostics available
+□ LSP shares Zed state
+□ DAP shares Zed state
+
+□ browser agent/user share same tab
+□ browser screenshot inline
+□ console/network available
+
+□ iOS build/launch/screenshot [EXTENSION — not gating fully-native]
+□ iOS semantic UI interaction [EXTENSION — not gating fully-native]
+□ simulator state visible in cedian [EXTENSION — not gating fully-native]
+
+□ subagents visible
+□ isolated worktrees visible
+□ cancel/steer works
+
+□ workflow visible
+□ verification evidence visible
+□ review findings annotate code
+
+□ OMP crash does not crash IDE
+□ restart restores session
+□ protocol mismatch fails safely
+
+□ no second harness
+□ no ACP dependency in core architecture
+□ no duplicate orchestration engine
+□ no duplicate context engine
+□ no duplicate subagent runtime
+```
+
+When this is true:
+
+> **cedian = fully OMP-native agentic IDE.**
+
+#### Scope from Phase 0 — Fork Hygiene
+
+Build:
+
+```text
+Zed fork builds
+OMP fork builds
+pinned upstream remotes
+upstream rebase cadence + conflict owner
+Zed license audit for redistributed binary (GPL terms)
+macOS signing / notarization owner for cedian.app + bundled omp
+cedian branding
+CI build
+UI kit evaluation: pin gpui-kit + elygpui revisions, verify GPUI version compat with Zed fork
+```
+
+Acceptance:
+
+```text
+`cargo run -p cedian -- ...` (app binary; pre-S9 use `cargo run -p cedian_cli -- ...`)
+```
+
+works as a normal Zed-derived editor.
+
+#### Scope from Phase 2.5 — App Shell (Onboarding, Palette, Settings, Updates)
+
+> **Rationale (UI gap review, 2026-10-06).** Phases 1–2 build panes; nothing owns the APP around them (first-run, shortcuts, settings surface, updates). One phase, one owner — the shell, not four scattered features.
+
+Implement:
+
+```text
+first-run onboarding (Zed import? → OMP bundled check → bundled-OMP trust banner (§6) → sample workspace)
+command palette entries (every agent action: prompt/abort/steer/review/PR/automation — all palette-discoverable)
+keybindings (agent panel/composer/tool-card/review navigation; no clash with Zed defaults; user-overridable, versioned with snapshot_version §75)
+settings UI (permission TOML + reviewer allow-list + automation schedules + update channel + Seatbelt status line only)
+model picker (dropdown beside composer: OMP provider/model routing via set_model; per-task override, persisted per workspace — OMP owns the catalog, cedian renders it)
+session manager (new/switch/archive/delete task, resume-checkbox state per §76, storage meter per task — thin UI over open_session/new_session/switch_session)
+auto-update (cedian.app + bundled omp as ONE unit: version check → download → verify triple (§6) → relaunch; OMP revision change shows [Review changes] [Continue], never silent)
+```
+
+> **Settings audit (2026-10-06).** ADDED vs draft: model picker (no UI existed for set_model/provider routing), session manager (no surface for session lifecycle). CUT: Seatbelt profile viewer — `.sbpl` is a generated artifact, unreadable in UI; replaced by a status line (`enforcing: Seatbelt profile vX`) + open-file button.
+
+Rules: settings UI EDITS the same TOML/policy files CI gates (Q10b) — no second source of truth; palette/shortcut registry reuses gpui-kit action/keybinding primitives (§84 stack lock), never hand-rolled dispatch. Onboarding must complete WITHOUT network (bundled OMP is local; no account, no sign-in).
+
+Acceptance:
+
+> Fresh install → onboarded → prompt → answer, with zero terminal and zero config-file editing.
