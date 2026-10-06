@@ -14,10 +14,9 @@ Rule: `cedian = environment, OMP = intelligence`.
 | 1 OMP Runtime | ✅ `crates/cedian_omp/` — spawn, v2, prompt/abort/restore/images |
 | 2 Agent Panel (headless) | ✅ `crates/cedian_agent/` + `crates/cedian_agent_ui/` |
 | 3 Tool Cards | ✅ args preview + result summary, no raw JSON |
-| 4 Edit Surface | ▶ next — host tools + `cedian://` + buffer transactions |
-
-GPUI views bind when the Zed fork lands. Until then every crate is headless
-(state machines + tests + live smoke against the real `omp --mode rpc-ui`).
+| 4 Edit Surface (headless) | ✅ `crates/cedian_workspace/` — host tools + `cedian://` + txns |
+| 5 Provenance + Review | ✅ `crates/cedian_review/` — baseline, hunks, accept/reject |
+| 6 Native Context | ▶ next — full `cedian://` + ambient snapshot |
 
 ## Layout
 

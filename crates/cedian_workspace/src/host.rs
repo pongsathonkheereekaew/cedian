@@ -11,9 +11,32 @@
 use crate::buffer::{ApplyEditResult, BufferError, BufferStore, TextEdit, Version};
 use omp_rpc::{HostTool, HostUri};
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// One published diagnostic (headless subset of LSP `Diagnostic`; the fork
+/// binding converts real `lsp::Diagnostic` into this shape).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Diagnostic {
+    /// Buffer path.
+    pub path: PathBuf,
+    /// 0-based line.
+    pub line: usize,
+    pub severity: DiagnosticSeverity,
+    pub message: String,
+}
+
+/// Diagnostic severity (LSP subset).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiagnosticSeverity {
+    Error,
+    Warning,
+    Info,
+}
 
 /// Editor boundary: active file, selection, versioned edits, save, diagnostics.
 /// Mirrors plan §12 (`buffer_version` + `apply_edit(path, expected, edit)`);
@@ -36,14 +59,19 @@ pub trait WorkspaceHost: Send + Sync {
     fn undo(&self, path: &Path) -> Option<Version>;
     /// Read buffer text (agents see buffers, not just the filesystem — §13).
     fn read_buffer(&self, path: &Path) -> Option<String>;
+    /// Published diagnostics for one buffer (fork: real LSP state).
+    fn diagnostics(&self, path: &Path) -> Vec<Diagnostic>;
 }
 
-/// Headless host: in-memory buffers + caller-set editor chrome.
+/// Headless host: in-memory buffers + caller-set editor chrome + published
+/// diagnostics (headless stand-in for Zed `Project::diagnostics`; the fork
+/// binding publishes real LSP diagnostics here).
 #[derive(Debug, Default)]
 pub struct HostTools {
     store: Mutex<BufferStore>,
     active_file: Mutex<Option<PathBuf>>,
     selection: Mutex<Option<(PathBuf, usize, usize)>>,
+    diagnostics: Mutex<HashMap<PathBuf, Vec<Diagnostic>>>,
 }
 
 impl HostTools {
@@ -124,25 +152,117 @@ impl HostTools {
         )
     }
 
-    /// Build the `cedian` URI scheme: `cedian://buffer/<path>` reads serve
-    /// buffer text (writes route through the host tool — OMP `edit` never
-    /// targets host URIs, plan §11).
+    /// Build the `cedian` URI scheme: serves every Phase 6 kind (buffer,
+    /// selection, active-file, diagnostics, open-editors). Unknown kinds fail
+    /// with `isError`, never silent empty (forward-compat for browser/ios/review).
     pub fn cedian_uri_scheme(self: &Arc<Self>) -> HostUri {
         let host = Arc::clone(self);
         HostUri::new("cedian", move |url, _ctx| {
             let uri = crate::parse_cedian_uri(url)
                 .map_err(|e| -> omp_rpc::HostUriError { format!("{e}").into() })?;
-            match uri.kind.as_str() {
-                "buffer" => host
-                    .read_buffer(Path::new(&uri.path))
-                    .map(|text| text.into())
-                    .ok_or_else(|| -> omp_rpc::HostUriError {
-                        format!("buffer not open: {}", uri.path).into()
-                    }),
-                other => Err(format!("unknown cedian:// kind: {other}").into()),
-            }
+            host.serve_uri(&uri)
         })
         .expect("cedian scheme is valid")
+    }
+
+    /// Serve one parsed `cedian://` URL. Pure dispatch — each kind has its own
+    /// renderer below so Phase 7+ (browser/ios/review) extends by adding arms.
+    fn serve_uri(
+        &self,
+        uri: &crate::CedianUri,
+    ) -> Result<omp_rpc::HostUriRead, omp_rpc::HostUriError> {
+        use crate::UriKind;
+        match &uri.kind {
+            UriKind::Buffer => self
+                .read_buffer(Path::new(&uri.path))
+                .map(|text| text.into())
+                .ok_or_else(|| -> omp_rpc::HostUriError {
+                    format!("buffer not open: {}", uri.path).into()
+                }),
+            UriKind::Selection => Ok(self.render_selection().into()),
+            UriKind::ActiveFile => Ok(self.render_active_file().into()),
+            UriKind::Diagnostics => Ok(self.render_diagnostics(&uri.path).into()),
+            UriKind::OpenEditors => Ok(self.render_open_editors().into()),
+            UriKind::Unknown(kind) => Err(format!("unknown cedian:// kind: {kind}").into()),
+        }
+    }
+    /// Publish diagnostics for a buffer (fork: LSP publishDiagnostics lands here).
+    pub fn publish_diagnostics(&self, path: &Path, diagnostics: Vec<Diagnostic>) {
+        self.diagnostics
+            .lock()
+            .insert(path.to_path_buf(), diagnostics);
+    }
+
+    /// Render `cedian://selection`: `path:start-end` + selected text, or empty
+    /// (no silent stale — empty means no selection NOW).
+    fn render_selection(&self) -> String {
+        match self.selection() {
+            Some((path, start, end)) => {
+                let text = self.read_buffer(&path).unwrap_or_default();
+                let end = end.min(text.len());
+                let start = start.min(end);
+                format!(
+                    "{}:{}-{}\n{}",
+                    path.display(),
+                    start,
+                    end,
+                    &text[start..end]
+                )
+            }
+            None => String::new(),
+        }
+    }
+
+    /// Render `cedian://active-file`: the active path, or empty.
+    fn render_active_file(&self) -> String {
+        self.active_file()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+
+    /// Render `cedian://diagnostics[/path]`: `severity path:line message` lines.
+    /// Empty path = all buffers. Empty output = no diagnostics (not an error).
+    /// Path matches with or without a leading `/` (URI paths strip it).
+    fn render_diagnostics(&self, path: &str) -> String {
+        let all = self.diagnostics.lock();
+        let mut lines = Vec::new();
+        for (buf, diags) in all.iter() {
+            if !path.is_empty() {
+                let buf_str = buf.to_string_lossy();
+                let buf_no_slash = buf_str.strip_prefix('/').unwrap_or(&buf_str);
+                if buf_no_slash != path && buf_str != path {
+                    continue;
+                }
+            }
+            for d in diags {
+                let sev = match d.severity {
+                    DiagnosticSeverity::Error => "error",
+                    DiagnosticSeverity::Warning => "warning",
+                    DiagnosticSeverity::Info => "info",
+                };
+                lines.push(format!(
+                    "{sev} {}:{} {}",
+                    d.path.display(),
+                    d.line,
+                    d.message
+                ));
+            }
+        }
+        lines.sort();
+        lines.join("\n")
+    }
+
+    /// Render `cedian://open-editors`: one open buffer path per line.
+    fn render_open_editors(&self) -> String {
+        let mut paths: Vec<String> = self
+            .store
+            .lock()
+            .open_paths()
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        paths.sort();
+        paths.join("\n")
     }
 }
 
@@ -175,6 +295,14 @@ impl WorkspaceHost for HostTools {
     fn read_buffer(&self, path: &Path) -> Option<String> {
         self.store.lock().read(path).map(|(text, _)| text)
     }
+
+    fn diagnostics(&self, path: &Path) -> Vec<Diagnostic> {
+        self.diagnostics
+            .lock()
+            .get(path)
+            .cloned()
+            .unwrap_or_default()
+    }
 }
 
 #[cfg(test)]
@@ -198,5 +326,53 @@ mod tests {
         let saved = h.agent_sync();
         assert_eq!(saved, vec![PathBuf::from("/a.rs")]);
         assert!(h.agent_sync().is_empty());
+    }
+    #[test]
+    fn uri_kinds_serve() {
+        use crate::{CedianUri, UriKind};
+        let h = HostTools::new();
+        h.open(Path::new("/a.rs"), "hello\nworld\n");
+        h.open(Path::new("/b.rs"), "x\n");
+        h.set_active_file(Some(PathBuf::from("/a.rs")));
+        h.set_selection(Some((PathBuf::from("/a.rs"), 0, 5)));
+        h.publish_diagnostics(
+            Path::new("/a.rs"),
+            vec![Diagnostic {
+                path: PathBuf::from("/a.rs"),
+                line: 1,
+                severity: DiagnosticSeverity::Warning,
+                message: "unused".to_string(),
+            }],
+        );
+        let serve = |kind: UriKind, path: &str| {
+            h.serve_uri(&CedianUri {
+                kind,
+                path: path.to_string(),
+            })
+            .unwrap()
+            .content
+        };
+        assert_eq!(serve(UriKind::Buffer, "/a.rs"), "hello\nworld\n");
+        assert!(serve(UriKind::Selection, "").contains("/a.rs:0-5"));
+        assert_eq!(serve(UriKind::ActiveFile, ""), "/a.rs");
+        assert!(serve(UriKind::Diagnostics, "").contains("warning /a.rs:1 unused"));
+        assert!(serve(UriKind::Diagnostics, "a.rs").contains("unused"));
+        assert!(!serve(UriKind::Diagnostics, "b.rs").contains("unused"));
+        let editors = serve(UriKind::OpenEditors, "");
+        assert!(editors.contains("/a.rs") && editors.contains("/b.rs"));
+        // Unknown kind: visible error, never silent empty.
+        assert!(h
+            .serve_uri(&CedianUri {
+                kind: UriKind::Unknown("nope".into()),
+                path: String::new()
+            })
+            .is_err());
+        // Missing buffer: visible error.
+        assert!(h
+            .serve_uri(&CedianUri {
+                kind: UriKind::Buffer,
+                path: "/zzz.rs".into()
+            })
+            .is_err());
     }
 }

@@ -1,21 +1,46 @@
-//! `cedian://` virtual files (plan §11: host URI schemes).
+//! `cedian://` virtual files (plan §§11, 40: deep context via host URIs).
 //!
-//! `cedian://buffer/<path>` reads/writes go through the `BufferStore` — this
-//! is how OMP tools (LSP/diagnostics later) read Zed state without a backend
-//! seam. Reserved OMP schemes (`local://`, `skill://`, `artifact://`,
-//! `security://`, `mcp://`, …) are rejected at parse: cedian never shadows one.
-//! OMP `edit` does NOT target host URIs (upstream) — writes come from the
-//! `write` tool via host tools, or explicit `cedian://` writes here.
+//! Kinds (Phase 6): `buffer/<path>`, `selection`, `active-file`,
+//! `diagnostics[/<path>]`, `open-editors`. Later phases add `browser/current`,
+//! `ios/current`, `review/current` — unknown kinds fail with `isError`, never
+//! silent empty. Reserved OMP schemes are rejected at parse (never shadowed).
+//! OMP `edit` does NOT target host URIs (upstream) — writes route via host tools.
 
 /// Reserved OMP built-in schemes — never registered, never shadowed.
 pub const RESERVED_SCHEMES: &[&str] = &["local", "skill", "artifact", "security", "mcp"];
 
+/// Known `cedian://` kinds. Unknown kind strings parse fine (forward-compat)
+/// but fail at serve time with a visible error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UriKind {
+    Buffer,
+    Selection,
+    ActiveFile,
+    Diagnostics,
+    OpenEditors,
+    Unknown(String),
+}
+
+impl UriKind {
+    /// Parse a kind segment.
+    pub fn parse(kind: &str) -> Self {
+        match kind {
+            "buffer" => Self::Buffer,
+            "selection" => Self::Selection,
+            "active-file" => Self::ActiveFile,
+            "diagnostics" => Self::Diagnostics,
+            "open-editors" => Self::OpenEditors,
+            other => Self::Unknown(other.to_string()),
+        }
+    }
+}
+
 /// A parsed `cedian://` URL: kind + path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CedianUri {
-    /// `buffer`, `diagnostics`, … (extensible per host service).
-    pub kind: String,
-    /// Path within the kind namespace (leading `/` stripped).
+    /// Typed kind (unknown kinds preserved, fail at serve).
+    pub kind: UriKind,
+    /// Path within the kind namespace (`""` for bare kinds like `selection`).
     pub path: String,
 }
 
@@ -24,7 +49,7 @@ pub struct CedianUri {
 pub enum UriError {
     /// Not a `cedian://` URL.
     WrongScheme { got: String },
-    /// Missing kind or path.
+    /// Missing kind segment.
     BadShape { url: String },
     /// Reserved OMP scheme — refused, never shadowed.
     Reserved { scheme: String },
@@ -42,7 +67,8 @@ impl std::fmt::Display for UriError {
 
 impl std::error::Error for UriError {}
 
-/// Parse a URL into a [`CedianUri`]. Accepts only `cedian://kind/path`.
+/// Parse a URL into a [`CedianUri`]. Accepts `cedian://kind[/path]`; bare kinds
+/// (`selection`, `active-file`, `open-editors`) carry an empty path.
 pub fn parse_cedian_uri(url: &str) -> Result<CedianUri, UriError> {
     let (scheme, rest) = url.split_once("://").ok_or_else(|| UriError::BadShape {
         url: url.to_string(),
@@ -54,17 +80,23 @@ pub fn parse_cedian_uri(url: &str) -> Result<CedianUri, UriError> {
     if scheme != "cedian" {
         return Err(UriError::WrongScheme { got: scheme });
     }
-    let (kind, path) = rest.split_once('/').ok_or_else(|| UriError::BadShape {
-        url: url.to_string(),
-    })?;
-    if kind.is_empty() || path.is_empty() {
+    if rest.is_empty() {
+        return Err(UriError::BadShape {
+            url: url.to_string(),
+        });
+    }
+    let (kind, path) = match rest.split_once('/') {
+        Some((kind, path)) => (kind, path.to_string()),
+        None => (rest, String::new()),
+    };
+    if kind.is_empty() {
         return Err(UriError::BadShape {
             url: url.to_string(),
         });
     }
     Ok(CedianUri {
-        kind: kind.to_string(),
-        path: path.to_string(),
+        kind: UriKind::parse(kind),
+        path,
     })
 }
 
@@ -75,8 +107,30 @@ mod tests {
     #[test]
     fn buffer_url_parses() {
         let u = parse_cedian_uri("cedian://buffer/src/main.rs").unwrap();
-        assert_eq!(u.kind, "buffer");
+        assert_eq!(u.kind, UriKind::Buffer);
         assert_eq!(u.path, "src/main.rs");
+    }
+
+    #[test]
+    fn bare_kinds_parse_empty_path() {
+        for (url, kind) in [
+            ("cedian://selection", UriKind::Selection),
+            ("cedian://active-file", UriKind::ActiveFile),
+            ("cedian://open-editors", UriKind::OpenEditors),
+            ("cedian://diagnostics", UriKind::Diagnostics),
+        ] {
+            let u = parse_cedian_uri(url).unwrap();
+            assert_eq!(u.kind, kind, "{url}");
+            assert!(u.path.is_empty());
+        }
+        let u = parse_cedian_uri("cedian://diagnostics/src/a.rs").unwrap();
+        assert_eq!(u.kind, UriKind::Diagnostics);
+    }
+
+    #[test]
+    fn unknown_kind_preserved() {
+        let u = parse_cedian_uri("cedian://browser/current").unwrap();
+        assert_eq!(u.kind, UriKind::Unknown("browser".to_string()));
     }
 
     #[test]
@@ -99,7 +153,7 @@ mod tests {
             Err(UriError::WrongScheme { .. })
         ));
         assert!(matches!(
-            parse_cedian_uri("cedian://nokind"),
+            parse_cedian_uri("cedian://"),
             Err(UriError::BadShape { .. })
         ));
     }
