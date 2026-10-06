@@ -91,6 +91,14 @@ impl Playbook {
                     true,
                 ),
                 Self::gate("review", GateKind::Review, false, vec![], 1, true),
+                Self::gate(
+                    "live",
+                    GateKind::Behavior,
+                    false,
+                    vec![EvidenceKind::Browser, EvidenceKind::Screenshot],
+                    1,
+                    true,
+                ),
             ],
         }
     }
@@ -152,6 +160,14 @@ impl Playbook {
                     true,
                 ),
                 Self::gate("review", GateKind::Review, false, vec![], 1, true),
+                Self::gate(
+                    "visual",
+                    GateKind::Visual,
+                    false,
+                    vec![EvidenceKind::Screenshot],
+                    1,
+                    true,
+                ),
             ],
         }
     }
@@ -237,6 +253,8 @@ pub const BUILTINS: &[&str] = &["investigation", "bug_fix", "feature", "refactor
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::evidence::{Evidence, EvidenceKind};
+    use crate::gate::GateStatus;
 
     #[test]
     fn builtins_resolve() {
@@ -253,5 +271,43 @@ mod tests {
         assert_eq!(skipped.len(), 1);
         assert_eq!(skipped[0].id, "review");
         assert!(pb.skipped_for_risk(Risk::High).is_empty());
+    }
+
+    #[test]
+    fn bugfix_has_optional_live_gate_for_browser_evidence() {
+        let pb = Playbook::bug_fix();
+        let g = pb.gates.iter().find(|g| g.id == "live").unwrap();
+        assert!(!g.required);
+        let e = Evidence::attributed(
+            "s1",
+            EvidenceKind::Screenshot,
+            &["live"],
+            "shot frame F1 seq 1",
+            true,
+            "t",
+            "c",
+        );
+        let r = g.evaluate(std::slice::from_ref(&e));
+        assert_eq!(r.status, GateStatus::Passed);
+        assert!(!r.unverified_origin);
+    }
+
+    #[test]
+    fn feature_has_optional_visual_gate_for_screenshot_evidence() {
+        let pb = Playbook::feature();
+        let g = pb.gates.iter().find(|g| g.id == "visual").unwrap();
+        assert!(!g.required);
+        let e = Evidence::attributed(
+            "s1",
+            EvidenceKind::Screenshot,
+            &["visual"],
+            "shot frame F1 seq 1",
+            true,
+            "t",
+            "c",
+        );
+        let r = g.evaluate(std::slice::from_ref(&e));
+        assert_eq!(r.status, GateStatus::Passed);
+        assert!(!r.unverified_origin);
     }
 }
