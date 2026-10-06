@@ -1,0 +1,14 @@
+[package]
+name = "cedian_worker"
+version = "0.1.0"
+edition = "2021"
+
+# S5: parallel workers on isolated git worktrees (plan §43 + Phase 16).
+# Blocking/sync API like cedian_browser; CLI binds in cedian_cli, S9 later.
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
