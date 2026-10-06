@@ -24,10 +24,14 @@ pub enum ThreadEvent {
         streaming: bool,
     },
     /// Tool execution card: status flips `Running → Done | Error | Interrupted`.
+    /// `preview` (args one-liner) fills at start; `summary` (result one-liner)
+    /// at end. Both human text, never raw JSON (Phase 3 acceptance).
     Tool {
         call_id: String,
         name: String,
         status: ToolCallStatus,
+        preview: String,
+        summary: String,
     },
     /// Queue chips snapshot (steer/follow-up), rendered under the composer.
     Queue {
@@ -119,19 +123,35 @@ impl Thread {
             RouterEvent::ToolStart {
                 tool_call_id,
                 tool_name,
+                args_preview,
             } => {
                 let index = self.events.len();
                 self.events.push(ThreadEvent::Tool {
                     call_id: tool_call_id.clone(),
                     name: tool_name.clone(),
                     status: ToolCallStatus::Running,
+                    preview: args_preview.clone(),
+                    summary: String::new(),
                 });
                 self.tools.insert(tool_call_id.clone(), index);
             }
-            RouterEvent::ToolEnd { tool_call_id, .. } => {
+            RouterEvent::ToolEnd {
+                tool_call_id,
+                result_summary,
+                is_error,
+                ..
+            } => {
                 if let Some(&index) = self.tools.get(tool_call_id) {
-                    if let Some(ThreadEvent::Tool { status, .. }) = self.events.get_mut(index) {
-                        *status = ToolCallStatus::Done;
+                    if let Some(ThreadEvent::Tool {
+                        status, summary, ..
+                    }) = self.events.get_mut(index)
+                    {
+                        *status = if *is_error {
+                            ToolCallStatus::Error
+                        } else {
+                            ToolCallStatus::Done
+                        };
+                        *summary = result_summary.clone();
                     }
                 }
             }
@@ -283,10 +303,13 @@ mod tests {
         t.apply(&RouterEvent::ToolStart {
             tool_call_id: "c1".to_string(),
             tool_name: "read".to_string(),
+            args_preview: "src/main.rs".to_string(),
         });
         t.apply(&RouterEvent::ToolEnd {
             tool_call_id: "c1".to_string(),
             tool_name: "read".to_string(),
+            result_summary: "42 lines".to_string(),
+            is_error: false,
         });
         assert!(matches!(
             &t.events()[0],
@@ -304,6 +327,7 @@ mod tests {
         t.apply(&RouterEvent::ToolStart {
             tool_call_id: "c1".to_string(),
             tool_name: "bash".to_string(),
+            args_preview: "sleep 1".to_string(),
         });
         t.on_disconnect(&["c1".to_string()]);
         assert!(t.streaming_text("m1").is_none());
@@ -314,5 +338,33 @@ mod tests {
                 ..
             }
         ));
+    }
+    #[test]
+    fn error_end_marks_card_error() {
+        let mut t = Thread::new();
+        t.apply(&RouterEvent::ToolStart {
+            tool_call_id: "c9".to_string(),
+            tool_name: "bash".to_string(),
+            args_preview: "exit 1".to_string(),
+        });
+        t.apply(&RouterEvent::ToolEnd {
+            tool_call_id: "c9".to_string(),
+            tool_name: "bash".to_string(),
+            result_summary: "command failed".to_string(),
+            is_error: true,
+        });
+        match &t.events()[0] {
+            ThreadEvent::Tool {
+                status,
+                preview,
+                summary,
+                ..
+            } => {
+                assert_eq!(*status, ToolCallStatus::Error);
+                assert_eq!(preview, "exit 1");
+                assert_eq!(summary, "command failed");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 }

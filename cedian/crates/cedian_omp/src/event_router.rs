@@ -26,15 +26,20 @@ pub enum RouterEvent {
     MessageDelta { message_id: String, kind: DeltaKind },
     /// One message completed (full content in payload).
     MessageEnd { message_id: String },
-    /// Tool execution lifecycle from OMP's own tools.
+    /// Tool execution lifecycle from OMP's own tools. `args_preview` is a
+    /// one-line human summary (never raw JSON); `result_summary` likewise,
+    /// filled at end. Phase 3 registry renders both.
     ToolStart {
         tool_call_id: String,
         tool_name: String,
+        args_preview: String,
     },
     /// Tool execution finished.
     ToolEnd {
         tool_call_id: String,
         tool_name: String,
+        result_summary: String,
+        is_error: bool,
     },
     /// A prompt ticket completed.
     PromptResult {
@@ -244,16 +249,16 @@ fn classify_agent_event(event: &RpcAgentEvent) -> RouterEvent {
                 _ => DeltaKind::Other,
             },
         },
-        RpcAgentEvent::MessageEnd(end) => RouterEvent::MessageEnd {
-            message_id: end.message_id.clone().unwrap_or_default(),
-        },
         RpcAgentEvent::ToolExecutionStart(start) => RouterEvent::ToolStart {
             tool_call_id: start.tool_call_id.clone(),
             tool_name: start.tool_name.clone(),
+            args_preview: summarize_args(&start.tool_name, start.args.as_ref()),
         },
         RpcAgentEvent::ToolExecutionEnd(end) => RouterEvent::ToolEnd {
             tool_call_id: end.tool_call_id.clone(),
             tool_name: end.tool_name.clone(),
+            result_summary: summarize_result(&end.tool_name, end.result.as_ref()),
+            is_error: end.is_error.unwrap_or(false),
         },
         RpcAgentEvent::QueueUpdate(queue) => RouterEvent::Queue {
             steering: queue.steering.clone(),
@@ -262,6 +267,103 @@ fn classify_agent_event(event: &RpcAgentEvent) -> RouterEvent {
         _ => RouterEvent::Unknown {
             frame_type: "agent_event".to_string(),
         },
+    }
+}
+/// One-line human summary of tool args — never raw JSON. Per-tool shapes from
+/// `get_state.dumpTools` parameters; unknown tools fall back to key names.
+fn summarize_args(name: &str, args: Option<&serde_json::Value>) -> String {
+    let Some(args) = args else {
+        return String::new();
+    };
+    let get = |key: &str| args.get(key).and_then(|v| v.as_str()).unwrap_or("");
+    // One display line, ~120 chars: long paths (e.g. $TMPDIR) must survive.
+    let first_line = |s: &str| {
+        s.lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(120)
+            .collect::<String>()
+    };
+    let preview: String = match name {
+        "read" | "write" | "glob" => get("path").to_string(),
+        "edit" => get("input")
+            .lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(60)
+            .collect(),
+        "bash" => first_line(get("command")),
+        "grep" => format!("{} in {}", get("pattern"), get("path")),
+        "find" => get("query").chars().take(80).collect(),
+        "eval" => format!("{}: {}", get("language"), first_line(get("code"))),
+        "todo" => format!("{} {}", get("op"), get("task")),
+        "web_search" => get("query").chars().take(80).collect(),
+        _ => args
+            .as_object()
+            .map(|o| o.keys().take(3).cloned().collect::<Vec<_>>().join(", "))
+            .unwrap_or_default(),
+    };
+    preview.trim().to_string()
+}
+
+/// One-line human summary of a tool result — never raw JSON. Prefers counts
+/// and first lines over dumps; truncates to one line.
+fn summarize_result(name: &str, result: Option<&serde_json::Value>) -> String {
+    let Some(result) = result else {
+        return String::new();
+    };
+    let content_texts: Vec<&str> = result
+        .get("content")
+        .and_then(|c| c.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|i| i.get("text").and_then(|t| t.as_str()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let joined = content_texts.join("\n");
+    let line_count = joined.lines().count();
+    match name {
+        "bash" | "eval" => {
+            if line_count > 1 {
+                format!(
+                    "{} lines, last: {}",
+                    line_count,
+                    joined.lines().last().unwrap_or("")
+                )
+            } else {
+                joined
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .chars()
+                    .take(100)
+                    .collect()
+            }
+        }
+        "grep" | "glob" | "find" => {
+            if line_count > 1 {
+                format!("{line_count} matches")
+            } else {
+                joined
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .chars()
+                    .take(100)
+                    .collect()
+            }
+        }
+        _ => joined
+            .lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(100)
+            .collect(),
     }
 }
 
@@ -314,5 +416,31 @@ mod tests {
         drop(rx);
         r.dispatch_notification(&RpcNotification::SessionSettled(SessionSettledEvent {}));
         assert_eq!(r.inner.lock().subscribers.len(), 0);
+    }
+    #[test]
+    fn args_preview_never_raw_json() {
+        let args = serde_json::json!({"command": "cargo test --workspace", "cwd": "/w"});
+        assert_eq!(
+            summarize_args("bash", Some(&args)),
+            "cargo test --workspace"
+        );
+        let args = serde_json::json!({"path": "src/main.rs:10-20"});
+        assert_eq!(summarize_args("read", Some(&args)), "src/main.rs:10-20");
+        let args = serde_json::json!({"pattern": "TODO", "path": "src/"});
+        assert_eq!(summarize_args("grep", Some(&args)), "TODO in src/");
+        // Unknown tool: key names, never a JSON dump.
+        let args = serde_json::json!({"zzz": 1, "aaa": 2});
+        let preview = summarize_args("future_tool", Some(&args));
+        assert!(!preview.contains('{'), "got {preview:?}");
+        assert!(summarize_args("read", None).is_empty());
+    }
+
+    #[test]
+    fn result_summary_prefers_counts() {
+        let multi = serde_json::json!({"content": [{"type": "text", "text": "a\nb\nc"}]});
+        assert_eq!(summarize_result("grep", Some(&multi)), "3 matches");
+        let single = serde_json::json!({"content": [{"type": "text", "text": "hello"}]});
+        assert_eq!(summarize_result("read", Some(&single)), "hello");
+        assert!(summarize_result("bash", None).is_empty());
     }
 }

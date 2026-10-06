@@ -31,23 +31,27 @@ pub enum ToolCardStatus {
     Interrupted,
 }
 
-/// One tool card: name + status + result summary (filled at `ToolEnd` by the
-/// Phase 3 registry; Phase 2 shows name + status + args preview).
+/// One tool card: title + status + args preview + result summary (Phase 3:
+/// both human one-liners, never raw JSON).
 #[derive(Debug, Clone)]
 pub struct ToolCard {
     pub call_id: String,
     pub name: String,
+    pub title: String,
     pub status: ToolCardStatus,
+    pub preview: String,
     pub summary: String,
 }
 
 impl ToolCard {
-    /// New running card.
-    pub fn running(call_id: &str, name: &str) -> Self {
+    /// New running card with the args preview.
+    pub fn running(call_id: &str, name: &str, title: &str, preview: &str) -> Self {
         Self {
             call_id: call_id.to_string(),
             name: name.to_string(),
+            title: title.to_string(),
             status: ToolCardStatus::Running,
+            preview: preview.to_string(),
             summary: String::new(),
         }
     }
@@ -57,6 +61,25 @@ impl ToolCard {
         if self.status == ToolCardStatus::Running {
             self.status = status;
         }
+    }
+
+    /// Fill the result summary (at `ToolEnd`).
+    pub fn set_summary(&mut self, summary: &str) {
+        self.summary = summary.to_string();
+    }
+
+    /// Single display line: `Title — preview → summary` (parts omitted when empty).
+    pub fn display_line(&self) -> String {
+        let mut line = self.title.clone();
+        if !self.preview.is_empty() {
+            line.push_str(" — ");
+            line.push_str(&self.preview);
+        }
+        if !self.summary.is_empty() {
+            line.push_str(" → ");
+            line.push_str(&self.summary);
+        }
+        line
     }
 }
 
@@ -109,9 +132,13 @@ pub fn render_thread(events: &[ThreadEvent]) -> (Vec<MessageModel>, Vec<ToolCard
                 call_id,
                 name,
                 status,
+                preview,
+                summary,
             } => {
-                let mut card = ToolCard::running(call_id, name);
+                let meta = crate::card_for_tool(name);
+                let mut card = ToolCard::running(call_id, name, meta.title, preview);
                 card.status = (*status).into();
+                card.summary = summary.clone();
                 cards.push(card);
             }
             ThreadEvent::Queue {
@@ -152,9 +179,12 @@ mod tests {
 
     #[test]
     fn terminal_card_status_sticks() {
-        let mut card = ToolCard::running("c", "read");
+        let mut card = ToolCard::running("c", "read", "Read file", "a.rs");
         card.set_status(ToolCardStatus::Done);
         card.set_status(ToolCardStatus::Running);
         assert_eq!(card.status, ToolCardStatus::Done);
+        assert_eq!(card.display_line(), "Read file — a.rs");
+        card.set_summary("42 lines");
+        assert_eq!(card.display_line(), "Read file — a.rs → 42 lines");
     }
 }
