@@ -2830,6 +2830,48 @@ Ready
 # 84. Implementation Roadmap
 
 > **Stack lock: Rust + GPUI only.** No TypeScript/Electron/WebView/Tauri in the cedian process. The only TS in scope is OMP-side additions under `packages/coding-agent/src/` (§8) — that code lives in the OMP repo, not cedian. `gpui-kit` (gpui-base unstyled primitives + gpui-component 75+ styled components, Apache-2.0, `github.com/longbridge/gpui-kit`) and `elygpui.com` (Ely GPUI components, MIT/Apache-2.0) are approved UI accelerators: prefer them over hand-rolling panel/composer/tool-card/message/settings/dialog/toast components, but editor/buffer/multibuffer/diff surfaces stay Zed-native (never reimplement on top of kit components).
+## Slices — value order (vertical; supersedes phase numbering for scheduling)
+
+> **Senior-dev correction (2026-10-06).** Phases below stay as the work-breakdown reference; SCHEDULING follows slices. Each slice is a thin vertical cut ending triable in `cedian` CLI (or the app once the fork lands). Rule: never start a slice whose exit criterion can't be exercised in this repo — integration risk first, never accumulate untested layers.
+
+### S0 — Foundation loop ✅ DONE (commit `f78660f`)
+Covers: 0.5, 1, 2, 3, 4, 5, 6, 2.5-headless + CLI harness.
+Exit: `prompt → cards → edit → review → accept/reject` in one CLI process. Met.
+
+### S1 — Language services (next)
+Covers: Phases 7 + 8 (headless LSP/DAP subprocesses surfaced via `cedian://` + host tools; OMP `lsp`/`debug` tools unchanged).
+Exit: CLI shows REAL diagnostics/symbols for a Rust file; agent breakpoint round-trips on a headless debug adapter.
+
+### S2 — Workflow engine core
+Covers: Phase 10 (TaskProfile/Playbook/Gate/Evidence as pure functions, `max_continue: 3`) + CLI `workflow run`.
+Exit: a bugfix playbook runs reproduce → verify with gates blocking completion, all in CLI.
+
+### S3 — Review agents
+Covers: Phase 12 (GATED: reviewer sandbox profile §58 + audit-tuple logging §64 land first) + CLI `review --agent`.
+Exit: structured findings annotate a diff; completion gates require evidence.
+
+### S4 — Browser evidence
+Covers: Phases 9 + 11 (cedian-owned Chromium via CDP, screenshot/DOM, user-input-preempts).
+Exit: CLI drives a page, captures screenshot + DOM, a gate consumes it as evidence.
+
+### S5 — Parallel workers
+Covers: Phases 16 + 17 (worktree mechanism + visualization land together; swarm/arena are presets, no new engine).
+Exit: parallel workers on worktrees visible + steerable from CLI.
+
+### S6 — PR workspace
+Covers: Phase 18 (`gh`, PR-base baselines, merge Deny-by-default).
+Exit: open PR → review → comment → Fix → CI green → merge via CLI.
+
+### S7 — Local automations
+Covers: Phase 19 (cron, history, pure stop predicates, same gates/provenance; no cloud EVER).
+Exit: scheduled run fires while awake → history + evidence visible on return.
+
+### S8 — iOS extension track
+Covers: Phases 13–15 (sim/boot/build/WDA/panel). Off the native critical path; ships after v0.3 (§85).
+
+### S9 — The real app (fork + GPUI)
+Covers: Phase 0 (fork hygiene, signing/notarization) + Phase 2.5 UI + GPUI binding of all headless models.
+Exit: `cargo run cedian` → onboard → prompt → answer, zero terminal. THIS — not S1–S8 — is what makes it triable as an app.
 
 ## Phase 0 — Fork Hygiene
 
