@@ -3571,6 +3571,8 @@ Decided 2026-10-06, not deferred — these return only if the destination is red
 ❌ VM sandbox for computer tool (Lume/Spaces deferred past CUA driver-only landing)
 ```
 
+> **Daemon track (future boundary, NOT scheduled).** Covers the last 10%: survive quit AND reboot like tern/herdr (engine as launchd daemon, not a child of the window). Trigger: real users complaining about reboot-lost work AFTER v0.4 quit-resume (§76) ships. Cost when triggered: §3 child→daemon+IPC redesign, §§71–76 lifecycle rewrite, IPC auth + grant expiry + stale-lock ownership (Synara 1.0.0 pattern), separate TCC/sandbox profile for the daemon, two-process dev loop. Do NOT start without the trigger — quit-resume covers 90%.
+
 ---
 
 # 90. Final Architecture
