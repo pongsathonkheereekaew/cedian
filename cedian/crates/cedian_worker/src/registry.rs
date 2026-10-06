@@ -1,0 +1,169 @@
+//! Worker registry: persisted heads at `<repo>/.cedian/workers.json`.
+//!
+//! The registry is a MECHANISM record (§88): which workers exist, which
+//! branch/worktree serves each task, and their lifecycle state. No
+//! scheduling, no queue — OMP stays the only orchestrator.
+
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+/// Lifecycle state of one worker, serialized snake_case (`ready`, …).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerStatus {
+    Ready,
+    Running,
+    Done,
+    Stale,
+    Failed,
+}
+
+/// One row in the registry: which branch/worktree serves a task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerHead {
+    pub id: String,
+    pub branch: String,
+    /// Repo-relative worktree path (`.worktrees/<id>`).
+    pub worktree: String,
+    pub task_title: String,
+    pub kind: String,
+    pub status: WorkerStatus,
+    pub note: String,
+}
+
+/// Registry errors: duplicate/unknown ids, or registry file I/O.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkerError {
+    Exists(String),
+    NoSuch(String),
+    Io(String),
+    Git(String),
+    Conflicted(Vec<String>),
+}
+
+impl std::fmt::Display for WorkerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Exists(id) => write!(f, "worker {id:?} already exists"),
+            Self::NoSuch(id) => write!(f, "no worker {id:?}"),
+            Self::Io(e) => write!(f, "worker registry io: {e}"),
+            Self::Git(e) => write!(f, "worker git failed: {e}"),
+            Self::Conflicted(files) => {
+                write!(f, "worker merge refused (STALE): {}", files.join(", "))
+            }
+        }
+    }
+}
+
+fn registry_path(repo: &Path) -> PathBuf {
+    repo.join(".cedian").join("workers.json")
+}
+
+/// Persisted worker heads, shaped `{"workers": {id: head}}`.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct Registry {
+    workers: BTreeMap<String, WorkerHead>,
+}
+
+impl Registry {
+    /// Open the registry; a missing/unreadable file yields an empty one.
+    /// Returns the registry plus whether the file already existed.
+    pub fn open(repo: &Path) -> (Self, bool) {
+        let path = registry_path(repo);
+        if !path.exists() {
+            return (Self::default(), false);
+        }
+        let raw = std::fs::read_to_string(&path).unwrap_or_default();
+        let reg: Self = serde_json::from_str(&raw).unwrap_or_default();
+        (reg, true)
+    }
+
+    /// Persist (creates `.cedian/`).
+    pub fn save(&self, repo: &Path) -> Result<(), WorkerError> {
+        std::fs::create_dir_all(repo.join(".cedian"))
+            .map_err(|e| WorkerError::Io(e.to_string()))?;
+        let raw = serde_json::to_string_pretty(self).map_err(|e| WorkerError::Io(e.to_string()))?;
+        std::fs::write(registry_path(repo), raw).map_err(|e| WorkerError::Io(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Insert a head; duplicate ids are rejected (record, not a queue).
+    pub fn insert(&mut self, head: WorkerHead) -> Result<(), WorkerError> {
+        if self.workers.contains_key(&head.id) {
+            return Err(WorkerError::Exists(head.id));
+        }
+        self.workers.insert(head.id.clone(), head);
+        Ok(())
+    }
+
+    /// Look up a head by id.
+    pub fn get(&self, id: &str) -> Option<&WorkerHead> {
+        self.workers.get(id)
+    }
+
+    /// All heads by id order — the CLI `list` view.
+    pub fn all(&self) -> impl Iterator<Item = &WorkerHead> {
+        self.workers.values()
+    }
+
+    /// Mark status + note; unknown ids fail (no implicit creation).
+    pub fn set_status(
+        &mut self,
+        id: &str,
+        status: WorkerStatus,
+        note: String,
+    ) -> Result<(), WorkerError> {
+        let head = self
+            .workers
+            .get_mut(id)
+            .ok_or_else(|| WorkerError::NoSuch(id.to_string()))?;
+        head.status = status;
+        head.note = note;
+        Ok(())
+    }
+
+    /// Drop a head, returning it when present.
+    pub fn remove(&mut self, id: &str) -> Option<WorkerHead> {
+        self.workers.remove(id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_roundtrip() {
+        let repo = std::env::temp_dir().join(format!("cedian-reg-test-{}", std::process::id()));
+        std::fs::create_dir_all(repo.join(".cedian")).unwrap();
+        let (mut reg, existed) = Registry::open(&repo);
+        assert!(!existed);
+        reg.insert(WorkerHead {
+            id: "w1".into(),
+            branch: "cedian-worker/w1".into(),
+            worktree: ".worktrees/w1".into(),
+            task_title: "fix login".into(),
+            kind: "bug_fix".into(),
+            status: WorkerStatus::Ready,
+            note: String::new(),
+        })
+        .unwrap();
+        assert!(reg
+            .insert(WorkerHead {
+                id: "w1".into(),
+                branch: "b".into(),
+                worktree: "w".into(),
+                task_title: "t".into(),
+                kind: "k".into(),
+                status: WorkerStatus::Ready,
+                note: String::new(),
+            })
+            .is_err());
+        reg.save(&repo).unwrap();
+        let (reg2, existed2) = Registry::open(&repo);
+        assert!(existed2);
+        assert_eq!(reg2.get("w1").unwrap().task_title, "fix login");
+        std::fs::remove_dir_all(&repo).unwrap();
+    }
+}
