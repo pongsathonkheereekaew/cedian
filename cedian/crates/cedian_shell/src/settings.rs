@@ -39,6 +39,11 @@ impl Default for Permissions {
 /// Full settings document (`cedian.json` headless; `cedian.toml` with the fork).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
+    /// Settings-file schema (P3). User-edited, so a missing key means
+    /// [`SETTINGS_SCHEMA`] (the only schema that predates the key); any other
+    /// value fails closed.
+    #[serde(default = "default_schema")]
+    pub schema: u32,
     #[serde(default)]
     pub permissions: Permissions,
     /// Reviewer allow-list: shell commands reviewers may run (Phase 5+).
@@ -49,6 +54,13 @@ pub struct Settings {
     pub update_channel: String,
 }
 
+/// Current settings schema. Bump on any breaking shape change.
+pub const SETTINGS_SCHEMA: u32 = 1;
+
+fn default_schema() -> u32 {
+    SETTINGS_SCHEMA
+}
+
 fn default_channel() -> String {
     "stable".to_string()
 }
@@ -56,6 +68,7 @@ fn default_channel() -> String {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            schema: SETTINGS_SCHEMA,
             permissions: Permissions::default(),
             reviewer_allow_list: Vec::new(),
             update_channel: default_channel(),
@@ -69,6 +82,7 @@ pub enum SettingsError {
     Parse(String),
     UnknownKey(String),
     BadChannel(String),
+    BadSchema(u32),
 }
 
 impl std::fmt::Display for SettingsError {
@@ -76,6 +90,10 @@ impl std::fmt::Display for SettingsError {
         match self {
             Self::Parse(e) => write!(f, "settings parse error: {e}"),
             Self::UnknownKey(k) => write!(f, "unknown settings key: {k}"),
+            Self::BadSchema(v) => write!(
+                f,
+                "settings schema {v} not supported (want {SETTINGS_SCHEMA}) — fix or regenerate the file"
+            ),
             Self::BadChannel(c) => write!(f, "bad update channel: {c} (want stable|beta)"),
         }
     }
@@ -84,7 +102,12 @@ impl std::fmt::Display for SettingsError {
 impl std::error::Error for SettingsError {}
 
 /// Known top-level keys — anything else fails closed.
-const KNOWN_KEYS: &[&str] = &["permissions", "reviewer_allow_list", "update_channel"];
+const KNOWN_KEYS: &[&str] = &[
+    "schema",
+    "permissions",
+    "reviewer_allow_list",
+    "update_channel",
+];
 
 /// Parse + validate settings JSON. Unknown keys and bad channels fail closed.
 pub fn load_settings(json: &str) -> Result<Settings, SettingsError> {
@@ -97,6 +120,9 @@ pub fn load_settings(json: &str) -> Result<Settings, SettingsError> {
     }
     let settings: Settings =
         serde_json::from_str(json).map_err(|e| SettingsError::Parse(e.to_string()))?;
+    if settings.schema != SETTINGS_SCHEMA {
+        return Err(SettingsError::BadSchema(settings.schema));
+    }
     if settings.update_channel != "stable" && settings.update_channel != "beta" {
         return Err(SettingsError::BadChannel(settings.update_channel.clone()));
     }
@@ -111,6 +137,16 @@ pub fn default_settings_toml() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn schema_key_written_and_mismatch_fails_closed() {
+        assert!(default_settings_toml().contains("\"schema\": 1"));
+        assert_eq!(load_settings(r#"{"schema":1}"#).unwrap().schema, 1);
+        assert_eq!(
+            load_settings(r#"{"schema":2}"#).unwrap_err(),
+            SettingsError::BadSchema(2)
+        );
+    }
 
     #[test]
     fn defaults_are_safe() {

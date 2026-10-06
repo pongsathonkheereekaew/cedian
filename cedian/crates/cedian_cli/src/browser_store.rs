@@ -42,6 +42,9 @@ pub struct BrowserHead {
     pub seq: u64,
 }
 
+/// `browser.json` schema version (ADR-0016 / P3). Bump on any shape change.
+pub const BROWSER_SNAPSHOT_VERSION: u32 = 1;
+
 fn browser_path(workdir: &Path) -> PathBuf {
     workdir.join(".cedian").join("browser.json")
 }
@@ -52,6 +55,16 @@ pub fn load(workdir: &Path) -> Result<BrowserHead, String> {
         .map_err(|_| "no browser session: run `cedian browser open <url>` first".to_string())?;
     let v: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| format!("corrupt browser.json: {e}"))?;
+    let version = v
+        .get("snapshot_version")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if version != u64::from(BROWSER_SNAPSHOT_VERSION) {
+        return Err(format!(
+            "browser state too old (got v{version}, want v{BROWSER_SNAPSHOT_VERSION}), \
+             re-baseline: run `cedian browser open <url>`"
+        ));
+    }
     let port = v
         .get("port")
         .and_then(serde_json::Value::as_u64)
@@ -78,6 +91,7 @@ pub fn load(workdir: &Path) -> Result<BrowserHead, String> {
 pub fn save(workdir: &Path, head: &BrowserHead) -> Result<(), String> {
     std::fs::create_dir_all(workdir.join(".cedian")).map_err(|e| e.to_string())?;
     let raw = serde_json::to_string_pretty(&serde_json::json!({
+        "snapshot_version": BROWSER_SNAPSHOT_VERSION,
         "port": head.port,
         "ws_url": head.ws_url,
         "url": head.url,
@@ -149,5 +163,18 @@ mod tests {
         assert_eq!(load(&dir).unwrap().url, "about:blank");
         clear(&dir);
         assert!(load(&dir).is_err());
+    }
+
+    #[test]
+    fn unversioned_head_fails_closed() {
+        let dir = std::env::temp_dir().join(format!("cedian-browser-stale-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".cedian")).unwrap();
+        std::fs::write(
+            browser_path(&dir),
+            r#"{"port":9222,"ws_url":"ws://x","url":"about:blank","seq":1}"#,
+        )
+        .unwrap();
+        assert!(load(&dir).unwrap_err().contains("too old"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
