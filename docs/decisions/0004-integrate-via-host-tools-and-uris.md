@@ -18,3 +18,4 @@ The original plan imagined swapping backends inside OMP's `edit`/`lsp`/`debug` t
 
 - Until the OMP-side route lands, OMP writes the filesystem directly — handled by stand-in row G (ROADMAP).
 - `set_host_tools`/`set_host_uri_schemes` replace the whole set: cedian always sends its complete set.
+- **Amended by ADR-0027:** edits are not routed out of OMP by an OMP-side addition; OMP writes disk and cedian imports each write as an agent transaction.

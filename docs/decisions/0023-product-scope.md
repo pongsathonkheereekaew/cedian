@@ -29,3 +29,4 @@ A review on 2026-10-06 asked the owner to pin down what cedian is before impleme
 - Feature requests are checked against this table first. A request outside it needs a new ADR, not a quiet addition.
 - "Better than Cursor" is claimed only on verification, review rigor, control and safety — not on breadth, extensions or completion quality.
 - **Refined by ADR-0026:** "better AND faster" — rigor is proportional to risk, inline edit and revert turn are core, and speed claims are benchmarked against Cursor.
+- **Superseded in part by ADR-0027:** the "OMP fork: minimal" row is now "no OMP fork"; only Zed is forked.

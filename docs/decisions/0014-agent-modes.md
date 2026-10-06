@@ -15,6 +15,7 @@ Bind only to what exists upstream: Normal; Goal when `goal.continuationModes ∋
 ## Consequences
 
 Recorded as the single MISSING row of the spike capability table (`spike/CAPABILITY_TABLE.md`).
+- **Amended by ADR-0027:** Plan needs no OMP addition; if wanted it runs as a separate runtime with OMP's launch-time plan options.
 
 ## Original research notes (verbatim from the 2026-10-06 plan)
 

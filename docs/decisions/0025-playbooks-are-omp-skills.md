@@ -34,3 +34,4 @@ Its generator proves the skill once end to end before anyone uses it.
 - S2 needs no OMP fork: skills + host tools cover the OMP side of A1-narrow.
 - The ROADMAP "OMP-side work" list stays at two items (native edit routing, Plan mode).
 - Methodology content (principles, writing style, model routing) also belongs in OMP skills. It is never a cedian feature.
+- **Superseded in part by ADR-0027:** there is no OMP-side work list any more — OMP is never forked.

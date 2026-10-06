@@ -359,25 +359,18 @@ Planned, not yet created: `cedian_ios/` (S8: simulator, xcodebuild, simctl, wda,
 
 This minimizes upstream merge pain.
 
-**Stack lock: Rust + GPUI only.** No TypeScript/Electron/WebView/Tauri in the cedian process. The only TS in scope is OMP-side additions under `packages/coding-agent/src/` (§8) — that code lives in the OMP repo, not cedian. `gpui-kit` (gpui-base unstyled primitives + gpui-component, Apache-2.0, `github.com/longbridge/gpui-kit`) and `elygpui.com` (Ely GPUI components, MIT/Apache-2.0) are approved UI accelerators: prefer them over hand-rolling panel/composer/tool-card/message/settings/dialog/toast components, but editor/buffer/multibuffer/diff surfaces stay Zed-native. *(→ [ADR-0001](decisions/0001-environment-vs-intelligence.md))*
+**Stack lock: Rust + GPUI only.** No TypeScript/Electron/WebView/Tauri in the cedian process. There is no TypeScript anywhere in cedian's scope: OMP is used as upstream ships it ([ADR-0027](decisions/0027-zero-omp-fork.md)). `gpui-kit` (gpui-base unstyled primitives + gpui-component, Apache-2.0, `github.com/longbridge/gpui-kit`) and `elygpui.com` (Ely GPUI components, MIT/Apache-2.0) are approved UI accelerators: prefer them over hand-rolling panel/composer/tool-card/message/settings/dialog/toast components, but editor/buffer/multibuffer/diff surfaces stay Zed-native. *(→ [ADR-0001](decisions/0001-environment-vs-intelligence.md))*
 
-### §8 OMP-Side Additions (minimal)
+### §8 No OMP Fork
 
-Avoid rewriting the OMP core, and keep the OMP fork minimal ([ADR-0023](decisions/0023-product-scope.md)). In order of preference:
+cedian runs the pinned upstream OMP and never forks it; only Zed is forked ([ADR-0027](decisions/0027-zero-omp-fork.md)). Everything cedian needs from OMP goes through, in order:
 
-1. **Host tools + `cedian://` URIs** registered by cedian over RPC — no OMP change ([ADR-0022](decisions/0022-host-tool-first.md)).
+1. **Host tools + `cedian://` URIs** registered over RPC ([ADR-0022](decisions/0022-host-tool-first.md)) — including `ios` (§32).
 2. **OMP skills** in `.omp/skills/` — playbooks and the project verification profile ([ADR-0025](decisions/0025-playbooks-are-omp-skills.md)).
 3. **Spawn profile** — argv + config overlay ([ADR-0020](decisions/0020-omp-spawn-profile.md)).
-4. **TypeScript in `packages/coding-agent/src/`** — only for what 1–3 cannot do. Current list (owners and slices in ROADMAP "OMP-side work"):
+4. **Importing OMP's own effects** — e.g. disk writes from `edit`/`write` become agent transactions (§12).
 
-```text
-packages/coding-agent/src/
-  integrations/cedian/workspace.ts   route native edit/write through cedian_apply_edit (row G)
-  (plan mode, optional)              ADR-0014
-  tools/ios.ts                       S8, if a host tool cannot carry it
-```
-
-Avoid modifying the agent loop unless required; upstream anything general.
+A real need for an OMP change goes upstream as a PR; until it ships, cedian works around it or does without.
 
 ---
 
@@ -716,8 +709,8 @@ Target: OMP should retain access to all useful existing OMP tools while gaining 
 | Capability | Owner | Integration |
 |---|---|---|
 | `read` | OMP | OMP tool + cedian workspace awareness |
-| `edit` | OMP | target: OMP semantics → cedian editor transaction (needs the OMP-side route, ROADMAP row G); today OMP writes disk |
-| `write` | OMP | target: OMP semantics → cedian project/buffer (same route as `edit`) |
+| `edit` | OMP | OMP writes disk; cedian imports each write as an agent-attributed Zed transaction — undo, review, provenance ([ADR-0027](decisions/0027-zero-omp-fork.md)) |
+| `write` | OMP | same import path as `edit` |
 | `grep/glob/find` | OMP | existing OMP |
 | `ast_grep/ast_edit` | OMP | existing OMP |
 | `bash` | OMP | existing OMP + cedian tool card |
@@ -733,14 +726,14 @@ Target: OMP should retain access to all useful existing OMP tools while gaining 
 | Git/GitHub | OMP + cedian | OMP execution, cedian visualization |
 | Images | OMP | native RPC image content |
 | Review | OMP + cedian | OMP reasoning, cedian UI |
-| iOS | new native OMP tool | cedian iOS host service |
+| iOS | cedian host tool `ios` (§32) | cedian iOS host service |
 | Workflow | OMP (profile, playbook, phases, evidence gathering) | cedian renders it (§46) |
 | Verification | cedian checks, OMP gathers | cedian stores evidence, evaluates gates, blocks completion (§54–55, [ADR-0010](decisions/0010-gate-checker-a1-narrow.md)) |
 | Arena/Swarm | OMP | presets over existing `task` |
 
 ### §10 Do Not Duplicate Tool Names
 
-> **Upstream fact (oh-my-pi has NO WorkspaceBackend/LspHost/DapHost seam, verified 2026-10-06).** OMP owns its `edit`/`lsp`/execution tools end-to-end; there is no backend interface to swap inside OMP. The integration surface is OUTSIDE OMP's tools: `set_host_tools` (cedian ops registered as host tools, mountable as `xd://`), `set_host_uri_schemes` (`cedian://` virtual files), and extensions/MCP. So "backend swap" below does NOT mean patching OMP's EditTool — it means (a) OMP-side additions under `packages/coding-agent/src/` (§8) route cedian-relevant calls out through host tools/URIs, and (b) cedian implements the host side. LSP/DAP stay OMP-owned tools reading Zed state via `cedian://` URIs + host tools, not injected backends. *(→ [ADR-0004](decisions/0004-integrate-via-host-tools-and-uris.md))*
+> **Upstream fact (oh-my-pi has NO WorkspaceBackend/LspHost/DapHost seam, verified 2026-10-06).** OMP owns its `edit`/`lsp`/execution tools end-to-end; there is no backend interface to swap inside OMP. The integration surface is OUTSIDE OMP's tools: `set_host_tools` (cedian ops registered as host tools, mountable as `xd://`), `set_host_uri_schemes` (`cedian://` virtual files), and extensions/MCP. So "backend swap" below does NOT mean patching OMP's EditTool — cedian implements the host side and imports OMP's own effects; OMP itself is never modified ([ADR-0027](decisions/0027-zero-omp-fork.md)). LSP/DAP stay OMP-owned tools reading Zed state via `cedian://` URIs + host tools, not injected backends. *(→ [ADR-0004](decisions/0004-integrate-via-host-tools-and-uris.md))*
 
 Do not create user-visible model tools such as:
 
@@ -764,9 +757,9 @@ LLM
  ↓
 edit
  ↓
-OMP EditTool (unchanged, OMP-owned)
- ↓ (routes cedian-relevant paths out via host tool / cedian:// URI)
-cedian host implementation (buffer transaction, undo, review)
+OMP EditTool (unchanged, OMP-owned) writes the file
+ ↓ (tool_execution_end carries tool_call_id)
+cedian imports the write as an agent transaction (undo, review, provenance)
 ```
 
 Keep OMP tool semantics stable; cedian implements the host side of the boundary.
@@ -922,12 +915,12 @@ Permission policy + sandbox profiles live on the cedian side (TOML + Seatbelt `.
 
 ### §12 Editor and Buffer Integration
 
-Final target:
+Final target ([ADR-0027](decisions/0027-zero-omp-fork.md)):
 
 ```text
-OMP edit
+OMP edit (writes disk)
    ↓
-cedian editor buffer transaction
+cedian imports it as ONE agent transaction (ReplicaId::AGENT, tool_call_id)
    ↓
 Zed undo stack
    ↓
@@ -938,7 +931,7 @@ Not merely:
 
 ```text
 OMP writes filesystem
-Zed notices file changed
+Zed silently reloads the file (no agent identity, no undo entry, no provenance)
 ```
 
 Add a workspace host abstraction.
@@ -971,9 +964,9 @@ trait cedianWorkspaceHost {
 
 > **Upstream fact (zed `crates/text`, `crates/clock`, `crates/buffer_diff`, `crates/acp_thread/src/diff.rs`, verified 2026-10-06).** No `BufferVersion` type exists — versions are `clock::Global` on `text::BufferSnapshot.version`; undo/txn API is `History::{start,end,push,group}` + `Transaction{id: Lamport, edit_ids, start: Global}`; there is no `AgentDiff` symbol — agent review is `acp_thread::diff::{DiffPatch,DiffPatchFile,DiffPatchHunk}` over `MultiBuffer` excerpts; the buffer review primitive is `buffer_diff::{BufferDiff,BufferDiffSnapshot}` with `DiffOperations::{stage,unstage,restore}`. The cedian review crate (§15–20) is a thin projection over THESE types, not a parallel model. Bonus: `clock::ReplicaId::AGENT` already reserves agent edit identity in the CRDT — provenance (§17) should key off it where possible. *(→ [ADR-0006](decisions/0006-review-baseline-provenance-precedence.md))*
 
-OMP side: **superseded by §10's upstream fact** — there is no `WorkspaceBackend` seam inside OMP. The OMP-side addition (§8, `integrations/cedian/workspace.ts`) routes cedian-relevant edits OUT through the `cedian_apply_edit` host tool; OMP's `EditTool` itself stays unchanged. Until that addition lands, OMP's native `edit`/`write` write the filesystem directly, and cedian must treat disk as authoritative for those edits (see [ROADMAP](ROADMAP.md) headless stand-in row G).
+OMP side: unchanged — there is no `WorkspaceBackend` seam inside OMP (§10) and cedian does not fork OMP. OMP's `edit`/`write` write the filesystem; on `tool_execution_end` cedian imports each changed file as one agent transaction. Disk is authoritative for agent writes; a user edit to the same region during the turn surfaces as `STALE`, never a silent overwrite. Headless (pre-S9) form: [ROADMAP](ROADMAP.md) row G. `cedian_apply_edit` remains as a host tool the model may choose, not the main path.
 
-Benefits (once the host-tool route lands):
+Benefits:
 
 - native undo
 - correct dirty state
@@ -994,7 +987,7 @@ OMP read() reads filesystem
 
 The agent sees stale content.
 
-For a personal IDE, the simplest reliable V1 behavior is (V1 shortcut with an expiry — replace with overlay-filesystem unsaved semantics once Review Baseline on `clock::Global` (§16) is solid):
+Because OMP reads the filesystem and is not forked ([ADR-0027](decisions/0027-zero-omp-fork.md)), the behavior is (permanent):
 
 ```text
 Agent Sync = ON
@@ -1012,11 +1005,7 @@ record buffer versions
 start OMP turn
 ```
 
-Acceptance: a crash between save and prompt start must lose nothing and must not double-apply on restart (idempotent turn start). This shortcut contradicts §12's "correct unsaved state" goal — track it as tech debt with an owner, do not let it become permanent.
-
-Later, if desired, add an overlay filesystem for unsaved semantics.
-
-Do not start with that complexity.
+Acceptance: a crash between save and prompt start must lose nothing and must not double-apply on restart (idempotent turn start). An overlay filesystem for unsaved semantics would need OMP to read cedian buffers, which requires an OMP change — out of scope unless upstream offers it.
 
 ### §15 Native Review Changes
 
@@ -1637,7 +1626,7 @@ No terminal prompts.
 
 ### §65 Agent Modes (Normal / Goal / Plan)
 
-> **Modes are measured, not assumed.** `set_mode` does not exist in `RpcCommand`, and `deep`/`normal` are not OMP modes (`--mode` is a launch transport: `text|json|rpc|acp|rpc-ui`; plan+rpc are mutually exclusive at launch upstream). `goal` IS RPC-controllable (`get/create/resume/pause/drop`, continuation needs `goal.continuationModes ∋ rpc`). Therefore: no `Deep` entry; `Plan` ships only via an OMP-side addition (§8) with owner + slice; a mode switch mid-turn aborts the turn (same path as `abort`) and starts a new turn under the new mode — never mid-stream reinterpretation. *(→ [ADR-0014](decisions/0014-agent-modes.md))*
+> **Modes are measured, not assumed.** `set_mode` does not exist in `RpcCommand`, and `deep`/`normal` are not OMP modes (`--mode` is a launch transport: `text|json|rpc|acp|rpc-ui`; plan+rpc are mutually exclusive at launch upstream). `goal` IS RPC-controllable (`get/create/resume/pause/drop`, continuation needs `goal.continuationModes ∋ rpc`). Therefore: no `Deep` entry; `Plan`, if wanted, runs as a separate runtime spawned with OMP's launch-time plan options through the spawn profile — no OMP change ([ADR-0027](decisions/0027-zero-omp-fork.md)); a mode switch mid-turn aborts the turn (same path as `abort`) and starts a new turn under the new mode — never mid-stream reinterpretation. *(→ [ADR-0014](decisions/0014-agent-modes.md))*
 
 cedian UI:
 
@@ -1645,7 +1634,7 @@ cedian UI:
 [ Agent ▼ ]
 
 Normal
-Plan (only if OMP-side addition lands, §8 — else hidden)
+Plan (separate plan-mode runtime, if enabled — else hidden)
 Goal (only if continuationModes ∋ rpc)
 ```
 
@@ -2611,7 +2600,7 @@ Use explicit `ios` for iOS because it is more deterministic and structured.
 
 ### §32 iOS as a First-Class OMP Tool
 
-Add a native OMP tool:
+cedian registers a host tool named `ios` via `set_host_tools` (no OMP change, [ADR-0027](decisions/0027-zero-omp-fork.md)):
 
 ```text
 ios
@@ -2646,7 +2635,7 @@ OMP should not directly own all Xcode/macOS UI implementation details.
 Use:
 
 ```text
-OMP ios tool
+ios host tool (called by OMP)
     ↓
 cedian iOS Host Service
     ↓
