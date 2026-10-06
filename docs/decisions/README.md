@@ -32,3 +32,5 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0026](0026-fast-lane.md) | Fast lane — proportional rigor, inline edit, revert turn, measured speed |
 | [0027](0027-zero-omp-fork.md) | Zero OMP fork — cedian adapts to OMP, only Zed is forked |
 | [0028](0028-spawn-profile-approval-findings.md) | Spawn profile approval findings: exec floor, host-tool allows, precedence test on an exec tool |
+| [0029](0029-agent-edit-import-via-reload.md) | Agent-edit import via `Buffer::reload`; attribution is a cedian map, not `ReplicaId::AGENT` |
+| [0030](0030-fork-layout-and-build-profile.md) | Zed fork layout and build profile (Proposed) |
