@@ -25,8 +25,9 @@ pub enum OmpError {
     Timeout { command: String, after: Duration },
     /// Stream ended before the prompt's `prompt_result`.
     StreamEnded { prompt_id: String },
-    /// Respawn argv failed validation (herdr discipline, plan §75).
-    InvalidRespawn(String),
+    /// Spawn profile failed validation or its overlay could not be written
+    /// (ADR-0020: fail closed, never a bare spawn).
+    InvalidSpawnProfile(String),
 }
 
 impl fmt::Display for OmpError {
@@ -61,7 +62,7 @@ impl fmt::Display for OmpError {
             Self::StreamEnded { prompt_id } => {
                 write!(f, "OMP stream ended before prompt {prompt_id} completed")
             }
-            Self::InvalidRespawn(e) => write!(f, "invalid OMP respawn request: {e}"),
+            Self::InvalidSpawnProfile(e) => write!(f, "invalid OMP spawn profile: {e}"),
         }
     }
 }

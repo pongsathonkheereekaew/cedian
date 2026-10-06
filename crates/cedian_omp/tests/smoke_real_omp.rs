@@ -20,6 +20,10 @@ fn dev_config(tag: &str) -> RuntimeConfig {
         cwd: std::env::temp_dir().to_path_buf(),
         ask_dialog: true,
         prompt_timeout: Duration::from_secs(240),
+        policy: cedian_omp::SpawnPolicy {
+            host_tools: ["echo_host".to_string()].into(),
+            ..Default::default()
+        },
     }
 }
 

@@ -20,6 +20,14 @@ fn dev_config(tag: &str) -> RuntimeConfig {
         cwd: std::env::temp_dir().to_path_buf(),
         ask_dialog: true,
         prompt_timeout: Duration::from_secs(240),
+        // bash prompts under the spawn profile; allow exactly this probe (bash.patterns).
+        policy: cedian_omp::SpawnPolicy {
+            bash_patterns: vec![cedian_omp::BashRule {
+                pattern: "wc -l *".to_string(),
+                approval: cedian_omp::ToolPolicy::Allow,
+            }],
+            ..Default::default()
+        },
     }
 }
 

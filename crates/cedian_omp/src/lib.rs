@@ -7,14 +7,17 @@
 
 pub mod errors;
 pub mod event_router;
-pub mod respawn;
 pub mod runtime;
 pub mod session;
+pub mod spawn_profile;
 
 pub use errors::OmpError;
 pub use event_router::{DeltaKind, EventRouter, LogEntry, PromptStatus, RouterEvent};
-pub use respawn::{validate, RespawnRequest, RespawnValidation};
 pub use runtime::{image_content, last_text, OmpBinary, OmpRuntime, RuntimeConfig, RuntimeState};
 pub use session::{
     validate_binding, ResumeState, SessionBinding, SnapshotVersionMismatch, SNAPSHOT_VERSION,
+};
+pub use spawn_profile::{
+    resolve_on_path, scrub_env, ApprovalMode, BashRule, SpawnPlan, SpawnPolicy, SpawnProfile,
+    ToolPolicy,
 };

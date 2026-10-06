@@ -26,7 +26,7 @@ mod workflow_store;
 mod workspace_files;
 
 use cedian_agent_ui::Panel;
-use cedian_omp::{OmpBinary, OmpRuntime, RuntimeConfig};
+use cedian_omp::{ApprovalMode, OmpBinary, OmpRuntime, RuntimeConfig, SpawnPolicy, ToolPolicy};
 use cedian_review::{AgentEdit, ReviewTracker};
 use cedian_workspace::{HostTools, WorkspaceHost};
 use std::collections::HashMap;
@@ -132,6 +132,34 @@ fn load_workdir_settings(workdir: &Path) -> cedian_shell::Settings {
     }
 }
 
+/// Map `[permissions]` onto the OMP spawn policy (ADR-0020). Only tightens:
+/// `dangerous = allow` still leaves the exec floor at `prompt` (strict-wins,
+/// ADR-0012), and yolo is unrepresentable.
+fn spawn_policy(settings: &cedian_shell::Settings) -> SpawnPolicy {
+    use cedian_shell::Verdict;
+    let mut policy = SpawnPolicy::default();
+    policy
+        .host_tools
+        .insert(cedian_workspace::APPLY_EDIT_TOOL.to_string());
+    if settings.permissions.project_write != Verdict::Allow {
+        policy.approval_mode = ApprovalMode::AlwaysAsk;
+    }
+    let mut deny = |tools: &[&str]| {
+        for tool in tools {
+            policy
+                .tool_policies
+                .insert((*tool).to_string(), ToolPolicy::Deny);
+        }
+    };
+    if settings.permissions.project_write == Verdict::Deny {
+        deny(&["edit", "write", "ast_edit"]);
+    }
+    if settings.permissions.dangerous == Verdict::Deny {
+        deny(cedian_omp::spawn_profile::EXEC_TOOLS);
+    }
+    policy
+}
+
 /// Spawn the runtime with workspace host tools + cedian:// wired.
 fn spawn(
     session_dir: &Path,
@@ -144,6 +172,7 @@ fn spawn(
         cwd: workdir.to_path_buf(),
         ask_dialog: true,
         prompt_timeout: Duration::from_secs(600),
+        policy: spawn_policy(&load_workdir_settings(workdir)),
     })
     .map_err(|e| e.to_string())?;
     rt.set_host_tools(vec![host.apply_edit_tool()])

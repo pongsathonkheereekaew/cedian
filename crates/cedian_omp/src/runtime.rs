@@ -15,7 +15,7 @@
 //! blocking and MUST be called off the UI thread; async/GPUI bridging lands
 //! with the panel in Phase 2.
 
-use crate::{EventRouter, OmpError, RespawnRequest, SessionBinding};
+use crate::{resolve_on_path, EventRouter, OmpError, SessionBinding, SpawnPolicy, SpawnProfile};
 use omp_rpc::{
     AbortCommand, Client, ClientOptions, Event, GetStateCommand, HostTool, HostUri, ImageContent,
     NewSessionCommand, OpenSessionCommand, OpenSessionResult, PromptCommand, PromptTurn,
@@ -55,6 +55,8 @@ pub struct RuntimeConfig {
     pub ask_dialog: bool,
     /// Prompt round-trip deadline.
     pub prompt_timeout: Duration,
+    /// Approval mode + overlay policy (ADR-0020). Every spawn goes through it.
+    pub policy: SpawnPolicy,
 }
 
 /// Lifecycle of the sidecar process.
@@ -85,17 +87,24 @@ pub struct OmpRuntime {
 }
 
 impl OmpRuntime {
-    /// Spawn the sidecar, wait `ready`, negotiate v2 (inside vendored client),
-    /// apply `ask_dialog`, start the pump thread.
+    /// Spawn the sidecar through the spawn profile (argv + overlay + scrubbed
+    /// env, ADR-0020), wait `ready`, negotiate v2 (inside vendored client),
+    /// apply `ask_dialog`, start the pump thread. Crash recovery respawns with
+    /// the same config. A profile error means no process is started.
     pub fn spawn(config: RuntimeConfig) -> Result<Self, OmpError> {
-        let binary = match &config.binary {
-            OmpBinary::Bundled(path) => path.to_string_lossy().into_owned(),
-            OmpBinary::Path(name) => name.clone(),
+        let binary_path = match &config.binary {
+            OmpBinary::Bundled(path) => path.clone(),
+            OmpBinary::Path(name) => resolve_on_path(name, std::env::var("PATH").ok().as_deref())?,
         };
-        let mut process = Process::new(&binary);
-        process.args(["--mode", "rpc-ui"]);
-        process.arg("--session-dir").arg(&config.session_dir);
-        process.arg("--cwd").arg(&config.cwd);
+        let plan = SpawnProfile {
+            binary_path,
+            session_dir: config.session_dir.clone(),
+            cwd: config.cwd.clone(),
+            policy: config.policy.clone(),
+        }
+        .prepare()?;
+        let mut process = Process::new(&plan.argv[0]);
+        process.args(&plan.argv[1..]).env_clear().envs(plan.env);
         let options = ClientOptions {
             default_timeout: Duration::from_secs(30),
             ..Default::default()
@@ -141,23 +150,6 @@ impl OmpRuntime {
         Ok(runtime)
     }
 
-    /// Validated spawn from a [`RespawnRequest`] (crash recovery path).
-    pub fn respawn(
-        req: &RespawnRequest,
-        ask_dialog: bool,
-        prompt_timeout: Duration,
-    ) -> Result<Self, OmpError> {
-        let v = crate::respawn::validate(req)?;
-        // argv[0] is the validated binary path.
-        let config = RuntimeConfig {
-            binary: OmpBinary::Bundled(PathBuf::from(&v.argv[0])),
-            session_dir: req.session_dir.clone(),
-            cwd: req.cwd.clone(),
-            ask_dialog,
-            prompt_timeout,
-        };
-        Self::spawn(config)
-    }
     /// Borrow the client (shutdown takes it; all ops require it present).
     fn client(&self) -> &Arc<Client> {
         self.client.as_ref().expect("client present until shutdown")
