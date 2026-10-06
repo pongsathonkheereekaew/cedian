@@ -19,6 +19,7 @@
 //! rebuilt from file mtimes per invocation (headless limitation — the app
 //! shell will persist it; see plan §17 AgentEdit store design).
 
+mod browser_store;
 mod session;
 mod workflow_store;
 mod workspace_files;
@@ -95,9 +96,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
             cmd_symbols(&workdir, query)
         }
         "diagnostics" => cmd_diagnostics(&workdir),
+        "browser" => cmd_browser(&workdir, &args[1..]),
         "workflow" => cmd_workflow(&workdir, &args[1..]),
         _ => {
-            eprintln!("usage: cedian <prompt|review|accept|reject|accept-all|state|palette|symbols|diagnostics|workflow> …");
+            eprintln!("usage: cedian <prompt|review|accept|reject|accept-all|state|palette|symbols|diagnostics|browser|workflow> …");
             eprintln!("env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR");
             Ok(())
         }
@@ -541,6 +543,155 @@ fn cmd_workflow(workdir: &Path, args: &[String]) -> Result<(), String> {
             }
         }
         _ => Err("usage: cedian workflow <run|status|evidence|advance|complete> …".to_string()),
+    }
+}
+
+/// Browser commands (S4 headless surface — one-shot per invocation):
+/// ```text
+/// cedian browser open <url>                             # fresh Chrome → navigate → save head
+/// cedian browser dom                                    # fresh Chrome on saved url → title, url, html
+/// cedian browser shot [--attach <gate>] [--note <text>] # PNG into .cedian/shots/ (+ gate evidence)
+/// cedian browser close                                  # clear head + sweep chrome-* profiles
+/// cedian browser status                                 # saved head or `no browser session`
+/// ```
+///
+/// Every action command spawns its own fresh Chrome (see `browser_store`):
+/// the child dies with the invocation, so `dom`/`shot` re-navigate to the
+/// saved url instead of reconnecting.
+fn cmd_browser(workdir: &Path, args: &[String]) -> Result<(), String> {
+    // One-shot per invocation: each arm spawns its own fresh Chrome, does
+    // exactly one action, and saves the head. The `_proc` binding keeps the
+    // child alive through the action (drops at scope end).
+    match args.first().map(|s| s.as_str()) {
+        Some("open") => {
+            let url = args
+                .get(1)
+                .ok_or("usage: cedian browser open <url>")?
+                .to_string();
+            let (proc, session, ws_url) = browser_store::spawn_fresh(workdir, &url)?;
+            let seq = session.current_seq();
+            browser_store::save(
+                workdir,
+                &browser_store::BrowserHead {
+                    port: proc.port,
+                    ws_url,
+                    url: url.clone(),
+                    seq,
+                },
+            )?;
+            println!("opened {url} (seq {seq})");
+            Ok(())
+        }
+        Some("dom") => {
+            let head = browser_store::load(workdir)?;
+            let (_proc, session, _) = browser_store::spawn_fresh(workdir, &head.url)?;
+            let dom = session.dom(2000).map_err(|e| e.to_string())?;
+            println!("{} {}", dom.title, dom.url);
+            println!("{}", dom.html);
+            Ok(())
+        }
+        Some("shot") => {
+            let mut attach: Option<String> = None;
+            let mut note: Option<String> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--attach" => {
+                        let gate = args.get(i + 1).ok_or(
+                            "usage: cedian browser shot [--attach <gate>] [--note <text>]",
+                        )?;
+                        attach = Some(gate.to_string());
+                        i += 2;
+                    }
+                    "--note" => {
+                        let text = args.get(i + 1).ok_or(
+                            "usage: cedian browser shot [--attach <gate>] [--note <text>]",
+                        )?;
+                        note = Some(text.to_string());
+                        i += 2;
+                    }
+                    flag => return Err(format!("unknown flag {flag:?}")),
+                }
+            }
+            let head = browser_store::load(workdir)?;
+            let (proc, session, ws_url) = browser_store::spawn_fresh(workdir, &head.url)?;
+            let shot = session
+                .screenshot(&workdir.join(".cedian").join("shots"))
+                .map_err(|e| e.to_string())?;
+            browser_store::save(
+                workdir,
+                &browser_store::BrowserHead {
+                    port: proc.port,
+                    ws_url,
+                    url: head.url,
+                    seq: session.current_seq(),
+                },
+            )?;
+            println!(
+                "shot {} frame {} seq {}",
+                shot.path.display(),
+                shot.frame_id,
+                shot.seq
+            );
+            if let Some(gate) = attach {
+                let mut state = workflow_store::load(workdir)?;
+                let n = state.evidence.len() + 1;
+                let id = format!("e{n}");
+                let mut summary = format!(
+                    "shot {} frame {} seq {}",
+                    shot.path.display(),
+                    shot.frame_id,
+                    shot.seq
+                );
+                if let Some(text) = note {
+                    summary.push(' ');
+                    summary.push_str(&text);
+                }
+                let item = cedian_workflow::Evidence::attributed(
+                    &id,
+                    cedian_workflow::EvidenceKind::Screenshot,
+                    &[gate.as_str()],
+                    summary,
+                    true,
+                    "cli",
+                    format!("cli-browser-{n}"),
+                );
+                state.attach(item).map_err(|e| e.to_string())?;
+                workflow_store::save(workdir, &state)?;
+                match state.gate_result(&gate) {
+                    Ok(r) => println!(
+                        "evidence {id} → gate {gate:?}: {:?} ({})",
+                        r.status, r.reason
+                    ),
+                    Err(e) => println!("evidence {id} attached ({e})."),
+                }
+            }
+            Ok(())
+        }
+        Some("close") => {
+            browser_store::clear(workdir);
+            // Children died with their invocations; sweep leftover profiles.
+            if let Ok(entries) = std::fs::read_dir(workdir.join(".cedian")) {
+                for entry in entries.flatten() {
+                    if entry.file_name().to_string_lossy().starts_with("chrome-") {
+                        let _ = std::fs::remove_dir_all(entry.path());
+                    }
+                }
+            }
+            println!("browser closed");
+            Ok(())
+        }
+        Some("status") => match browser_store::load(workdir) {
+            Ok(head) => {
+                println!("{} (seq {})", head.url, head.seq);
+                Ok(())
+            }
+            Err(_) => {
+                println!("no browser session");
+                Ok(())
+            }
+        },
+        _ => Err("usage: cedian browser <open|dom|shot|close|status> …".to_string()),
     }
 }
 

@@ -68,6 +68,7 @@ version = "0.1.0"
 dependencies = [
  "cedian_agent",
  "cedian_agent_ui",
+ "cedian_browser",
  "cedian_omp",
  "cedian_review",
  "cedian_shell",
