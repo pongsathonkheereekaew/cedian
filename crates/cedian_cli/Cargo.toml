@@ -18,4 +18,9 @@ cedian_omp = { path = "../cedian_omp" }
 cedian_review = { path = "../cedian_review" }
 cedian_shell = { path = "../cedian_shell" }
 cedian_workspace = { path = "../cedian_workspace" }
+cedian_workflow = { path = "../cedian_workflow" }
 serde_json = { workspace = true }
+
+# CLI stdout IS the product (user reads it): opt out of print_stdout only.
+[lints.clippy]
+print_stdout = "allow"

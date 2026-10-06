@@ -12,7 +12,7 @@ Rule: `cedian = environment, OMP = intelligence`.
 |---|---|
 | S0 Foundation loop | ✅ prompt → cards → edit → review → accept/reject in CLI |
 | S1 Language services | ✅ LSP client + symbols + bridge (fake-green); diagnostics-live = follow-up (needs warm server), DAP-live needs Developer mode |
-| S2 Workflow engine | 🔜 gates + playbooks as pure functions |
+| S2 Workflow engine | ✅ bugfix reproduce → verify, gates block completion, CLI `workflow run` |
 | S3 Review agents | 🔜 gated on sandbox profile + audit tuples |
 | S4 Browser evidence | 🔜 CDP screenshot/DOM as gate evidence |
 | S5 Parallel workers | 🔜 worktrees + swarm/arena presets |
