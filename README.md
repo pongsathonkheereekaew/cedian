@@ -14,7 +14,7 @@ Rule: `cedian = environment, OMP = intelligence`.
 | S1 Language services | ✅ LSP client + symbols + bridge (fake-green); diagnostics-live = follow-up (needs warm server), DAP-live needs Developer mode |
 | S2 Workflow engine | ✅ bugfix reproduce → verify, gates block completion, CLI `workflow run` |
 | S3 Review agents | 🔜 gated on sandbox profile + audit tuples |
-| S4 Browser evidence | 🔜 CDP screenshot/DOM as gate evidence |
+| S4 Browser evidence | ✅ CDP screenshot/DOM as gate evidence (`browser shot --attach`) |
 | S5 Parallel workers | 🔜 worktrees + swarm/arena presets |
 | S6 PR workspace | 🔜 `gh`, PR baselines, merge Deny-by-default |
 | S7 Local automations | 🔜 cron + history, no cloud ever |
