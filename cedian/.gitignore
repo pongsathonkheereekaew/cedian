@@ -1,10 +1,10 @@
 # Rust / Cargo
 /target/
 **/target/
-Cargo.lock
+# NOTE: workspace ships a binary (cedian_cli) — lockfile is versioned.
 *.rs.bk
 
-# Bundled OMP build output (rebuilt by script/build-omp; pin lives in vendor/omp-revision)
+# Bundled OMP build output (rebuilt by script/build-omp; pin lives in vendor/omp-revision.json)
 cedian.app/
 *.app/
 vendor/omp-build/
@@ -48,3 +48,7 @@ tests/fixtures/live/
 # Logs / local state
 *.log
 /tmp/
+
+# Nested-crate lockfiles excluded: covered by root Cargo.lock.
+spike/*/Cargo.lock
+vendor/*/Cargo.lock

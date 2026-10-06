@@ -13,3 +13,6 @@ omp-rpc = { path = "../../vendor/omp-rpc" }
 parking_lot = "0.12"
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[lints]
+workspace = true
