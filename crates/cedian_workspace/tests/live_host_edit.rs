@@ -27,7 +27,7 @@ fn dev_config(tag: &str) -> RuntimeConfig {
 #[test]
 #[ignore]
 fn live_host_edit() {
-    let host = HostTools::shared();
+    let host = HostTools::shared(Path::new("/"));
     // Deterministic buffer: the model edits this exact text.
     host.open(Path::new("/note.txt"), "version one");
     assert_eq!(host.buffer_version(Path::new("/note.txt")).unwrap().0, 0);

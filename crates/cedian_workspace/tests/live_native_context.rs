@@ -29,7 +29,7 @@ fn dev_config(tag: &str) -> RuntimeConfig {
 #[test]
 #[ignore]
 fn live_native_context() {
-    let host = HostTools::shared();
+    let host = HostTools::shared(Path::new("/"));
     // "Highlighted" code: selection covers the buggy line.
     let code = "fn total(items: &[i32]) -> i32 {\n    let mut sum = 0;\n    sum\n}\n";
     host.open(Path::new("/shop.rs"), code);

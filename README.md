@@ -16,7 +16,10 @@ Rule: `cedian = environment, OMP = intelligence`.
 | 3 Tool Cards | ✅ args preview + result summary, no raw JSON |
 | 4 Edit Surface (headless) | ✅ `crates/cedian_workspace/` — host tools + `cedian://` + txns |
 | 5 Provenance + Review | ✅ `crates/cedian_review/` — baseline, hunks, accept/reject |
-| 6 Native Context | ▶ next — full `cedian://` + ambient snapshot |
+| 6 Native Context | ✅ `cedian://` kinds + diagnostics + ambient snapshot |
+| CLI harness | ✅ `cargo run -p cedian_cli` — full loop without GPUI |
+| 2.5 Shell (headless) | ✅ `crates/cedian_shell/` — settings + palette + sessions |
+| 7 LSP surface | ▶ next |
 
 ## Layout
 
@@ -33,6 +36,9 @@ script/build-omp         build pinned OMP into cedian.app (records commit/tree-h
 
 ```sh
 cargo build --workspace
+cargo run -p cedian_cli -- state            # OMP session snapshot
+cargo run -p cedian_cli -- prompt "fix it"      # full turn (needs CEDIAN_WORKDIR)
+cargo run -p cedian_cli -- review              # pending hunks
 cargo test --workspace            # unit (fast, hermetic)
 cargo test -p cedian_omp -- --ignored --nocapture          # live smoke vs real omp
 cargo test -p cedian_agent_ui -- --ignored --nocapture     # live panel + tool cards

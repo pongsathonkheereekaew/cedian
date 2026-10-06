@@ -1,0 +1,12 @@
+[package]
+name = "cedian_shell"
+version = "0.1.0"
+edition = "2021"
+
+# Phase 2.5 (headless): app shell models without GPUI — settings TOML,
+# palette registry, session manager. GPUI views (onboarding wizard, settings
+# UI, update banner) bind with the Zed fork; the data + validation lives here.
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

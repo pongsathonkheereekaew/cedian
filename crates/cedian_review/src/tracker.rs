@@ -134,6 +134,12 @@ impl ReviewTracker {
             path: path.to_path_buf(),
         })
     }
+    /// Paths with a computed diff (sorted for stable display).
+    pub fn paths(&self) -> Vec<PathBuf> {
+        let mut paths: Vec<PathBuf> = self.diffs.keys().cloned().collect();
+        paths.sort();
+        paths
+    }
 
     /// Accept one hunk: mark only (code is already in the buffer).
     /// `Unattributed` accepts per-hunk (allowed); bulk accept skips those.
@@ -310,7 +316,7 @@ mod tests {
     use super::*;
 
     fn setup() -> (cedian_workspace::HostTools, ReviewTracker) {
-        let store = cedian_workspace::HostTools::new();
+        let store = cedian_workspace::HostTools::new(Path::new("/"));
         store.open(Path::new("/a.rs"), "one\ntwo\nthree\n");
         let mut baseline = Baseline::new();
         baseline.snapshot(Path::new("/a.rs"), Version(0));

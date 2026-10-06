@@ -85,13 +85,13 @@ pub fn render_snapshot(snapshot: &AmbientSnapshot) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
     use crate::HostTools;
+    use std::path::Path;
     use std::path::PathBuf;
 
     #[test]
     fn empty_host_empty_snapshot() {
-        let host = HostTools::new();
+        let host = HostTools::new(Path::new("/"));
         let snap = capture_ambient(&host);
         assert!(snap.active_file.is_none());
         assert!(snap.selection.is_none());
@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn selection_and_diagnostics_captured() {
-        let host = HostTools::new();
+        let host = HostTools::new(Path::new("/"));
         host.open(Path::new("/a.rs"), "fn main() {}\n");
         host.set_active_file(Some(PathBuf::from("/a.rs")));
         host.set_selection(Some((PathBuf::from("/a.rs"), 0, 2)));

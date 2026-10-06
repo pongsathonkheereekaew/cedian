@@ -27,7 +27,7 @@ fn dev_config(tag: &str) -> RuntimeConfig {
 #[test]
 #[ignore]
 fn live_review_reject() {
-    let host = HostTools::shared();
+    let host = HostTools::shared(Path::new("/"));
     let path = Path::new("/review.txt");
     host.open(path, "alpha\nbeta\ngamma\n");
 
