@@ -42,9 +42,12 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let session_dir = std::env::var("CEDIAN_SESSION_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("cedian-cli-session"));
+    // Canonicalize: `/tmp` → `/private/tmp` on macOS (else rootUri,
+    // buffer keys, and didOpen URIs disagree and diagnostics never match).
     let workdir: PathBuf = std::env::var("CEDIAN_WORKDIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let workdir = workdir.canonicalize().unwrap_or(workdir);
 
     let cmd = args.first().map(|s| s.as_str()).unwrap_or("help");
     // Settings gate: dangerous tier Deny refuses prompt (the shell rule —
@@ -86,8 +89,13 @@ fn run(args: Vec<String>) -> Result<(), String> {
             }
             Ok(())
         }
+        "symbols" => {
+            let query = args.get(1).ok_or("usage: cedian symbols <query>")?;
+            cmd_symbols(&workdir, query)
+        }
+        "diagnostics" => cmd_diagnostics(&workdir),
         _ => {
-            eprintln!("usage: cedian <prompt|review|accept|reject|accept-all|state|palette> …");
+            eprintln!("usage: cedian <prompt|review|accept|reject|accept-all|state|palette|symbols|diagnostics> …");
             eprintln!("env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR");
             Ok(())
         }
@@ -314,6 +322,90 @@ fn cmd_state(session_dir: &Path, workdir: &Path) -> Result<(), String> {
     println!("settled: {}", state.is_settled);
     println!("messages: {}", state.message_count);
     rt.shutdown().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Spawn rust-analyzer for the workdir, attach to a host, sync open buffers.
+/// Returns (host, bridge) — bridge owns the server child.
+fn spawn_lsp(
+    workdir: &Path,
+) -> Result<(std::sync::Arc<HostTools>, cedian_workspace::LspBridge), String> {
+    let host = HostTools::shared(workdir);
+    for path in crate::workspace_files::scan_text_files(workdir) {
+        if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                let key = crate::workspace_files::buffer_key(workdir, &path)
+                    .ok_or_else(|| "path escapes workspace".to_string())?;
+                host.open(&key, &text);
+            }
+        }
+    }
+    let bridge = cedian_workspace::LspBridge::spawn("rust-analyzer", workdir, &host)
+        .map_err(|e| e.to_string())?;
+    // Sync every open buffer into the server.
+    for key in host.open_keys() {
+        if let Some(text) = host.read_buffer(&key) {
+            let local = workdir.join(key.strip_prefix("/").unwrap_or(&key));
+            bridge.sync_buffer(&local, &text);
+        }
+    }
+    Ok((host, bridge))
+}
+
+fn cmd_symbols(workdir: &Path, query: &str) -> Result<(), String> {
+    let (_host, bridge) = spawn_lsp(workdir)?;
+    // Workspace index builds async — retry empty answers until the deadline.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    loop {
+        let symbols = bridge.workspace_symbols(query).map_err(|e| e.to_string())?;
+        if !symbols.is_empty() || std::time::Instant::now() >= deadline {
+            if symbols.is_empty() {
+                println!("no symbols for {query:?}");
+            }
+            for line in cedian_workspace::lsp_bridge::render_workspace_symbols(&symbols).lines() {
+                println!("{line}");
+            }
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    }
+}
+
+fn cmd_diagnostics(workdir: &Path) -> Result<(), String> {
+    let (host, _bridge) = spawn_lsp(workdir)?;
+    // Wait for the first publishDiagnostics wave. Cold rust-analyzer init
+    // (cargo metadata + first check) can take 5+ min on first launch of the
+    // day; warm restarts answer in seconds. The bridge caches nothing — every
+    // CLI invocation pays cold start once (S9 keeps one warm server).
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(900);
+    loop {
+        let mut any = false;
+        for key in host.open_keys() {
+            if !host.diagnostics(&key).is_empty() {
+                any = true;
+                break;
+            }
+        }
+        if any || std::time::Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    }
+    let mut shown = false;
+    for key in host.open_keys() {
+        for d in host.diagnostics(&key) {
+            shown = true;
+            let sev = match d.severity {
+                cedian_workspace::DiagnosticSeverity::Error => "error",
+                cedian_workspace::DiagnosticSeverity::Warning => "warning",
+                cedian_workspace::DiagnosticSeverity::Info => "info",
+            };
+            println!("{sev} {}:{} {}", d.path.display(), d.line, d.message);
+        }
+    }
+    if !shown {
+        println!("no diagnostics (clean)");
+    }
     Ok(())
 }
 

@@ -11,7 +11,7 @@ Rule: `cedian = environment, OMP = intelligence`.
 | Slice | State |
 |---|---|
 | S0 Foundation loop | ✅ prompt → cards → edit → review → accept/reject in CLI |
-| S1 Language services | ▶ next — real LSP/DAP via `cedian://` + host tools |
+| S1 Language services | ✅ LSP client + symbols + bridge (fake-green); diagnostics-live = follow-up (needs warm server), DAP-live needs Developer mode |
 | S2 Workflow engine | 🔜 gates + playbooks as pure functions |
 | S3 Review agents | 🔜 gated on sandbox profile + audit tuples |
 | S4 Browser evidence | 🔜 CDP screenshot/DOM as gate evidence |
