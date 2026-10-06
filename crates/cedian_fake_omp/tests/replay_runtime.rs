@@ -120,9 +120,10 @@ fn scenario(root: &Path) {
         done(&|c| c.name == "read" && c.preview.ends_with("alpha.txt")),
         "{cards:?}"
     );
-    // OMP 18.6 surfaces host tools as `xd://<name>` devices (read/write).
+    // OMP 18.6 surfaces host tools as `xd://<name>` devices; the card is
+    // named after the host tool, not `write`.
     assert!(
-        done(&|c| c.summary.contains("ECHO:replay-ping")),
+        done(&|c| c.name == "echo_host" && c.summary.contains("ECHO:replay-ping")),
         "{cards:?}"
     );
 

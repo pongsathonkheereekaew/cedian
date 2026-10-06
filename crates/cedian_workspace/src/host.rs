@@ -145,10 +145,16 @@ impl HostTools {
             }
         });
         let rel = if canon.is_absolute() {
-            canon
-                .strip_prefix(&self.workdir)
-                .map(|r| r.to_path_buf())
-                .map_err(|_| format!("path escapes workspace: {}", path.display()))?
+            match canon.strip_prefix(&self.workdir) {
+                Ok(r) => r.to_path_buf(),
+                // A `/`-key (`/notes.txt`) is absolute-shaped too. Accept it
+                // only when it names an open buffer or a file inside the
+                // workspace, so it can never address anything outside.
+                Err(_) if self.is_workspace_key(path) => {
+                    path.strip_prefix("/").unwrap_or(path).to_path_buf()
+                }
+                Err(_) => return Err(format!("path escapes workspace: {}", path.display())),
+            }
         } else {
             path.strip_prefix("/").unwrap_or(path).to_path_buf()
         };
@@ -160,6 +166,18 @@ impl HostTools {
         }
         Ok(PathBuf::from(format!("/{}", rel.display())))
     }
+    /// Whether `/`-prefixed `path` names an open buffer or a workspace file.
+    fn is_workspace_key(&self, path: &Path) -> bool {
+        let key = normalize_key(path);
+        if self.store.lock().version(&key).is_some() {
+            return true;
+        }
+        let rel = path.strip_prefix("/").unwrap_or(path);
+        !rel.components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+            && self.workdir.join(rel).is_file()
+    }
+
     /// Ensure a buffer is open for a key, loading from disk on first use.
     /// Returns `false` when there is nothing to open (no disk file either) —
     /// callers fail with a visible "not open" error, never an empty buffer.
@@ -536,5 +554,30 @@ mod tests {
             .resolve(Path::new("/tmp/fake-ws-resolve/fake.rs"))
             .expect("resolves");
         assert_eq!(key, PathBuf::from("/fake.rs"));
+    }
+
+    #[test]
+    fn slash_key_resolves_only_inside_workspace() {
+        let ws = std::env::temp_dir().join(format!("cedian-ws-slashkey-{}", std::process::id()));
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::write(ws.join("notes.txt"), "x\n").unwrap();
+        let ws = ws.canonicalize().unwrap();
+        let h = HostTools::new(&ws);
+        // `/`-key naming a workspace file (what models copy from buffer keys).
+        assert_eq!(
+            h.resolve(Path::new("/notes.txt")).unwrap(),
+            PathBuf::from("/notes.txt")
+        );
+        // `/`-key naming an open (unsaved) buffer.
+        h.open(Path::new("/draft.rs"), "fn main() {}\n");
+        assert_eq!(
+            h.resolve(Path::new("/draft.rs")).unwrap(),
+            PathBuf::from("/draft.rs")
+        );
+        // Real absolute paths outside the workspace stay rejected.
+        assert!(h.resolve(Path::new("/etc/hosts")).is_err());
+        assert!(h.resolve(Path::new("/nope.txt")).is_err());
+        assert!(h.resolve(Path::new("/../etc/hosts")).is_err());
+        let _ = std::fs::remove_dir_all(&ws);
     }
 }

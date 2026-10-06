@@ -17,4 +17,4 @@ pub use composer::{Composer, ComposerMode};
 pub use message::{render_thread, MessageModel, MessageRole, ToolCard, ToolCardStatus};
 pub use panel::{Panel, PanelTask};
 pub use text_buffer::TextDeltaBuffer;
-pub use tool_card::{card_for_tool, generic_card, ToolCardMeta};
+pub use tool_card::{card_for_tool, generic_card, host_device, ToolCardMeta};
