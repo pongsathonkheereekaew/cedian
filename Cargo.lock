@@ -72,6 +72,7 @@ dependencies = [
  "cedian_omp",
  "cedian_review",
  "cedian_shell",
+ "cedian_worker",
  "cedian_workflow",
  "cedian_workspace",
  "serde_json",
@@ -119,6 +120,14 @@ dependencies = [
 
 [[package]]
 name = "cedian_shell"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cedian_worker"
 version = "0.1.0"
 dependencies = [
  "serde",

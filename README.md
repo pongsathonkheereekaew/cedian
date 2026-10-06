@@ -15,7 +15,7 @@ Rule: `cedian = environment, OMP = intelligence`.
 | S2 Workflow engine | ✅ bugfix reproduce → verify, gates block completion, CLI `workflow run` |
 | S3 Review agents | 🔜 gated on sandbox profile + audit tuples |
 | S4 Browser evidence | ✅ CDP screenshot/DOM as gate evidence (`browser shot --attach`) |
-| S5 Parallel workers | 🔜 worktrees + swarm/arena presets |
+| S5 Parallel workers | ✅ worktrees + steer/merge-back from CLI, STALE on conflict |
 | S6 PR workspace | 🔜 `gh`, PR baselines, merge Deny-by-default |
 | S7 Local automations | 🔜 cron + history, no cloud ever |
 | S8 iOS track | 🔜 extension track, after v0.3 |
