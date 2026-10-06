@@ -24,6 +24,14 @@ cedian_workflow = { path = "../cedian_workflow" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+cedian_fake_omp = { path = "../cedian_fake_omp" }
+
+# Re-execs itself as fake-omp (argv `--mode rpc-ui …`), so it owns `main`.
+[[test]]
+name = "replay_cli"
+harness = false
+
 # CLI stdout IS the product (user reads it): opt out of print_stdout only.
 [lints.clippy]
 print_stdout = "allow"
