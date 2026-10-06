@@ -2955,6 +2955,26 @@ Acceptance:
 
 ---
 
+## Phase 2.5 — App Shell (Onboarding, Palette, Settings, Updates)
+
+> **Rationale (UI gap review, 2026-10-06).** Phases 1–2 build panes; nothing owns the APP around them (first-run, shortcuts, settings surface, updates). One phase, one owner — the shell, not four scattered features.
+
+Implement:
+
+```text
+first-run onboarding (Zed import? → OMP bundled check → bundled-OMP trust banner (§6) → sample workspace)
+command palette entries (every agent action: prompt/abort/steer/review/PR/automation — all palette-discoverable)
+keybindings (agent panel/composer/tool-card/review navigation; no clash with Zed defaults; user-overridable, versioned with snapshot_version §75)
+settings UI (permission TOML + Seatbelt profile viewer (read-only, edit = file) + reviewer allow-list + automation schedules + update channel)
+auto-update (cedian.app + bundled omp as ONE unit: version check → download → verify triple (§6) → relaunch; OMP revision change shows [Review changes] [Continue], never silent)
+```
+
+Rules: settings UI EDITS the same TOML/policy files CI gates (Q10b) — no second source of truth; palette/shortcut registry reuses gpui-kit action/keybinding primitives (§84 stack lock), never hand-rolled dispatch. Onboarding must complete WITHOUT network (bundled OMP is local; no account, no sign-in).
+
+Acceptance:
+
+> Fresh install → onboarded → prompt → answer, with zero terminal and zero config-file editing.
+
 ## Phase 3 — Tool Card Registry
 
 Support at least:
