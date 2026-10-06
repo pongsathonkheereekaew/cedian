@@ -135,8 +135,17 @@ pub fn render_thread(events: &[ThreadEvent]) -> (Vec<MessageModel>, Vec<ToolCard
                 preview,
                 summary,
             } => {
-                let meta = crate::card_for_tool(name);
-                let mut card = ToolCard::running(call_id, name, meta.title, preview);
+                let mut card = match crate::host_device(name, preview) {
+                    // OMP 18.6 mounts host tools as `xd://<tool>`: `write` runs
+                    // the tool (card named after it), `read` fetches its docs.
+                    Some((device, true)) => ToolCard::running(call_id, device, "Host tool", device),
+                    Some((device, false)) => {
+                        ToolCard::running(call_id, name, "Read host tool docs", device)
+                    }
+                    None => {
+                        ToolCard::running(call_id, name, crate::card_for_tool(name).title, preview)
+                    }
+                };
                 card.status = (*status).into();
                 card.summary = summary.clone();
                 cards.push(card);
@@ -186,5 +195,24 @@ mod tests {
         assert_eq!(card.display_line(), "Read file — a.rs");
         card.set_summary("42 lines");
         assert_eq!(card.display_line(), "Read file — a.rs → 42 lines");
+    }
+
+    #[test]
+    fn xd_host_tool_cards_named_after_the_tool() {
+        let tool = |call_id: &str, name: &str| ThreadEvent::Tool {
+            call_id: call_id.to_string(),
+            name: name.to_string(),
+            status: ToolCallStatus::Done,
+            preview: "xd://cedian_apply_edit".to_string(),
+            summary: String::new(),
+        };
+        let (_, cards) = render_thread(&[tool("r", "read"), tool("w", "write")]);
+        // Reading the device docs is not an edit: name stays `read`.
+        assert_eq!(
+            (cards[0].name.as_str(), cards[0].title.as_str()),
+            ("read", "Read host tool docs")
+        );
+        assert_eq!(cards[1].name, "cedian_apply_edit");
+        assert_eq!(cards[1].display_line(), "Host tool — cedian_apply_edit");
     }
 }

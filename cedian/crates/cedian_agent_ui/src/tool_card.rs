@@ -76,6 +76,19 @@ pub fn card_for_tool(name: &str) -> ToolCardMeta {
 }
 
 /// Fallback card: renders name + status, never raw JSON.
+/// `read`/`write` aimed at an `xd://<tool>` device (how OMP 18.6 exposes
+/// host tools): `Some((tool, is_call))`, `is_call` = the write that runs it.
+pub fn host_device<'a>(name: &str, preview: &'a str) -> Option<(&'a str, bool)> {
+    let is_call = match name {
+        "write" => true,
+        "read" => false,
+        _ => return None,
+    };
+    let device = preview.trim().strip_prefix("xd://")?;
+    let device = device.split(['/', ' ', '?']).next().unwrap_or("");
+    (!device.is_empty()).then_some((device, is_call))
+}
+
 pub fn generic_card() -> ToolCardMeta {
     ToolCardMeta {
         title: "Tool call",
@@ -86,6 +99,21 @@ pub fn generic_card() -> ToolCardMeta {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn xd_devices_map_to_host_tools() {
+        assert_eq!(
+            host_device("write", "xd://cedian_apply_edit"),
+            Some(("cedian_apply_edit", true))
+        );
+        assert_eq!(
+            host_device("read", "xd://echo_host"),
+            Some(("echo_host", false))
+        );
+        assert_eq!(host_device("write", "src/a.rs"), None);
+        assert_eq!(host_device("bash", "xd://x"), None);
+        assert_eq!(host_device("write", "xd://"), None);
+    }
 
     #[test]
     fn known_tools_have_cards() {
