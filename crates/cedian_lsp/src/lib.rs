@@ -118,6 +118,9 @@ pub struct LspClient {
     timeout: Duration,
 }
 
+// SAFETY: shared state is behind `Arc<Mutex|Pending>` + channels; `Child` and
+// thread handles are only touched via message passing.
+#[allow(unsafe_code)]
 unsafe impl Sync for LspClient {}
 
 impl LspClient {
@@ -358,7 +361,10 @@ impl LspClient {
     fn send_frame(&self, body: &Value) -> Result<(), LspError> {
         let raw = serde_json::to_vec(body).map_err(|e| LspError::Protocol(e.to_string()))?;
         if std::env::var("CEDIAN_LSP_WIRE_LOG").is_ok() {
-            eprintln!("[wire] -> {}", &String::from_utf8_lossy(&raw)[..300.min(raw.len())]);
+            eprintln!(
+                "[wire] -> {}",
+                &String::from_utf8_lossy(&raw)[..300.min(raw.len())]
+            );
         }
         let mut frame = format!("Content-Length: {}\r\n\r\n", raw.len()).into_bytes();
         frame.extend_from_slice(&raw);

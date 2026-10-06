@@ -277,7 +277,7 @@ Optional handshake:
 }
 ```
 
-> **Scrutinize R4 fix (bundled-binary trust).** The bundled `omp` is a silent privilege boundary: it inherits the user's uid + Seatbelt profile at spawn. Therefore: (a) `script/build-omp` records `{commit, normalized-source-tree hash, builder identity}` into `vendor/omp-revision` — the handshake verifies this triple, not just a version string; (b) at first run after an OMP revision change, cedian shows `OMP runtime updated <old→new> [Review changes] [Continue]` — protocol mismatch AND revision change both fail closed, never silently fall back.
+> **Scrutinize R4 fix (bundled-binary trust).** The bundled `omp` is a silent privilege boundary: it inherits the user's uid + Seatbelt profile at spawn. Therefore: (a) `script/build-omp` records `{commit, normalized-source-tree hash, builder identity}` into `vendor/omp-revision.json` — the handshake verifies this triple, not just a version string; (b) at first run after an OMP revision change, cedian shows `OMP runtime updated <old→new> [Review changes] [Continue]` — protocol mismatch AND revision change both fail closed, never silently fall back.
 
 If there is a mismatch:
 
@@ -426,7 +426,7 @@ Target: OMP should retain access to all useful existing OMP tools while gaining 
 | `todo` | OMP | projected into Workflow UI |
 | `ask` | OMP | native GPUI dialog |
 | `browser` | OMP | shared Chromium/CDP + cedian browser surface |
-| `computer` | OMP | CUA-driver backend (`trycua/cua` `cua-driver` Rust crates, MIT) behind OMP tool semantics — default-deny, per-action `ask`, audit-logged; never raw OS input outside the driver contract. **Grill R2 (6a): driver-only first** — `cua-driver` (inspect + operate via typed contract) now; Lume/Spaces VM sandbox is a later phase, not Phase 0. **Pin story (7a):** pin `cua-driver` by git rev + cargo vendor, update on a fixed cadence alongside `vendor/omp-revision` — never float on latest. |
+| `computer` | OMP | CUA-driver backend (`trycua/cua` `cua-driver` Rust crates, MIT) behind OMP tool semantics — default-deny, per-action `ask`, audit-logged; never raw OS input outside the driver contract. **Grill R2 (6a): driver-only first** — `cua-driver` (inspect + operate via typed contract) now; Lume/Spaces VM sandbox is a later phase, not Phase 0. **Pin story (7a):** pin `cua-driver` by git rev + cargo vendor, update on a fixed cadence alongside `vendor/omp-revision.json` — never float on latest. |
 | Git/GitHub | OMP + cedian | OMP execution, cedian visualization |
 | Images | OMP | native RPC image content |
 | Review | OMP + cedian | OMP reasoning, cedian UI |
@@ -2871,7 +2871,7 @@ Covers: Phases 13–15 (sim/boot/build/WDA/panel). Off the native critical path;
 
 ### S9 — The real app (fork + GPUI)
 Covers: Phase 0 (fork hygiene, signing/notarization) + Phase 2.5 UI + GPUI binding of all headless models.
-Exit: `cargo run cedian` → onboard → prompt → answer, zero terminal. THIS — not S1–S8 — is what makes it triable as an app.
+Exit: `cargo run -p cedian_cli -- prompt "hi"` (headless loop today); the S9 app binary runs `cargo run -p cedian -- ...` once the fork lands → onboard → prompt → answer, zero terminal. THIS — not S1–S8 — is what makes it triable as an app.
 
 ## Phase 0 — Fork Hygiene
 
@@ -2892,7 +2892,7 @@ UI kit evaluation: pin gpui-kit + elygpui revisions, verify GPUI version compat 
 Acceptance:
 
 ```text
-cargo run cedian
+`cargo run -p cedian -- ...` (app binary; pre-S9 use `cargo run -p cedian_cli -- ...`)
 ```
 
 works as a normal Zed-derived editor.

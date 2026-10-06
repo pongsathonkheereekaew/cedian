@@ -1,0 +1,30 @@
+#!/bin/sh
+# git-guardrails: block destructive git commands from agents.
+# Installs .git/hooks/pre-push (blocks force-push) + .git/hooks/pre-commit
+# (symlink to script/pre-commit: fmt + clippy + hermetic tests).
+# Human override: run the git command yourself — hooks only bind agents.
+set -eu
+
+HOOK_DIR="$(git rev-parse --git-dir)/hooks"
+
+cat > "$HOOK_DIR/pre-push" <<'EOF'
+#!/bin/sh
+# Block force-push from agent sessions. Human bypass: --no-verify.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # remote_sha all-zeros = new branch (safe); forced update = non-ff
+  if [ "$remote_sha" != "0000000000000000000000000000000000000000" ]; then
+    if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      echo "BLOCKED: non-fast-forward push ($local_ref -> $remote_ref)." >&2
+      echo "If this rewrite is intentional, a human must push with --no-verify." >&2
+      exit 2
+    fi
+  fi
+done
+exit 0
+EOF
+chmod +x "$HOOK_DIR/pre-push"
+ln -sf ../../script/pre-commit "$HOOK_DIR/pre-commit"
+echo "git-guardrails: pre-push non-ff guard + pre-commit gate installed in $HOOK_DIR"
+echo "Policy (enforced via AGENTS.md prefs, deterministic where possible):"
+echo "  - NEVER agent-runnable: git push --force/-f, git reset --hard, git clean -fd/-f, git branch -D, git checkout . / git restore ."
+echo "  - Destructive ops need explicit human approval per session."

@@ -5,3 +5,16 @@ resolver = "2"
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+
+# CLI stdout is the product surface (not debug logging): allowed in cedian_cli only.
+# print_stdout stays warn workspace-wide; cedian_cli opts out in its own [lints].
+print_stdout = "warn"
+
+[profile.dev]
+overflow-checks = true
