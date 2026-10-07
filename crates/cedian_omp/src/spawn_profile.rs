@@ -345,6 +345,66 @@ impl SpawnProfile {
     }
 }
 
+/// One of OMP's effective settings for `cwd`, as `omp config get <key>
+/// --json` reports it (global and project config merged by OMP itself, so
+/// cedian never re-implements the merge). Read-only: no agent, no session.
+/// Runs with the scrubbed env and is killed at `timeout`.
+pub fn omp_config_get(
+    binary: &Path,
+    cwd: &Path,
+    key: &str,
+    timeout: std::time::Duration,
+) -> Result<Value, OmpError> {
+    use std::io::Read as _;
+    check_path("binary_path", binary)?;
+    if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '.') {
+        return Err(OmpError::InvalidSpawnProfile(format!(
+            "bad config key {key:?}"
+        )));
+    }
+    let mut child = std::process::Command::new(binary)
+        .args(["config", "get", key, "--json"])
+        .current_dir(cwd)
+        .env_clear()
+        .envs(scrub_env(std::env::vars()))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| OmpError::Spawn(format!("omp config get: {e}")))?;
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|e| OmpError::Spawn(e.to_string()))?
+        {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(OmpError::Timeout {
+                command: format!("config get {key}"),
+                after: timeout,
+            });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    };
+    let mut out = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = stdout.read_to_string(&mut out);
+    }
+    if !status.success() {
+        return Err(OmpError::Spawn(format!("omp config get {key}: {status}")));
+    }
+    let parsed: Value = serde_json::from_str(&out)
+        .map_err(|e| OmpError::Spawn(format!("omp config get {key}: {e}")))?;
+    parsed
+        .get("value")
+        .cloned()
+        .ok_or_else(|| OmpError::Spawn(format!("omp config get {key}: no value")))
+}
+
 /// Resolve a bare binary name against `PATH` to an absolute path (dev lane).
 pub fn resolve_on_path(name: &str, path_var: Option<&str>) -> Result<PathBuf, OmpError> {
     if Path::new(name).is_absolute() {

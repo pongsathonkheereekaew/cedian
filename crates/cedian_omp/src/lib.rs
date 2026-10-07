@@ -24,6 +24,6 @@ pub use session::{
     validate_binding, ResumeState, SessionBinding, SnapshotVersionMismatch, SNAPSHOT_VERSION,
 };
 pub use spawn_profile::{
-    resolve_on_path, scrub_env, ApprovalMode, Approvals, BashRule, SpawnPlan, SpawnPolicy,
-    SpawnProfile, ToolPolicy,
+    omp_config_get, resolve_on_path, scrub_env, ApprovalMode, Approvals, BashRule, SpawnPlan,
+    SpawnPolicy, SpawnProfile, ToolPolicy,
 };

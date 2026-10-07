@@ -24,6 +24,9 @@ fn main() {
     if args.first().map(String::as_str) == Some("--mode") {
         std::process::exit(cedian_fake_omp::run(&args));
     }
+    if args.first().map(String::as_str) == Some("config") {
+        std::process::exit(cedian_fake_omp::config_get(&args));
+    }
     // `CEDIAN_P2_RECORD=cli|shell|channel|worktree|revert|s2` re-records ONE fixture against real OMP.
     let which = std::env::var("CEDIAN_P2_RECORD").unwrap_or_default();
     let record = which == "cli";
@@ -828,6 +831,12 @@ fn p8_scenario(record: bool, deny: bool) {
         });
         assert!(bash_end, "bash audited: {rows:?}");
         assert!(out.contains("approved by OMP"), "card label:\n{out}");
+        assert!(
+            out.contains("◆ OMP policy")
+                && out.contains("approvalMode: yolo from the project's .omp/config.yml")
+                && out.contains("computer: off"),
+            "badge names the project layer:\n{out}"
+        );
     }
 }
 
