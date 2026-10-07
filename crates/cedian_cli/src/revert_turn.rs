@@ -107,6 +107,18 @@ pub fn cmd_revert_turn(workdir: &Path, which: &str) -> Result<(), String> {
             created: !existed,
         });
     }
+    for file in &turn.files {
+        crate::corrections::record(
+            workdir,
+            crate::corrections::CorrectionKind::TurnReverted,
+            crate::corrections::Event {
+                turn: Some(turn.n),
+                path: Some(file.file.clone()),
+                excerpt: Some(file.after.clone()),
+                ..crate::corrections::Event::default()
+            },
+        )?;
+    }
     let label = format!("revert turn {}", turn.n);
     match store.record_turn(TurnKind::Revert { of: turn.n }, &label, changed) {
         Some(n) => println!(

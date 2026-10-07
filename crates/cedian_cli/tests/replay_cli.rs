@@ -196,6 +196,13 @@ fn scenario(record: bool) {
     );
 
     cedian(&root, &["reject", "/notes.txt", "0"]);
+    // ADR-0032: the reject is a correction row, bound to the turn's tool call.
+    let rows = corrections(&root);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["kind"], "hunk_rejected");
+    assert_eq!(rows[0]["path"], "/notes.txt");
+    assert_eq!(rows[0]["turn"], 1);
+    assert!(rows[0]["tool_call_id"].is_string(), "{rows:?}");
     assert_eq!(
         std::fs::read_to_string(&notes).unwrap(),
         ORIGINAL,
@@ -252,6 +259,16 @@ fn stale_scenario() {
     assert!(
         !review.contains("pending"),
         "no hunk still pending:\n{review}"
+    );
+    cedian(&root, &["review"]);
+    let edits: Vec<_> = corrections(&root)
+        .into_iter()
+        .filter(|r| r["kind"] == "user_edited_agent_hunk")
+        .collect();
+    assert_eq!(
+        edits.len(),
+        1,
+        "one row per edited hunk, however often review runs: {edits:?}"
     );
 
     let out = cli(&root)
@@ -326,6 +343,12 @@ fn dismiss_scenario() {
     assert!(out.contains("dismissed f1"), "{out}");
     let review = cedian(&root, &["review"]);
     assert!(review.contains("f1 [dismissed]"), "{review}");
+    assert!(
+        corrections(&root)
+            .iter()
+            .any(|r| r["kind"] == "finding_dismissed"),
+        "dismissal is a correction row"
+    );
     let rows = audit(&root);
     assert!(
         rows.iter().any(|r| r["item"]["kind"] == "gate"
@@ -669,6 +692,12 @@ fn channel_scenario(record: bool) {
     // ADR-0036: the turn ended on a refused claim → blocked, gates listed.
     assert_eq!(state["status"], "blocked", "refused claim blocks:\n{raw}");
     assert!(
+        corrections(&root)
+            .iter()
+            .any(|r| r["kind"] == "completion_refused"),
+        "the refused completion is a correction row"
+    );
+    assert!(
         out.contains("workflow BLOCKED") && out.contains("required gate \"verify\""),
         "missing gates printed after the turn:\n{out}"
     );
@@ -861,6 +890,12 @@ fn revert_scenario(record: bool) {
 
     send("revert-turn 2");
     let out = wait_for("revert-turn 3` redoes");
+    let reverted: Vec<_> = corrections(&root)
+        .into_iter()
+        .filter(|r| r["kind"] == "turn_reverted")
+        .collect();
+    assert_eq!(reverted.len(), 1, "{reverted:?}");
+    assert_eq!(reverted[0]["turn"], 2);
     assert!(
         out.contains("STALE notes.txt"),
         "user line reported STALE:\n{out}"
@@ -1036,6 +1071,14 @@ const PROJECT_YOLO: &str = "tools:\n  approvalMode: yolo\n";
 fn overlay(sessions: &Path) -> serde_json::Value {
     let raw = std::fs::read_to_string(sessions.join("cedian-overlay.yml")).unwrap();
     serde_json::from_str(&raw).unwrap()
+}
+
+fn corrections(root: &Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(root.join("ws/.cedian/corrections.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
 }
 
 fn audit(root: &Path) -> Vec<serde_json::Value> {

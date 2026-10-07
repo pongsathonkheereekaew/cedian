@@ -36,6 +36,7 @@ pub const CHANNEL_TOOLS: &[&str] = &[
     "cedian_worktree_request",
     "cedian_review_request",
     "cedian_review_finding",
+    "cedian_correction_class",
 ];
 
 /// True when a logged call is a channel report: called by name, or through

@@ -22,6 +22,7 @@
 
 mod audit;
 mod browser_store;
+mod corrections;
 mod revert_turn;
 mod review_agent;
 mod review_findings;
@@ -221,6 +222,7 @@ fn host_tool_names(settings: &cedian_shell::Settings) -> Vec<&'static str> {
         cedian_workflow::WORKFLOW_UPDATE_TOOL,
         cedian_workflow::COMPLETE_TOOL,
         review_agent::REVIEW_REQUEST_TOOL,
+        corrections::CORRECTION_CLASS_TOOL,
     ];
     if settings.permissions.project_write != cedian_shell::Verdict::Deny {
         names.push(cedian_worker::WORKTREE_REQUEST_TOOL);
@@ -242,6 +244,18 @@ fn end_workflow_turn(workdir: &Path) -> Result<(), String> {
         }
         return Ok(());
     };
+    let next_turn = session::load(workdir)?
+        .map(|s| s.turns.len() as u32 + 1)
+        .unwrap_or(1);
+    corrections::record(
+        workdir,
+        corrections::CorrectionKind::CompletionRefused,
+        corrections::Event {
+            turn: Some(next_turn),
+            excerpt: Some(missing.join("\n")),
+            ..corrections::Event::default()
+        },
+    )?;
     workflow_store::save(workdir, &state)?;
     let (word, next) = if status == cedian_workflow::WorkflowStatus::Failed {
         ("FAILED", "start a new workflow to retry")
@@ -364,6 +378,11 @@ fn host_tools(
         session_dir.to_path_buf(),
         settings.clone(),
         host.clone(),
+    ));
+    let class_root = workdir.to_path_buf();
+    tools.push(corrections::correction_class_tool(
+        workdir.to_path_buf(),
+        move || current_state(&class_root),
     ));
     if names.contains(&cedian_worker::WORKTREE_REQUEST_TOOL) {
         tools.push(cedian_worker::worktree_request_tool(workdir.to_path_buf()));
@@ -881,7 +900,44 @@ fn load_tracker(
     tracker.attribute(&store.provenance);
     tracker.restore_statuses(store.statuses.clone());
     tracker.rebuild_now(host as &dyn WorkspaceHost);
+    // ADR-0032: a user edit over an agent hunk is a correction (once per text).
+    for path in tracker.paths() {
+        let Ok(diff) = tracker.diff(&path) else {
+            continue;
+        };
+        for (i, status) in diff.statuses.iter().enumerate() {
+            if *status != cedian_review::HunkStatus::Stale {
+                continue;
+            }
+            let key = path.to_string_lossy().into_owned();
+            corrections::record(
+                workdir,
+                corrections::CorrectionKind::UserEditedAgentHunk,
+                corrections::Event {
+                    turn: store.last_turn_touching(&key),
+                    hunk_key: Some(format!("{key}#{i}")),
+                    path: Some(key),
+                    excerpt: hunk_text(&tracker, &path, i),
+                    ..corrections::Event::default()
+                },
+            )?;
+        }
+    }
     Ok((store, tracker))
+}
+
+/// A hunk's after-lines, the text a correction row hashes.
+fn hunk_text(tracker: &ReviewTracker, path: &Path, hunk: usize) -> Option<String> {
+    let diff = tracker.diff(path).ok()?;
+    let h = diff.hunks.get(hunk)?;
+    Some(
+        diff.snapshot
+            .lines()
+            .skip(h.after_start)
+            .take(h.after_count)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
 }
 
 /// Persist the tracker's resolutions back into the review task.
@@ -948,9 +1004,27 @@ fn cmd_accept(workdir: &Path, path: &Path, hunk: usize) -> Result<(), String> {
 fn cmd_reject(workdir: &Path, path: &Path, hunk: usize) -> Result<(), String> {
     let host = HostTools::new(workdir);
     let (store, mut tracker) = load_tracker(workdir, &host)?;
+    let rejected = hunk_text(&tracker, path, hunk);
     let v = tracker
         .reject_hunk(path, hunk, &host as &dyn WorkspaceHost)
         .map_err(|e| e.to_string())?;
+    let key = path.to_string_lossy().into_owned();
+    corrections::record(
+        workdir,
+        corrections::CorrectionKind::HunkRejected,
+        corrections::Event {
+            turn: store.last_turn_touching(&key),
+            hunk_key: Some(format!("{key}#{hunk}")),
+            tool_call_id: store
+                .provenance
+                .iter()
+                .rev()
+                .find(|e| e.file == key)
+                .map(|e| e.tool_call_id.clone()),
+            path: Some(key),
+            excerpt: rejected,
+        },
+    )?;
     // Sync the restored buffer back to disk.
     if let Some(local) = workspace_files::local_path(workdir, path) {
         if let Some(text) = host.read_buffer(path) {
