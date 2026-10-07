@@ -5,6 +5,7 @@
 //! (§54: `MAX_CONTINUE` per gate) lives here — `record_continue` returns
 //! `Blocked` on exhaustion so the caller force-escalates to the user.
 
+use super::code_state::CurrentState;
 use super::evidence::Evidence;
 use super::gate::{GateResult, GateStatus, MAX_CONTINUE};
 use super::playbook::{PhaseId, Playbook};
@@ -167,23 +168,27 @@ impl WorkflowState {
         self.evidence.values().cloned().collect()
     }
 
-    /// Evaluate one gate over the stored map.
-    pub fn gate_result(&self, gate_id: &str) -> Result<GateResult, WorkflowError> {
+    /// Evaluate one gate over the stored map and the current code state.
+    pub fn gate_result(
+        &self,
+        gate_id: &str,
+        current: &CurrentState,
+    ) -> Result<GateResult, WorkflowError> {
         let gate = self
             .playbook
             .gates
             .iter()
             .find(|g| g.id == gate_id)
             .ok_or_else(|| WorkflowError::NoSuchGate(gate_id.to_string()))?;
-        Ok(gate.evaluate(&self.evidence_list()))
+        Ok(gate.evaluate(&self.evidence_list(), current))
     }
 
     /// Evaluate every gate in playbook order.
-    pub fn all_gates(&self) -> Vec<(String, GateResult)> {
+    pub fn all_gates(&self, current: &CurrentState) -> Vec<(String, GateResult)> {
         self.playbook
             .gates
             .iter()
-            .map(|g| (g.id.clone(), g.evaluate(&self.evidence_list())))
+            .map(|g| (g.id.clone(), g.evaluate(&self.evidence_list(), current)))
             .collect()
     }
 
@@ -191,7 +196,7 @@ impl WorkflowState {
     /// (or `ReadyForReview` past the last one); `failed`/`blocked` propagate
     /// to workflow status. Advancing past a REQUIRED phase whose gates are
     /// unpassed is refused — gates block, not warn.
-    pub fn advance(&mut self, passed: bool) -> Result<(), WorkflowError> {
+    pub fn advance(&mut self, passed: bool, current: &CurrentState) -> Result<(), WorkflowError> {
         let cur = self
             .current_phase
             .clone()
@@ -206,7 +211,7 @@ impl WorkflowState {
                 .blocking_gates(&cur)
                 .into_iter()
                 .filter(|g| {
-                    self.gate_result(&g.id)
+                    self.gate_result(&g.id, current)
                         .map(|r| r.status != GateStatus::Passed)
                         .unwrap_or(true)
                 })
@@ -262,10 +267,10 @@ impl WorkflowState {
     /// Completion gate (§55): `canComplete`. Required gates ALL passed (and
     /// required phases passed/skipped, never pending) → `Ok(true)`. Else the
     /// missing reasons, so OMP knows what evidence to produce next.
-    pub fn can_complete(&self) -> Result<bool, Vec<String>> {
+    pub fn can_complete(&self, current: &CurrentState) -> Result<bool, Vec<String>> {
         let mut missing = Vec::new();
         for gate in self.playbook.gates.iter().filter(|g| g.required) {
-            let r = gate.evaluate(&self.evidence_list());
+            let r = gate.evaluate(&self.evidence_list(), current);
             if r.status != GateStatus::Passed {
                 missing.push(format!("required gate {:?}: {}", gate.id, r.reason));
             }
@@ -292,6 +297,7 @@ impl WorkflowState {
         &mut self,
         gate_id: &str,
         new_evidence_ids: &[String],
+        current: &CurrentState,
     ) -> Result<ContinueOutcome, WorkflowError> {
         if self.playbook.gates.iter().all(|g| g.id != gate_id) {
             return Err(WorkflowError::NoSuchGate(gate_id.to_string()));
@@ -308,7 +314,7 @@ impl WorkflowState {
                 ps.status = PhaseStatus::Blocked;
             }
             let reason = self
-                .gate_result(gate_id)
+                .gate_result(gate_id, current)
                 .map(|r| r.reason)
                 .unwrap_or_else(|_| "unknown".to_string());
             return Ok(ContinueOutcome::Blocked {
@@ -325,8 +331,8 @@ impl WorkflowState {
 
     /// Mark complete. Refused unless `can_complete` holds — never pretend
     /// success (§55: otherwise `status = blocked`).
-    pub fn complete(&mut self) -> Result<(), Vec<String>> {
-        match self.can_complete() {
+    pub fn complete(&mut self, current: &CurrentState) -> Result<(), Vec<String>> {
+        match self.can_complete(current) {
             Ok(true) => {
                 self.status = WorkflowStatus::Complete;
                 Ok(())
@@ -343,7 +349,7 @@ impl WorkflowState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evidence::{EvidenceKind, Provenance};
+    use crate::evidence::{EvidenceKind, Outcome, Provenance};
     use crate::profile::{Complexity, Risk, Surface, TaskKind};
 
     fn bugfix_task(risk: Risk) -> TaskProfile {
@@ -358,17 +364,23 @@ mod tests {
         }
     }
 
+    fn ws() -> CurrentState {
+        CurrentState::from_files([("a.rs".to_string(), b"1".as_slice())])
+    }
+
     fn attributed(id: &str, gates: &[&str], ok: bool) -> Evidence {
         Evidence {
             id: id.to_string(),
             kind: EvidenceKind::Test,
             for_gates: gates.iter().map(|s| s.to_string()).collect(),
             summary: "evidence".to_string(),
-            ok,
+            outcome: Outcome::from_ok(ok),
             provenance: Provenance::Attributed {
                 task_id: "t".to_string(),
                 tool_call_id: "c".to_string(),
             },
+            code_state: Some(ws().bind(&[])),
+            born_stale: None,
         }
     }
 
@@ -395,14 +407,14 @@ mod tests {
     fn continue_budget_blocks_on_exhaustion() {
         let mut w = WorkflowState::start(bugfix_task(Risk::High)).unwrap();
         assert!(matches!(
-            w.record_continue("verify", &[]).unwrap(),
+            w.record_continue("verify", &[], &ws()).unwrap(),
             ContinueOutcome::Continue { attempts_left: 2 }
         ));
         assert!(matches!(
-            w.record_continue("verify", &[]).unwrap(),
+            w.record_continue("verify", &[], &ws()).unwrap(),
             ContinueOutcome::Continue { attempts_left: 1 }
         ));
-        let blocked = w.record_continue("verify", &[]).unwrap();
+        let blocked = w.record_continue("verify", &[], &ws()).unwrap();
         assert!(matches!(blocked, ContinueOutcome::Blocked { .. }));
         assert_eq!(w.status, WorkflowStatus::Blocked);
     }
@@ -410,8 +422,8 @@ mod tests {
     #[test]
     fn cannot_complete_without_evidence() {
         let mut w = WorkflowState::start(bugfix_task(Risk::High)).unwrap();
-        assert!(w.can_complete().is_err());
-        assert!(w.complete().is_err());
+        assert!(w.can_complete(&ws()).is_err());
+        assert!(w.complete(&ws()).is_err());
         assert_eq!(w.status, WorkflowStatus::Blocked);
     }
 
@@ -420,32 +432,34 @@ mod tests {
         // S2 exit: reproduce → investigate → implement → verify, gates block.
         let mut w = WorkflowState::start(bugfix_task(Risk::High)).unwrap();
         // reproduce phase exits only with reproduce-gate evidence.
-        assert!(w.advance(true).is_err());
+        assert!(w.advance(true, &ws()).is_err());
         w.attach(Evidence {
             id: "r1".to_string(),
             kind: EvidenceKind::Command,
             for_gates: vec!["reproduce".to_string()],
             summary: "repro fails with E0502".to_string(),
-            ok: false, // failing observation SATISFIES a repro gate
+            outcome: Outcome::Fail, // failing observation SATISFIES a repro gate
             provenance: Provenance::Attributed {
                 task_id: "t".to_string(),
                 tool_call_id: "c1".to_string(),
             },
+            code_state: Some(ws().bind(&[])),
+            born_stale: None,
         })
         .unwrap();
-        w.advance(true).unwrap();
+        w.advance(true, &ws()).unwrap();
         assert_eq!(w.current_phase.as_deref(), Some("investigate"));
-        w.advance(true).unwrap();
-        w.advance(true).unwrap();
+        w.advance(true, &ws()).unwrap();
+        w.advance(true, &ws()).unwrap();
         assert_eq!(w.current_phase.as_deref(), Some("verify"));
         // verify is terminal: ALL required gates (reproduce + verify) apply.
         // reproduce passed, verify missing → blocked.
-        assert!(w.advance(true).is_err());
-        assert!(w.can_complete().is_err());
+        assert!(w.advance(true, &ws()).is_err());
+        assert!(w.can_complete(&ws()).is_err());
         w.attach(attributed("v1", &["verify"], true)).unwrap();
-        w.advance(true).unwrap();
-        w.advance(true).unwrap(); // review (kept: high risk)
-        w.complete().unwrap();
+        w.advance(true, &ws()).unwrap();
+        w.advance(true, &ws()).unwrap(); // review (kept: high risk)
+        w.complete(&ws()).unwrap();
         assert_eq!(w.status, WorkflowStatus::Complete);
     }
 }

@@ -209,6 +209,26 @@ fn host_tool_names(settings: &cedian_shell::Settings) -> Vec<&'static str> {
     names
 }
 
+/// The workspace hashed now (ADR-0024; headless code state, row H).
+fn current_state(workdir: &Path) -> cedian_workflow::CurrentState {
+    let files: Vec<(String, Vec<u8>)> = workspace_files::scan_text_files(workdir)
+        .into_iter()
+        .filter_map(|path| {
+            let rel = path
+                .strip_prefix(workdir)
+                .ok()?
+                .to_string_lossy()
+                .into_owned();
+            Some((rel, std::fs::read(&path).ok()?))
+        })
+        .collect();
+    cedian_workflow::CurrentState::from_files(
+        files
+            .iter()
+            .map(|(rel, bytes)| (rel.clone(), bytes.as_slice())),
+    )
+}
+
 /// `.cedian/workflow.json` as the channel's store.
 struct DiskWorkflowStore(PathBuf);
 
@@ -235,26 +255,33 @@ fn host_tools(
 ) -> Vec<omp_rpc::HostTool> {
     let router = rt.router();
     let resolve = move |tool: &str, needle: &str| {
-        router
-            .finished_tool_calls()
-            .into_iter()
-            .rev()
-            .find(|call| {
-                !call.is_error
-                    && call.tool_name == tool
-                    && call.args_preview.contains(needle)
-                    && !cedian_workflow::is_channel_call(&call.tool_name, &call.args_preview)
-            })
-            .map(|call| cedian_workflow::BoundCall {
-                tool_call_id: call.tool_call_id,
-                tool_name: call.tool_name,
-                args_preview: call.args_preview,
-            })
+        let calls = router.finished_tool_calls();
+        let at = calls.iter().rposition(|call| {
+            !call.is_error
+                && call.tool_name == tool
+                && call.args_preview.contains(needle)
+                && !cedian_workflow::is_channel_call(&call.tool_name, &call.args_preview)
+        })?;
+        // ADR-0024: a later call that may have changed files means the
+        // workspace hashed now is not what this call saw.
+        let mutated_after = calls[at + 1..]
+            .iter()
+            .find(|c| cedian_workflow::may_mutate(&c.tool_name, &c.args_preview))
+            .map(|c| format!("{} {}", c.tool_name, c.args_preview));
+        let call = calls[at].clone();
+        Some(cedian_workflow::BoundCall {
+            tool_call_id: call.tool_call_id,
+            tool_name: call.tool_name,
+            args_preview: call.args_preview,
+            mutated_after,
+        })
     };
+    let root = workdir.to_path_buf();
     let channel = cedian_workflow::WorkflowChannel::new(
         "cli",
         Box::new(DiskWorkflowStore(workdir.to_path_buf())),
         resolve,
+        move || current_state(&root),
     );
     let names = host_tool_names(&load_workdir_settings(workdir));
     let mut tools = vec![host.apply_edit_tool()];
@@ -771,7 +798,7 @@ fn cmd_diagnostics(workdir: &Path) -> Result<(), String> {
 /// ```text
 /// cedian workflow run <kind> <title> [--risk low|medium|high]  # start (overwrites)
 /// cedian workflow status                                       # §51 render + gates
-/// cedian workflow evidence <gate> <summary> [--fail] [--unattributed]
+/// cedian workflow evidence <gate> <summary> [--fail|--inconclusive]  # always unattributed
 /// cedian workflow advance [--fail]                             # pass/fail current phase
 /// cedian workflow complete                                     # §55 completion gate
 /// ```
@@ -813,56 +840,43 @@ fn cmd_workflow(workdir: &Path, args: &[String]) -> Result<(), String> {
             let state =
                 cedian_workflow::WorkflowState::start(profile).map_err(|e| e.to_string())?;
             workflow_store::save(workdir, &state)?;
-            render_workflow(&state);
+            render_workflow(&state, &current_state(workdir));
             Ok(())
         }
         Some("status") => {
             let state = workflow_store::load(workdir)?;
-            render_workflow(&state);
+            render_workflow(&state, &current_state(workdir));
             Ok(())
         }
         Some("evidence") => {
-            let gate = args.get(1).ok_or(
-                "usage: cedian workflow evidence <gate> <summary> [--fail] [--unattributed]",
-            )?;
-            let summary = args.get(2).ok_or(
-                "usage: cedian workflow evidence <gate> <summary> [--fail] [--unattributed]",
-            )?;
-            let mut ok = true;
-            let mut attributed = true;
+            const USAGE: &str =
+                "usage: cedian workflow evidence <gate> <summary> [--fail|--inconclusive]";
+            let gate = args.get(1).ok_or(USAGE)?;
+            let summary = args.get(2).ok_or(USAGE)?;
+            let mut outcome = cedian_workflow::Outcome::Pass;
             for flag in &args[3..] {
                 match flag.as_str() {
-                    "--fail" => ok = false,
-                    "--unattributed" => attributed = false,
+                    "--fail" => outcome = cedian_workflow::Outcome::Fail,
+                    "--inconclusive" => outcome = cedian_workflow::Outcome::Inconclusive,
                     _ => return Err(format!("unknown flag {flag:?}")),
                 }
             }
             let mut state = workflow_store::load(workdir)?;
-            // Attributed items link the CLI turn as the producing tool call
-            // (headless stand-in for the §17 AgentEdit link).
+            // S2 exit: typed evidence has no router-log call behind it, so
+            // it is unattributed and can never pass a required gate.
             let id = format!("e{}", state.evidence.len() + 1);
-            let item = if attributed {
-                cedian_workflow::Evidence::attributed(
-                    &id,
-                    cedian_workflow::EvidenceKind::Command,
-                    &[gate],
-                    summary,
-                    ok,
-                    "cli",
-                    format!("cli-turn-{}", state.evidence.len() + 1),
-                )
-            } else {
-                cedian_workflow::Evidence::unattributed(
-                    &id,
-                    cedian_workflow::EvidenceKind::File,
-                    &[gate],
-                    summary,
-                    ok,
-                )
-            };
+            let current = current_state(workdir);
+            let item = cedian_workflow::Evidence::unattributed(
+                &id,
+                cedian_workflow::EvidenceKind::File,
+                &[gate],
+                summary,
+                outcome,
+            )
+            .with_code_state(current.bind(&[]));
             state.attach(item).map_err(|e| e.to_string())?;
             workflow_store::save(workdir, &state)?;
-            match state.gate_result(gate) {
+            match state.gate_result(gate, &current) {
                 Ok(r) => println!(
                     "evidence {id} → gate {gate:?}: {:?} ({})",
                     r.status, r.reason
@@ -874,17 +888,19 @@ fn cmd_workflow(workdir: &Path, args: &[String]) -> Result<(), String> {
         Some("advance") => {
             let passed = !args[1..].contains(&"--fail".to_string());
             let mut state = workflow_store::load(workdir)?;
-            state.advance(passed).map_err(|e| e.to_string())?;
+            state
+                .advance(passed, &current_state(workdir))
+                .map_err(|e| e.to_string())?;
             if !passed {
                 println!("phase failed — workflow failed");
             }
             workflow_store::save(workdir, &state)?;
-            render_workflow(&state);
+            render_workflow(&state, &current_state(workdir));
             Ok(())
         }
         Some("complete") => {
             let mut state = workflow_store::load(workdir)?;
-            match state.complete() {
+            match state.complete(&current_state(workdir)) {
                 Ok(()) => {
                     workflow_store::save(workdir, &state)?;
                     println!("complete");
@@ -1001,18 +1017,20 @@ fn cmd_browser(workdir: &Path, args: &[String]) -> Result<(), String> {
                     summary.push(' ');
                     summary.push_str(&text);
                 }
-                let item = cedian_workflow::Evidence::attributed(
+                // Row D: a cedian-owned headless capture, not a tracked
+                // OMP call — unattributed, so no required gate counts it.
+                let current = current_state(workdir);
+                let item = cedian_workflow::Evidence::unattributed(
                     &id,
                     cedian_workflow::EvidenceKind::Screenshot,
                     &[gate.as_str()],
-                    summary,
-                    true,
-                    "cli",
-                    format!("cli-browser-{n}"),
-                );
+                    format!("{summary} [headless-capture]"),
+                    cedian_workflow::Outcome::Pass,
+                )
+                .with_code_state(current.bind(&[]));
                 state.attach(item).map_err(|e| e.to_string())?;
                 workflow_store::save(workdir, &state)?;
-                match state.gate_result(&gate) {
+                match state.gate_result(&gate, &current) {
                     Ok(r) => println!(
                         "evidence {id} → gate {gate:?}: {:?} ({})",
                         r.status, r.reason
@@ -1215,7 +1233,10 @@ fn cmd_worker(workdir: &Path, args: &[String]) -> Result<(), String> {
 }
 
 /// §51 render: title, kind · risk, phase checklist, gate states.
-fn render_workflow(state: &cedian_workflow::WorkflowState) {
+fn render_workflow(
+    state: &cedian_workflow::WorkflowState,
+    current: &cedian_workflow::CurrentState,
+) {
     let kind = match state.task.kind {
         cedian_workflow::TaskKind::Investigation => "Investigation",
         cedian_workflow::TaskKind::BugFix => "Bug Fix",
@@ -1249,7 +1270,7 @@ fn render_workflow(state: &cedian_workflow::WorkflowState) {
         println!("{glyph} {}", ps.id);
     }
     println!();
-    for (id, r) in state.all_gates() {
+    for (id, r) in state.all_gates(current) {
         let glyph = match r.status {
             cedian_workflow::GateStatus::Pending => "○",
             cedian_workflow::GateStatus::Passed => "✓",
