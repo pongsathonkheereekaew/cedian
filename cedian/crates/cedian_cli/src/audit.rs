@@ -14,10 +14,16 @@ use std::path::Path;
 pub const AUDIT_FILE: &str = ".cedian/audit.jsonl";
 
 pub struct AuditLog {
+    path: std::path::PathBuf,
     file: std::fs::File,
-    next_ordinal: u64,
     source: &'static str,
+    reviewer: bool,
 }
+
+/// Next ordinal per audit file. A reviewer's log is open while the
+/// implementer's is, so both draw from one sequence in this process.
+static NEXT_ORDINAL: std::sync::Mutex<Option<std::collections::HashMap<std::path::PathBuf, u64>>> =
+    std::sync::Mutex::new(None);
 
 impl AuditLog {
     pub fn open(workdir: &Path, approvals: Approvals) -> Result<Self, String> {
@@ -27,6 +33,13 @@ impl AuditLog {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
             Err(e) => return Err(format!("audit log {}: {e}", path.display())),
         };
+        let mut next = NEXT_ORDINAL.lock().unwrap_or_else(|e| e.into_inner());
+        let entry = next
+            .get_or_insert_with(Default::default)
+            .entry(path.clone())
+            .or_insert(0);
+        *entry = (*entry).max(complete_rows);
+        drop(next);
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("audit log: {e}"))?;
         }
@@ -36,12 +49,13 @@ impl AuditLog {
             .open(&path)
             .map_err(|e| format!("audit log {}: {e}", path.display()))?;
         Ok(Self {
+            path,
             file,
-            next_ordinal: complete_rows,
             source: match approvals {
                 Approvals::Omp => "omp",
                 Approvals::Cedian(_) | Approvals::Reviewer => "cedian",
             },
+            reviewer: approvals == Approvals::Reviewer,
         })
     }
 
@@ -90,15 +104,24 @@ impl AuditLog {
 
     fn append(&mut self, mut item: Value, at_ms: Option<u64>) -> Result<(), String> {
         item["decision_source"] = json!(self.source);
+        if self.reviewer {
+            item["actor"] = json!("reviewer");
+        }
         let timestamp_ms = at_ms.unwrap_or_else(|| {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0)
         });
-        let row = json!({"timestamp_ms": timestamp_ms, "ordinal": self.next_ordinal, "item": item});
+        // Hold the lock across the write so ordinals land in file order.
+        let mut next = NEXT_ORDINAL.lock().unwrap_or_else(|e| e.into_inner());
+        let ordinal = next
+            .get_or_insert_with(Default::default)
+            .entry(self.path.clone())
+            .or_insert(0);
+        let row = json!({"timestamp_ms": timestamp_ms, "ordinal": *ordinal, "item": item});
         writeln!(self.file, "{row}").map_err(|e| format!("audit log append: {e}"))?;
-        self.next_ordinal += 1;
+        *ordinal += 1;
         Ok(())
     }
 }
@@ -156,6 +179,28 @@ mod tests {
         assert_eq!(rows[1]["item"]["is_error"], false);
         assert_eq!(rows[2]["item"]["decision_source"], "cedian");
         assert!(rows[0]["timestamp_ms"].as_u64().unwrap() > 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn two_logs_on_one_file_share_the_ordinal_sequence() {
+        let dir = std::env::temp_dir().join(format!("cedian-audit-two-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let start = |id: &str| RouterEvent::ToolStart {
+            tool_call_id: id.into(),
+            tool_name: "read".into(),
+            args_preview: "notes.txt".into(),
+        };
+        let mut implementer = AuditLog::open(&dir, Approvals::Cedian(Default::default())).unwrap();
+        implementer.record(&start("c1")).unwrap();
+        let mut reviewer = AuditLog::open(&dir, Approvals::Reviewer).unwrap();
+        reviewer.record(&start("r1")).unwrap();
+        implementer.record(&start("c2")).unwrap();
+        drop((implementer, reviewer));
+        let rows = replay(&dir);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[1]["item"]["actor"], "reviewer");
+        assert_eq!(rows[2]["item"].get("actor"), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

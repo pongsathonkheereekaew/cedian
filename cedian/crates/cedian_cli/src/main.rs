@@ -23,6 +23,8 @@
 mod audit;
 mod browser_store;
 mod revert_turn;
+mod review_agent;
+mod review_findings;
 mod session;
 mod shell;
 mod shell_lock;
@@ -202,6 +204,7 @@ fn host_tool_names(settings: &cedian_shell::Settings) -> Vec<&'static str> {
         cedian_workspace::APPLY_EDIT_TOOL,
         cedian_workflow::WORKFLOW_UPDATE_TOOL,
         cedian_workflow::COMPLETE_TOOL,
+        review_agent::REVIEW_REQUEST_TOOL,
     ];
     if settings.permissions.project_write != cedian_shell::Verdict::Deny {
         names.push(cedian_worker::WORKTREE_REQUEST_TOOL);
@@ -291,6 +294,7 @@ impl cedian_workflow::WorkflowStore for DiskWorkflowStore {
 /// channel report (ADR-0022, ADR-0031).
 fn host_tools(
     rt: &OmpRuntime,
+    session_dir: &Path,
     workdir: &Path,
     settings: &cedian_shell::Settings,
     host: &std::sync::Arc<HostTools>,
@@ -330,6 +334,12 @@ fn host_tools(
     let names = host_tool_names(settings);
     let mut tools = vec![host.apply_edit_tool()];
     tools.extend(channel.host_tools());
+    tools.push(review_agent::review_request_tool(
+        workdir.to_path_buf(),
+        session_dir.to_path_buf(),
+        settings.clone(),
+        host.clone(),
+    ));
     if names.contains(&cedian_worker::WORKTREE_REQUEST_TOOL) {
         tools.push(cedian_worker::worktree_request_tool(workdir.to_path_buf()));
     }
@@ -445,7 +455,7 @@ fn spawn(
     .map_err(|e| e.to_string())?;
     // Nothing in the CLI can answer an OMP dialog: refuse at once (P5 gap).
     rt.deny_ui_requests();
-    rt.set_host_tools(host_tools(&rt, workdir, settings, host))
+    rt.set_host_tools(host_tools(&rt, session_dir, workdir, settings, host))
         .map_err(|e| e.to_string())?;
     rt.set_host_uris(vec![host.cedian_uri_scheme()])
         .map_err(|e| e.to_string())?;
@@ -554,6 +564,7 @@ pub(crate) fn run_turn(
             pre.insert(key.clone(), t);
         }
     }
+    let _turn = TurnPre::set(&pre);
 
     let mut panel = Panel::new();
     let task_id = panel.new_task("cli", workdir.to_path_buf());
@@ -683,6 +694,9 @@ pub(crate) fn run_turn(
             continue;
         };
         let disk = std::fs::read_to_string(&local).unwrap_or_default();
+        if disk == buffer {
+            continue; // already flushed for a mid-turn review
+        }
         if &disk != before {
             conflicts.push(key.display().to_string());
             continue;
@@ -716,17 +730,7 @@ pub(crate) fn run_turn(
         .unwrap_or(0);
     let mut unattributed = 0;
     let mut turn_files = Vec::new();
-    for path in workspace_files::scan_text_files(workdir) {
-        let Some(key) = workspace_files::buffer_key(workdir, &path) else {
-            continue;
-        };
-        let Ok(after) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        let before = pre.get(&key).cloned().unwrap_or_default();
-        if after == before {
-            continue;
-        }
+    for (key, before, after) in changed_since(workdir, &pre) {
         store.baseline_once(&key, &before); // first change in task (new file: empty)
         turn_files.push(session::TurnFile {
             file: key.to_string_lossy().into_owned(),
@@ -771,6 +775,66 @@ pub(crate) fn run_turn(
         "post_ms": total_ms.saturating_sub(context_ms + omp_ms), "total_ms": total_ms,
     }));
     saved
+}
+
+/// Files on disk whose text differs from their pre-turn text (a new file's
+/// pre-turn text is empty): `(key, before, after)`.
+fn changed_since(workdir: &Path, pre: &HashMap<PathBuf, String>) -> Vec<(PathBuf, String, String)> {
+    workspace_files::scan_text_files(workdir)
+        .into_iter()
+        .filter_map(|path| {
+            let key = workspace_files::buffer_key(workdir, &path)?;
+            let after = std::fs::read_to_string(&path).ok()?;
+            let before = pre.get(&key).cloned().unwrap_or_default();
+            (after != before).then_some((key, before, after))
+        })
+        .collect()
+}
+
+/// The running turn's pre-turn texts, so a review asked for mid-turn
+/// (`cedian_review_request`) can see this turn's changes. One turn runs at a
+/// time in this process; the guard clears it when the turn ends.
+static TURN_PRE: std::sync::Mutex<Option<HashMap<PathBuf, String>>> = std::sync::Mutex::new(None);
+
+struct TurnPre;
+
+impl TurnPre {
+    fn set(pre: &HashMap<PathBuf, String>) -> Self {
+        *TURN_PRE.lock().unwrap_or_else(|e| e.into_inner()) = Some(pre.clone());
+        Self
+    }
+}
+
+impl Drop for TurnPre {
+    fn drop(&mut self) {
+        *TURN_PRE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+}
+
+/// Bring this turn's changes into review before a mid-turn review: write
+/// back buffers cedian changed (only where disk still holds the pre-turn
+/// text, row G) and baseline every file the turn changed. Provenance is
+/// still recorded when the turn ends. A no-op between turns.
+fn flush_turn_for_review(workdir: &Path, host: &HostTools) -> Result<(), String> {
+    let Some(pre) = TURN_PRE.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+        return Ok(());
+    };
+    for (key, before) in &pre {
+        let Some(buffer) = host.read_buffer(key) else {
+            continue;
+        };
+        let Some(local) = workspace_files::local_path(workdir, key) else {
+            continue;
+        };
+        if &buffer != before && std::fs::read_to_string(&local).ok().as_ref() == Some(before) {
+            std::fs::write(&local, &buffer).map_err(|e| e.to_string())?;
+        }
+    }
+    let mut store = session::load(workdir)?.unwrap_or_default();
+    for (key, before, _) in changed_since(workdir, &pre) {
+        store.baseline_once(&key, &before);
+    }
+    session::save(workdir, &store)
 }
 
 /// Load the review task + tracker, rebuilt against current disk state.
