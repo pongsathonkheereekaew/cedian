@@ -71,6 +71,16 @@ fn main() {
     print!("test replay_row_e_floor_from_cedian_toml (replay) ... ");
     s2_blocked_scenario(false, true);
     println!("ok");
+    for deny in [false, true] {
+        let name = if deny { "p8deny" } else { "p8" };
+        let record = which == name;
+        print!(
+            "test replay_{name}_omp_policy ({}) ... ",
+            if record { "record" } else { "replay" }
+        );
+        p8_scenario(record, deny);
+        println!("ok");
+    }
 }
 
 /// The CLI under test, isolated in `root`: its own workspace, session dir
@@ -638,6 +648,15 @@ fn s2_blocked_scenario(record: bool, floor: bool) {
         .unwrap_or_else(|e| panic!("the skill started a workflow ({e}):\n{out}"));
     let state: serde_json::Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(state["task"]["kind"], "bug_fix", "{raw}");
+    let overlay = overlay(&sessions);
+    assert_eq!(overlay["computer"]["enabled"], false, "default profile");
+    assert_eq!(overlay["tools"]["approvalMode"], "write", "default profile");
+    assert!(
+        audit(&root)
+            .iter()
+            .all(|row| row["item"]["decision_source"] == "cedian"),
+        "default profile audits as cedian"
+    );
     assert_eq!(
         state["floor_gates"] == serde_json::json!(["floor-lint"]),
         floor,
@@ -688,6 +707,128 @@ fn s2_blocked_scenario(record: bool, floor: bool) {
         [root.join("ws/.omp/skills/bug-fix/SKILL.md")],
         "{omp:?}"
     );
+}
+
+const P8_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/p8_omp_policy.jsonl"
+);
+const P8_DENY_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/p8_omp_policy_deny.jsonl"
+);
+
+/// The project's own OMP config: yolo. Under `policy = "omp"` it decides.
+const PROJECT_YOLO: &str = "tools:\n  approvalMode: yolo\n";
+
+fn overlay(sessions: &Path) -> serde_json::Value {
+    let raw = std::fs::read_to_string(sessions.join("cedian-overlay.yml")).unwrap();
+    serde_json::from_str(&raw).unwrap()
+}
+
+fn audit(root: &Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(root.join("ws/.cedian/audit.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+/// P8 exit (ADR-0035): an opted-in project whose `.omp/config.yml` says yolo
+/// runs an exec-tier call without a prompt, and the call is audited with
+/// `decision_source: omp`. `deny`: the same opt-in with `project_write =
+/// "deny"` in the user's `cedian.toml`: the cedian Deny still reaches OMP and
+/// the write is refused (strict-wins, ADR-0012).
+fn p8_scenario(record: bool, deny: bool) {
+    let root: PathBuf = std::env::temp_dir().join(format!(
+        "cedian-p8-{}{}",
+        std::process::id(),
+        if deny { "-deny" } else { "" }
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("ws/.omp")).unwrap();
+    std::fs::write(root.join("ws/.omp/config.yml"), PROJECT_YOLO).unwrap();
+    let root = root.canonicalize().unwrap();
+    let ws = root.join("ws");
+    let permissions = if deny {
+        "[permissions]\nsafe = \"allow\"\nproject_write = \"deny\"\ndangerous = \"allow\"\n"
+    } else {
+        ""
+    };
+    std::fs::write(
+        root.join("cedian.toml"),
+        format!(
+            "schema = 1\n{permissions}[projects.{:?}]\npolicy = \"omp\"\n",
+            ws.display().to_string()
+        ),
+    )
+    .unwrap();
+    let fixture = if deny { P8_DENY_FIXTURE } else { P8_FIXTURE };
+    let sessions = root.join("sessions");
+    if record {
+        cedian_fake_omp::arm_record(&sessions, &cedian_omp_path()).unwrap();
+    } else {
+        cedian_fake_omp::install_replay(&sessions, Path::new(fixture)).unwrap();
+    }
+    let prompt = if deny {
+        "Use the write tool (not bash) to create denied.txt containing the word x. \
+         If the tool is refused, do not retry and do not use any other tool; reply REFUSED."
+    } else {
+        "Use the bash tool to run exactly: touch probe.txt — then reply DONE."
+    };
+    let out = cedian(&root, &["prompt", prompt]);
+    if record {
+        std::fs::copy(sessions.join(cedian_fake_omp::RECORDED_FILE), fixture).unwrap();
+    }
+
+    let overlay = overlay(&sessions);
+    assert!(
+        overlay.get("computer").is_none() && overlay["tools"].get("approvalMode").is_none(),
+        "opt-in overlay leaves approvals and computer to OMP: {overlay}"
+    );
+    assert!(
+        !out.contains("refused (no UI to approve)"),
+        "no dialog:\n{out}"
+    );
+    let dialogs: Vec<String> = std::fs::read_to_string(fixture)
+        .unwrap()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|f| f["frame"]["type"] == "extension_ui_request")
+        .filter_map(|f| f["frame"]["method"].as_str().map(str::to_string))
+        .filter(|m| ["select", "confirm", "input", "editor", "ask"].contains(&m.as_str()))
+        .collect();
+    assert!(dialogs.is_empty(), "OMP asked nobody: {dialogs:?}");
+    let rows = audit(&root);
+    assert!(
+        !rows.is_empty() && rows.iter().all(|r| r["item"]["decision_source"] == "omp"),
+        "{rows:?}"
+    );
+    if deny {
+        assert!(
+            !ws.join("denied.txt").exists(),
+            "cedian deny holds under yolo:\n{out}"
+        );
+        assert_eq!(overlay["tools"]["approval"]["write"], "deny", "{overlay}");
+        assert!(
+            rows.iter().all(|r| r["item"]["tool"] != "write"
+                || r["item"]["event"] != "end"
+                || r["item"]["is_error"] == true),
+            "no write succeeded: {rows:?}"
+        );
+    } else {
+        assert!(
+            ws.join("probe.txt").exists(),
+            "bash ran without a prompt:\n{out}"
+        );
+        let bash_end = rows.iter().any(|r| {
+            r["item"]["tool"] == "bash"
+                && r["item"]["event"] == "end"
+                && r["item"]["is_error"] == false
+        });
+        assert!(bash_end, "bash audited: {rows:?}");
+        assert!(out.contains("approved by OMP"), "card label:\n{out}");
+    }
 }
 
 fn walk(dir: &Path) -> Vec<PathBuf> {
