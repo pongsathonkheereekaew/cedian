@@ -13,6 +13,7 @@
 
 use cedian_workflow::{FloorRuleSpec, GateFloor};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Current settings schema (P3). Required in the file. Bump on any breaking
@@ -61,6 +62,32 @@ pub enum UpdateChannel {
     Beta,
 }
 
+/// Who decides approvals and `computer` in a workspace (ADR-0035).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Policy {
+    /// The default spawn profile: cedian makes OMP's resolver strict.
+    #[default]
+    Cedian,
+    /// The user's own OMP config: approval mode and `computer`.
+    Omp,
+}
+
+/// Whether a person is there to see the run. Unattended runs (reviewers,
+/// automations) never get `Policy::Omp` (ADR-0035 decision 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunKind {
+    Interactive,
+    Unattended,
+}
+
+/// The policy a run gets, and why a project key did not apply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolicyChoice {
+    pub policy: Policy,
+    pub notes: Vec<String>,
+}
+
 /// Validated settings. Only [`parse_settings`] builds one from text, so a
 /// `Settings` in hand passed the schema check and every floor gate passed
 /// `Gate::register`.
@@ -73,6 +100,40 @@ pub struct Settings {
     /// Gates cedian requires per task kind × risk. Empty = fast lane
     /// (ADR-0026).
     pub floor: GateFloor,
+    /// `[projects."<path>"]` as written; read through [`Settings::policy_for`].
+    projects: BTreeMap<String, Policy>,
+}
+
+impl Settings {
+    /// The policy `workdir` (canonical) runs under. A project key matches
+    /// after canonicalization; a key that is not absolute or does not exist
+    /// is ignored with a note, so it can only ever mean the default.
+    pub fn policy_for(&self, workdir: &Path, run: RunKind) -> PolicyChoice {
+        let mut notes = Vec::new();
+        let mut policy = Policy::Cedian;
+        for (key, value) in &self.projects {
+            let path = Path::new(key);
+            if !path.is_absolute() {
+                notes.push(format!(
+                    "[projects.{key:?}] ignored: not an absolute path (default policy)"
+                ));
+                continue;
+            }
+            match path.canonicalize() {
+                Ok(canonical) if canonical == workdir => policy = *value,
+                Ok(_) => {}
+                Err(e) => notes.push(format!("[projects.{key:?}] ignored: {e} (default policy)")),
+            }
+        }
+        if policy == Policy::Omp && run == RunKind::Unattended {
+            notes.push(
+                "policy = \"omp\" does not apply to unattended runs (ADR-0035): default policy"
+                    .to_string(),
+            );
+            policy = Policy::Cedian;
+        }
+        PolicyChoice { policy, notes }
+    }
 }
 
 #[derive(Deserialize)]
@@ -87,6 +148,14 @@ struct RawSettings {
     update_channel: UpdateChannel,
     #[serde(default)]
     workflow: RawWorkflow,
+    #[serde(default)]
+    projects: BTreeMap<String, RawProject>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawProject {
+    policy: Policy,
 }
 
 #[derive(Default, Deserialize)]
@@ -185,6 +254,11 @@ pub fn parse_settings(toml_src: &str) -> Result<Settings, SettingsError> {
         reviewer_allow_list: raw.reviewer_allow_list,
         update_channel: raw.update_channel,
         floor: GateFloor::from_specs(raw.workflow.floor).map_err(SettingsError::BadFloor)?,
+        projects: raw
+            .projects
+            .into_iter()
+            .map(|(key, project)| (key, project.policy))
+            .collect(),
     })
 }
 
@@ -305,7 +379,7 @@ mod tests {
             "schema = 1\ndangerous_stuff = true",
             "schema = 1\n[permissions]\nsafe = \"allow\"\nproject_write = \"allow\"\ndangerous = \"ask\"\ndangerus = \"allow\"",
             "schema = 1\n[workflow]\nflor = []",
-            "schema = 1\n[projects.\"/x\"]\npolicy = \"omp\"",
+            "schema = 1\n[projects.\"/x\"]\npolicy = \"omp\"\ncomputer = true",
         ] {
             match parse(src) {
                 Err(SettingsError::Parse(e)) => assert!(e.contains("unknown field"), "{src}: {e}"),
@@ -336,6 +410,49 @@ mod tests {
             parse("schema = 1\n[[workflow.floor]]\nkind = \"bug_fix\"\nmin_risk = \"low\"\ngates = [{ id = \"t\", gate_kind = \"test\", fresh = false }]"),
             Err(SettingsError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn project_policy_must_be_cedian_or_omp() {
+        assert!(matches!(
+            parse("schema = 1\n[projects.\"/x\"]\npolicy = \"yolo\""),
+            Err(SettingsError::Parse(_))
+        ));
+        assert!(matches!(
+            parse("schema = 1\n[projects.\"/x\"]"),
+            Err(SettingsError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn project_key_opts_in_only_its_canonical_workspace() {
+        let t = Tmp::new("projects");
+        let other = t.0.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        // Spelled through a `..` so only the canonical form matches.
+        let spelled = t.0.join("other/../ws");
+        let s = parse(&format!(
+            "schema = 1\n[projects.{:?}]\npolicy = \"omp\"\n[projects.\"relative/x\"]\npolicy = \"omp\"\n[projects.{:?}]\npolicy = \"omp\"\n",
+            spelled.display().to_string(),
+            t.0.join("gone").display().to_string(),
+        ))
+        .unwrap();
+        let ws = s.policy_for(&t.ws(), RunKind::Interactive);
+        assert_eq!(ws.policy, Policy::Omp);
+        assert_eq!(ws.notes.len(), 2, "{:?}", ws.notes);
+        assert_eq!(
+            s.policy_for(&other, RunKind::Interactive).policy,
+            Policy::Cedian
+        );
+        let unattended = s.policy_for(&t.ws(), RunKind::Unattended);
+        assert_eq!(unattended.policy, Policy::Cedian);
+        assert!(unattended.notes.iter().any(|n| n.contains("unattended")));
+        assert_eq!(
+            Settings::default()
+                .policy_for(&t.ws(), RunKind::Interactive)
+                .policy,
+            Policy::Cedian
+        );
     }
 
     struct Tmp(PathBuf);
