@@ -32,5 +32,5 @@ The plan already had the pieces (ADR-0001, ADR-0023, ADR-0027) but not the parit
 - v0.1 ("fully native", S9) adds two checklist items: every parity row is `native`, `gated` with a working opt-in, or `upstream-blocked`; and the parity test is green on the pinned OMP.
 - The parity ledger is the one home for per-feature OMP coverage. Slice status stays in README only.
 - `spike/CAPABILITY_TABLE.md` is frozen history. Its rows are carried into the ledger.
-- Safety defaults no longer delete OMP features: the approval mode and `computer` become `gated` with per-project opt-ins (ADR-0035).
+- Safety defaults no longer delete OMP features: the approval mode and `computer` become `gated` behind one per-project opt-in, `policy = "omp"` (ADR-0035).
 - Some rows are large (sessions tree, branch/fork, `live`, `btw`). They land in S9 or get their own slice. A row is never left without one.

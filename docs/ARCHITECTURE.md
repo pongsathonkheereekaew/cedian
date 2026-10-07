@@ -1608,7 +1608,7 @@ struct cedianTask {
 
 OMP `ask` should render as a native cedian GPUI dialog.
 
-> **Upstream fact (oh-my-pi `docs/approval-mode.md` + RPC Extension UI Sub-Protocol, verified 2026-10-06).** OMP approvals DEFAULT TO YOLO (auto-allow all) — strictness must be CONFIGURED, never assumed. `ask` requires explicit opt-in via `set_ask_dialog(true)` (default off; without it, headless/no-UI approval-needing tools FAIL CLOSED — treat that as normal control flow, not an error). `ask` ≠ approval: `ask` is `extension_ui_request{method:ask, questions[{id,question,options[],multi?,recommended?}], timeout?}` with strictly-ordered answers; approvals run through a separate extension runner. Subagents are headless-yolo inside the parent task boundary (residual prompts REJECT). The runtime MUST set `approvalMode: always-ask|write` + `approval.*` + `bash.patterns` + `set_ask_dialog(true)` at spawn, before any agent turn (ROADMAP S3 gate 1). RPC has no command for these — they are set through the cedian spawn profile (argv + config overlay), [ADR-0020](decisions/0020-omp-spawn-profile.md) — the plan's strict-wins (§64) only has teeth once yolo is off. *(→ [ADR-0012](decisions/0012-permissions-strict-wins-at-cedian-gate.md))*
+> **Upstream fact (oh-my-pi `docs/approval-mode.md` + RPC Extension UI Sub-Protocol, verified 2026-10-06).** OMP approvals DEFAULT TO YOLO (auto-allow all) — strictness must be CONFIGURED, never assumed. `ask` requires explicit opt-in via `set_ask_dialog(true)` (default off; without it, headless/no-UI approval-needing tools FAIL CLOSED — treat that as normal control flow, not an error). `ask` ≠ approval: `ask` is `extension_ui_request{method:ask, questions[{id,question,options[],multi?,recommended?}], timeout?}` with strictly-ordered answers; approvals run through a separate extension runner. Subagents are headless-yolo inside the parent task boundary (residual prompts REJECT). The runtime MUST set `approvalMode: always-ask|write` + `approval.*` + `bash.patterns` + `set_ask_dialog(true)` at spawn, before any agent turn (ROADMAP S3 gate 1), unless the project opted in with `policy = "omp"` (§64, [ADR-0035](decisions/0035-omp-native-approval-opt-in.md)); `set_ask_dialog(true)` is set in every mode. RPC has no command for these — they are set through the cedian spawn profile (argv + config overlay), [ADR-0020](decisions/0020-omp-spawn-profile.md) — the plan's strict-wins (§64) only has teeth once yolo is off. *(→ [ADR-0012](decisions/0012-permissions-strict-wins-at-cedian-gate.md))*
 
 Example:
 
@@ -2578,7 +2578,7 @@ dangerous = "ask"
 
 How the pieces combine: the tiers above are the DEFAULT verdict per action class; prefix/network rules (below) refine individual commands; OMP's own resolver runs first (configured strict, [ADR-0020](decisions/0020-omp-spawn-profile.md)); the effective verdict is the strictest of all of them (`Deny > Ask > Allow`).
 
-**Eval gate.** `eval` runs Python/JS and is as powerful as `bash`, but `bash.patterns` do not cover it — so `eval` is never auto-approved: `Ask` interactively, `Deny` for reviewers and automations ([ADR-0020](decisions/0020-omp-spawn-profile.md)).
+**Eval gate.** `eval` runs Python/JS and is as powerful as `bash`, but `bash.patterns` do not cover it — so under the default policy `eval` is never auto-approved: `Ask` interactively, `Deny` for reviewers and automations ([ADR-0020](decisions/0020-omp-spawn-profile.md)). Under `policy = "omp"` the user's OMP config decides for interactive turns; reviewers and automations keep `Deny` ([ADR-0035](decisions/0035-omp-native-approval-opt-in.md)).
 
 **CI policy gate.** `cedian.toml` is validated in CI: it must parse, every rule's `match`/`not_match` examples must hold (mechanism 1), and the reviewer allow-list must contain only read-only prefixes. The settings UI edits the same file, so there is one source of truth.
 
@@ -2605,7 +2605,7 @@ Use `computer` as a fallback.
 
 Use explicit `ios` for iOS because it is more deterministic and structured.
 
-> "Desktop automation" here means the CUA `cua-driver` contract ONLY (§9, AGENTS.md) — never raw AX calls outside the driver. The driver + macOS Seatbelt profile + bypass-proof test land atomically; until then `computer` stays disabled by default, including as a fallback — enforced by `computer.enabled: false` in the default spawn overlay ([ADR-0020](decisions/0020-omp-spawn-profile.md)). A project with `policy = "omp"` hands this to the user's OMP config instead, together with the approval mode ([ADR-0035](decisions/0035-omp-native-approval-opt-in.md)). *(→ [ADR-0008](decisions/0008-computer-tool-cua-driver-only.md))*
+> "Desktop automation" under the default policy means the CUA `cua-driver` contract ONLY (§9, AGENTS.md) — never raw AX calls outside the driver. The driver + macOS Seatbelt profile + bypass-proof test land atomically; until then `computer` stays disabled by default, including as a fallback — enforced by `computer.enabled: false` in the default spawn overlay ([ADR-0020](decisions/0020-omp-spawn-profile.md)). A project with `policy = "omp"` hands this to the user's OMP config instead, together with the approval mode ([ADR-0035](decisions/0035-omp-native-approval-opt-in.md)). *(→ [ADR-0008](decisions/0008-computer-tool-cua-driver-only.md))*
 
 ---
 
