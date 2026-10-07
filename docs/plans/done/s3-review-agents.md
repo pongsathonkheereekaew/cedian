@@ -57,6 +57,8 @@ Every gate item and exit clause, and the test that shows it (`cargo test --works
 | Findings arrive through `cedian_review_finding` and attach to the hunk they name | same replay: the blocker is bound to `    return a - b` in `/add.py`; unit cases refuse a finding outside every hunk |
 | A `blocker` keeps the gate unmet until fixed or dismissed with a recorded reason | same replay: `cedian_complete` refused with `review: blocker f1`; `review dismiss` needs a reason and writes an audit row; unit `an_open_review_blocker_refuses_completion_until_it_closes`; a changed hunk makes the finding stale |
 | Triggered from `cedian shell` with `review --agent` | `replay_shell_one_runtime_two_turns_lock`: `review --agent` in the shell attaches a finding to the turn's hunk (reviewer recorded on its own) |
+| ADR-0039: the reviewer's model is OMP's `review` role; cedian stores no model id | unit `the_role_picks_the_model_and_falls_back_to_default`, `review_role_defaults_to_review_and_a_model_id_is_refused`; the replays read roles from the cedian-owned roles dir |
+| ADR-0039: a same-model review is `inconclusive`, never `pass` | `replay_s3_same_model_review_is_inconclusive` (recorded live: no `review` role, the reviewer answered as the implementer's muse-spark): audit `independent: false`, review evidence `inconclusive`; the independent replay records `fail` evidence for its blocker; unit `only_a_review_by_another_model_is_independent_and_can_pass`, `a_review_cedian_ran_is_evidence_for_the_review_gate` |
 | Correction ledger rows | replays assert `hunk_rejected`, `user_edited_agent_hunk` (once), `turn_reverted`, `completion_refused`, `finding_dismissed` |
 | `cedian_correction_class` refuses under two events from two turns; `enforced` only with fail-then-pass evidence | unit `a_one_off_is_not_a_class`, `enforced_only_when_the_check_failed_on_the_old_code_and_passes_now` |
 
@@ -65,6 +67,8 @@ Every gate item and exit clause, and the test that shows it (`cargo test --works
 - **A review asked for mid-turn saw nothing** (found live): a turn's changes reached the review store only at turn end. The review tool and the blocker check now bring the running turn in first, under the row G rule.
 - **Two audit logs collided on ordinals** (found live: 9 twice) while the reviewer ran inside the implementer's turn. One counter per file now; reviewer rows carry `actor: reviewer`.
 - **Seatbelt prototype passed vacuously once:** the workspace sat under `/private/tmp`, which the profile allows. The generated profile denies the workspace last.
+
+Since the move (ADR-0042) these tests run in the fork with `script/cedian-check`.
 
 ## Open after S3
 
