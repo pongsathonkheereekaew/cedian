@@ -96,12 +96,12 @@ First run, the baseline for S9. One run per task, as ADR-0037 sets for the first
 | B7 | pass | 203 s | yes |
 | B8 | pass | 231 s | yes |
 | B9 | pass | 440 s | yes |
-| B10 | hidden_tests_broken | 101 s | yes |
+| B10 | pass (owner ruling; the harness said `hidden_tests_broken`) | 101 s | yes |
 
 Against the ADR-0037 budgets:
-- **False-done: 0 of 10** (budget 0). B6 never claimed done. B10 claimed done and, on review, did the task: with one line added to the reference test's `BrowserHead` initializer (the agent stored `snapshot_version` as a struct field; the reference did not), the reference tests and the purpose-written reset test pass (3 passed). The owner rules on B10.
+- **False-done: 0 of 10** (budget 0). B6 never claimed done. B10 claimed done and, on review, did the task: with one line added to the reference test's `BrowserHead` initializer (the agent stored `snapshot_version` as a struct field; the reference did not), the reference tests and the purpose-written reset test pass (3 passed). **Owner ruling (2026-10-07, in chat): B10 counts as a pass**, as B2 and B7 were treated when their statements were unfair; the task statement now says `BrowserHead` keeps its four fields (fork `8477b7d240`), so the next run needs no ruling.
 - **cedian overhead per turn: median 28 ms, range 14–36 ms, 9 turns** (budget: median under 1 s, any turn under 3 s). Overhead = turn total minus OMP's time, from the CLI timing rows; context assembly 3–8 ms, post-turn 11–28 ms. Spawn is separate, since the harness uses one-shot `cedian prompt`, not a warm shell: median 966 ms, range 912–1130 ms.
-- **Time-to-usable-result** (no budget on the first run): median 244 s over the 8 passes, range 69–440 s. S9 compares against this per task; more than 25% slower is a regression.
+- **Time-to-usable-result** (no budget on the first run): median 231 s over the 9 passes, range 69–440 s (244 s over 8 before the B10 ruling). S9 compares against this per task; more than 25% slower is a regression.
 
 Checklist notes:
 - **Limiter.** OMP's model time is over 99% of every turn; cedian's share is milliseconds.
