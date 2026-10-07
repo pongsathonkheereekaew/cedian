@@ -15,8 +15,10 @@
 //! `git worktree`, persists the updated [`Registry`], and exits — no daemon
 //! is ever held.
 
+pub mod host_tool;
 pub mod registry;
 pub mod worktree;
 
+pub use host_tool::{request_worktree, worktree_request_tool, WORKTREE_REQUEST_TOOL};
 pub use registry::{Registry, WorkerError, WorkerHead, WorkerStatus};
 pub use worktree::{merge_back, merge_preview, remove, spawn, validate_id, MergePlan};

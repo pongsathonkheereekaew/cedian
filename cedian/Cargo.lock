@@ -143,6 +143,7 @@ dependencies = [
 name = "cedian_worker"
 version = "0.1.0"
 dependencies = [
+ "omp-rpc",
  "serde",
  "serde_json",
 ]
