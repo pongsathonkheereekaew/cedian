@@ -102,7 +102,23 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
                 println!("review task reset (next prompt takes a fresh baseline)");
                 Ok(())
             }
-            Some(other) => Err(format!("usage: cedian review [reset] (got {other:?})")),
+            Some("dismiss") => {
+                let usage = "usage: cedian review dismiss <finding id> <reason>";
+                let id = args.get(2).ok_or(usage)?;
+                let reason = args[3.min(args.len())..].join(" ");
+                println!("{}", review_findings::dismiss(&workdir, id, &reason)?);
+                Ok(())
+            }
+            Some("--agent") => {
+                let focus = args[2.min(args.len())..].join(" ");
+                let reply =
+                    review_agent::run_review(&workdir, &session_dir, &settings, &focus, None)?;
+                println!("{reply}");
+                Ok(())
+            }
+            Some(other) => Err(format!(
+                "usage: cedian review [reset | --agent [focus] | dismiss <id> <reason>] (got {other:?})"
+            )),
         },
         "accept" => {
             let path = args.get(1).ok_or("usage: cedian accept <path> <hunk>")?;
@@ -331,6 +347,15 @@ fn host_tools(
         settings.floor.clone(),
         Box::new(verify_store::DiskProfileStore(workdir.to_path_buf())),
     );
+    let root = workdir.to_path_buf();
+    let live = std::sync::Arc::clone(host);
+    channel.set_blockers(move || {
+        // Bring this turn's edits in first: a hunk fixed this turn is fixed.
+        match flush_turn_for_review(&root, &live) {
+            Ok(()) => review_findings::open_blockers(&root),
+            Err(e) => vec![format!("review: cannot bring this turn's edits in ({e})")],
+        }
+    });
     let names = host_tool_names(settings);
     let mut tools = vec![host.apply_edit_tool()];
     tools.extend(channel.host_tools());
@@ -894,6 +919,16 @@ fn cmd_review(workdir: &Path) -> Result<(), String> {
     }
     if !any {
         println!("no pending changes (baseline == current)");
+    }
+    let findings = review_findings::states(workdir)?;
+    if !findings.is_empty() {
+        println!("findings:");
+        for (f, state) in findings {
+            println!(
+                "  {} [{state}] {:?} {} hunk {}: {}",
+                f.id, f.finding.severity, f.finding.path, f.hunk, f.finding.message
+            );
+        }
     }
     Ok(())
 }

@@ -39,6 +39,9 @@ fn main() {
     print!("test replay_cli_user_edit_over_agent_hunk_is_stale (replay) ... ");
     stale_scenario();
     println!("ok");
+    print!("test replay_cli_review_blocker_listed_then_dismissed (replay) ... ");
+    dismiss_scenario();
+    println!("ok");
     let record = which == "shell";
     print!(
         "test replay_shell_one_runtime_two_turns_lock ({}) ... ",
@@ -265,6 +268,62 @@ fn stale_scenario() {
         std::fs::read_to_string(&notes).unwrap(),
         "alpha\nBETA by user\ngamma\n",
         "accept keeps the buffer as it is"
+    );
+}
+
+/// S3 exit, CLI side: a blocker on the agent's hunk shows in `review`;
+/// `review dismiss` needs a reason, closes it and writes an audit gate row.
+/// The finding is written as a reviewer's host tool would store it.
+fn dismiss_scenario() {
+    let root: PathBuf =
+        std::env::temp_dir().join(format!("cedian-s3-dismiss-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("ws")).unwrap();
+    let notes = root.join("ws/notes.txt");
+    std::fs::write(&notes, ORIGINAL).unwrap();
+    let root = root.canonicalize().unwrap();
+    cedian_fake_omp::install_replay(&root.join("sessions"), Path::new(FIXTURE)).unwrap();
+    cedian(
+        &root,
+        &[
+            "prompt",
+            "Call cedian_apply_edit with path 'notes.txt', expected_version 0, start 6, end 10, \
+             replacement 'BETA'. Do not use any other tool. Then reply with only: edited-ok",
+        ],
+    );
+    std::fs::write(
+        root.join("ws/.cedian/findings.json"),
+        serde_json::json!({"snapshot_version": 1, "findings": [{
+            "id": "f1", "hunk": 0, "hunk_text": "BETA", "dismissed": null,
+            "finding": {"path": "/notes.txt", "start_line": 1, "line_count": 1,
+                        "severity": "blocker", "message": "BETA should stay lowercase"}
+        }]})
+        .to_string(),
+    )
+    .unwrap();
+
+    let review = cedian(&root, &["review"]);
+    assert!(
+        review.contains("f1 [open blocker]"),
+        "blocker listed:\n{review}"
+    );
+    let no_reason = cli(&root)
+        .args(["review", "dismiss", "f1"])
+        .output()
+        .unwrap();
+    assert!(!no_reason.status.success(), "a dismissal needs a reason");
+    let out = cedian(
+        &root,
+        &["review", "dismiss", "f1", "uppercase", "is", "intended"],
+    );
+    assert!(out.contains("dismissed f1"), "{out}");
+    let review = cedian(&root, &["review"]);
+    assert!(review.contains("f1 [dismissed]"), "{review}");
+    let rows = audit(&root);
+    assert!(
+        rows.iter().any(|r| r["item"]["kind"] == "gate"
+            && r["item"]["command"] == "dismiss f1: uppercase is intended"),
+        "dismissal audited: {rows:?}"
     );
 }
 

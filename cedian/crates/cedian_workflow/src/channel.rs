@@ -113,9 +113,13 @@ pub struct WorkflowChannel {
     current: Box<Current>,
     floor: GateFloor,
     profiles: Box<dyn ProfileStore>,
+    /// Open review blockers (S3), one line each; any refuses completion.
+    blockers: Mutex<Box<Blockers>>,
     /// Serializes load → mutate → save across handler threads.
     lock: Mutex<()>,
 }
+
+type Blockers = dyn Fn() -> Vec<String> + Send + Sync;
 
 impl WorkflowChannel {
     pub fn new(
@@ -151,8 +155,14 @@ impl WorkflowChannel {
             current: Box::new(current),
             floor,
             profiles,
+            blockers: Mutex::new(Box::new(Vec::new)),
             lock: Mutex::new(()),
         })
+    }
+
+    /// Where open review blockers come from (the CLI's findings store).
+    pub fn set_blockers(&self, blockers: impl Fn() -> Vec<String> + Send + Sync + 'static) {
+        *self.blockers.lock().unwrap_or_else(|e| e.into_inner()) = Box::new(blockers);
     }
 
     /// `cedian_workflow_update`: `op` is `start`, `evidence` or `advance`.
@@ -379,8 +389,9 @@ impl WorkflowChannel {
         let current = (self.current)();
         let checked = state.check_claims(claims, &current);
         let ledger = ledger_lines(&checked);
+        let blockers = (self.blockers.lock().unwrap_or_else(|e| e.into_inner()))();
         let missing = match state.can_complete(&current) {
-            Ok(_) => {
+            Ok(_) if blockers.is_empty() => {
                 state.complete(&current).map_err(|m| m.join("; "))?;
                 state.last_completion = Some(CompletionAttempt {
                     claims: checked,
@@ -391,7 +402,11 @@ impl WorkflowChannel {
                 self.store.save(&state)?;
                 return Ok(format!("complete\n{}{ledger}", summary(&state, &current)));
             }
-            Err(missing) => missing,
+            Ok(_) => blockers,
+            Err(mut missing) => {
+                missing.extend(blockers);
+                missing
+            }
         };
         state.last_completion = Some(CompletionAttempt {
             claims: checked,
@@ -807,6 +822,34 @@ mod tests {
             WorkflowStatus::Blocked
         );
         assert!(ch.complete(&Map::new()).unwrap_err().contains("BLOCKED"));
+    }
+
+    #[test]
+    fn an_open_review_blocker_refuses_completion_until_it_closes() {
+        let (ch, store, _) = channel();
+        let open = Arc::new(Mutex::new(vec![
+            "review: blocker f1 on /notes.txt hunk 0 is open".to_string(),
+        ]));
+        let source = Arc::clone(&open);
+        ch.set_blockers(move || source.lock().unwrap().clone());
+        start(&ch);
+        evidence(&ch, "reproduce", false, "bash", "");
+        evidence(&ch, "verify", true, "bash", "test");
+        for _ in 0..4 {
+            ch.update(&args(json!({"op": "advance", "passed": true})))
+                .unwrap();
+        }
+        let err = ch.complete(&Map::new()).unwrap_err();
+        assert!(
+            err.contains("blocker f1"),
+            "every gate passed, the blocker still refuses: {err}"
+        );
+        assert_ne!(
+            store.load().unwrap().unwrap().status,
+            WorkflowStatus::Complete
+        );
+        open.lock().unwrap().clear();
+        assert!(ch.complete(&Map::new()).unwrap().starts_with("complete"));
     }
 
     #[test]

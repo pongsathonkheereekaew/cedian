@@ -102,6 +102,16 @@ impl AuditLog {
         self.append(item, Some(refusal.at_ms))
     }
 
+    /// A person dismissed a review finding: they let the change through
+    /// over it, with a reason (ADR-0011).
+    pub fn dismissal(&mut self, finding: &str, reason: &str) -> Result<(), String> {
+        let item = json!({
+            "kind": "gate", "tool": "cedian_review_finding",
+            "command": format!("dismiss {finding}: {reason}"), "decision": "allow", "scope": "once",
+        });
+        self.append(item, None)
+    }
+
     fn append(&mut self, mut item: Value, at_ms: Option<u64>) -> Result<(), String> {
         item["decision_source"] = json!(self.source);
         if self.reviewer {
