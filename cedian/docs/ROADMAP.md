@@ -109,7 +109,7 @@ Shared foundations that several slice exits depend on. Each is small; build it b
 | P3 | **`snapshot_version` on every store.** `workflow.json`, `workers.json`, `browser.json`, session manager; user-edited `cedian.toml` carries a `schema` key instead; mismatch fails closed | ADR-0016 | before any slice adds a new store |
 | P4 | **`cedian shell`.** One long-lived headless process + `shell.lock` in the state dir | [ADR-0021](decisions/0021-headless-host-process.md) | S4 exit (frame seq), S5 exit (steer), S7 (scheduler), S3 (reviewer sessions) |
 | P6 | **Revert turn + headless inline edit.** Turn-grouped provenance → one-action revert (skips `STALE`); `cedian shell` `edit <path> <range> <instruction>` | [ADR-0026](decisions/0026-fast-lane.md) | S2 exit (benchmark), S9 (⌘K + revert UI) |
-| P7 | **OMP parity ledger + test.** `docs/OMP_PARITY.md` has a row for every RPC command, server notification (agent events included) and UI request in the vendored `wire.rs` (by wire name) plus hand-reviewed tool and config rows; `cargo test -p cedian_omp --test omp_parity` fails on any missing row. Runs in pre-commit and on every pin bump | [ADR-0034](decisions/0034-identity-and-omp-parity.md) | every OMP pin bump; S9 (v0.1 gate) |
+| P7 | **OMP parity ledger + test.** [`cedian/OMP_PARITY.md`](https://github.com/pongsathonkheereekaew/zed/blob/cedian/s9/cedian/OMP_PARITY.md) in the fork has a row for every RPC command, server notification (agent events included) and UI request in the vendored `wire.rs` (by wire name) plus hand-reviewed tool and config rows; `cargo test -p cedian_omp --test omp_parity` fails on any missing row. Runs in pre-commit and on every pin bump | [ADR-0034](decisions/0034-identity-and-omp-parity.md) | every OMP pin bump; S9 (v0.1 gate) |
 | P8 | **OMP policy opt-in.** `[projects."<path>"] policy = "omp"` in `cedian.toml` → spawn profile variant without approval or `computer` keys; badge, `approved by OMP` tool-card label, `decision_source: omp` audit rows; reviewers and automations always get the default profile. Live test: opted-in project + project yolo config → exec-tier call runs without a prompt and is audited | [ADR-0035](decisions/0035-omp-native-approval-opt-in.md) | S3 (audit log shape, reviewer profile), S7, S9 settings UI; needs the user's `cedian.toml` ([ADR-0018](decisions/0018-settings-in-one-toml.md)) |
 | P5 | **Host-tool channel.** `cedian_workflow_update`, `cedian_complete`, `cedian_worktree_request`; evidence checked against the router log | [ADR-0022](decisions/0022-host-tool-first.md) | S2 exit, S5 exit, S3 findings (`cedian_review_finding`) |
 
@@ -641,7 +641,7 @@ Do not call cedian “fully native OMP-integrated” until all critical items be
 □ restart restores session
 □ protocol mismatch fails safely
 
-□ every OMP_PARITY.md row is native, gated with a working opt-in, or upstream-blocked
+□ every `cedian/OMP_PARITY.md` row (in the fork) is native, gated with a working opt-in, or upstream-blocked
 □ parity test green on the pinned OMP
 
 □ no second harness

@@ -76,7 +76,7 @@ An independent review of S3 by three models (opus, fable, sonnet) through `pstac
 
 | Finding (models) | Fixed by | Test ("red" = run and seen failing on the old code) |
 |---|---|---|
-| The reviewer could write `/private/tmp`, `/private/var/folders` and `~/.omp/run/daemons`; under the default session dir that included `roles/` (it could pick its own review model), its overlay and the implementer's session (all three) | ADR-0043 decisions 1–2, fork `2590629559` | `writes_outside_the_run_dir_are_denied_by_the_kernel` (red) |
+| The reviewer could write `/private/tmp`, `/private/var/folders` and `~/.omp/run/daemons`; under the default session dir that included `roles/` (it could pick its own review model), its overlay and the implementer's session (all three) | ADR-0043 decisions 1–2, fork `2590629559` | `writes_outside_the_run_dir_are_denied_by_the_kernel` (red): a temp root, the profile and the overlay. `~/.omp/run/daemons`, `roles/` and the implementer's session dir are not probed one by one; they fall outside the only write allow, and the live turn shows OMP's run files land in the run dir |
 | Credential files readable, network open (all three) | ADR-0043 decisions 3–4 (network stays open, accepted) | `credential_reads_are_denied_by_the_kernel` (red) |
 | The approval pin covered only the allows read before spawn; project MCP servers, extensions and unpinned built-ins still loaded (all three) | ADR-0043 decision 5; live: the reviewer lists only `read`, `grep`, `glob`, `bash` | `reviewer_argv_runs_under_sandbox_exec_on_its_model`, `reviewer_overlay_is_read_only_and_asks_for_the_rest` (new assertions) |
 | Reviewer messages unbounded; `count` overflowed `usize` (all three) | ADR-0043 decision 7 | `reviewer_text_is_bounded_to_one_line` (red: panicked on the overflow), `a_review_records_at_most_its_limit` (red) |
@@ -86,6 +86,8 @@ An independent review of S3 by three models (opus, fable, sonnet) through `pstac
 | Audit log opened after the turn; an audit error left the reviewer running; reviewer rows had no arguments (fable, sonnet) | open before spawn, shut down before `?`, `args` on reviewer rows | `two_logs_on_one_file_share_the_ordinal_sequence` (new assertions) |
 | Ledger ids raced; an unreadable class store was wiped; an enforced class could be downgraded; dismissals never formed a class (fable, sonnet) | file lock, NotFound-only, enforced-only replacement, dismissal records its turn | `concurrent_records_get_distinct_ids` (red: corrupted the ledger), `an_unreadable_class_store_is_never_overwritten` (red), `an_enforced_class_is_not_replaced_by_a_weaker_one` (red) |
 | `omp config get` blocked on a full pipe (opus) | stdout drained on a thread | none (no record that large to replay) |
+
+A two-axis code review (standards and spec, fable and sonnet) then found no missing requirement; its follow-ups are fork `b1395d610e`, including `the_implementer_reads_reviewer_text_as_one_quoted_line` for ADR-0043 decision 7 (red with the old formatting).
 
 Dismissed: "the sandbox tests only compare strings" (opus, sonnet). `reviewer_sandbox.rs` already ran four kernel tests. Open, in ROADMAP Follow-ups: reviewer network egress, `mach-lookup` narrowing, and ADR-0012's other protected paths.
 
