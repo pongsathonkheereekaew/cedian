@@ -66,7 +66,10 @@ fn main() {
         "test replay_s2_bugfix_skill_blocked_claim ({}) ... ",
         if record { "record" } else { "replay" }
     );
-    s2_blocked_scenario(record);
+    s2_blocked_scenario(record, false);
+    println!("ok");
+    print!("test replay_row_e_floor_from_cedian_toml (replay) ... ");
+    s2_blocked_scenario(false, true);
     println!("ok");
 }
 
@@ -585,8 +588,14 @@ const BUG_FIX_SKILL: &str = concat!(
 /// headless denies), claims done anyway, then fails its own verify phase →
 /// after the turn the workflow stays `failed` (not overwritten to `blocked`,
 /// ADR-0036) and the missing `verify` gate is printed. P5 covers `blocked`.
-fn s2_blocked_scenario(record: bool) {
-    let root: PathBuf = std::env::temp_dir().join(format!("cedian-s2-{}", std::process::id()));
+/// `floor`: replay the same turn with a `[[workflow.floor]]` rule in the
+/// user's `cedian.toml` (row E): OMP's `op=start` gets the floor gate too.
+fn s2_blocked_scenario(record: bool, floor: bool) {
+    let root: PathBuf = std::env::temp_dir().join(format!(
+        "cedian-s2-{}{}",
+        std::process::id(),
+        if floor { "-floor" } else { "" }
+    ));
     let _ = std::fs::remove_dir_all(&root);
     let skill_dir = root.join("ws/.omp/skills/bug-fix"); // pre-canonical: setup only
     std::fs::create_dir_all(&skill_dir).unwrap();
@@ -597,6 +606,14 @@ fn s2_blocked_scenario(record: bool) {
         "#!/bin/sh\n# passes when line 2 of notes.txt is BETA\n[ \"$(sed -n 2p notes.txt)\" = BETA ]\n",
     )
     .unwrap();
+    if floor {
+        std::fs::write(
+            root.join("cedian.toml"),
+            "schema = 1\n[[workflow.floor]]\nkind = \"bug_fix\"\nmin_risk = \"low\"\n\
+             gates = [{ id = \"floor-lint\", gate_kind = \"lint\" }]\n",
+        )
+        .unwrap();
+    }
     let root = root.canonicalize().unwrap();
     let sessions = root.join("sessions");
     if record {
@@ -621,6 +638,16 @@ fn s2_blocked_scenario(record: bool) {
         .unwrap_or_else(|e| panic!("the skill started a workflow ({e}):\n{out}"));
     let state: serde_json::Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(state["task"]["kind"], "bug_fix", "{raw}");
+    assert_eq!(
+        state["floor_gates"] == serde_json::json!(["floor-lint"]),
+        floor,
+        "floor gates come only from cedian.toml:\n{raw}"
+    );
+    assert_eq!(
+        out.contains("required gate \"floor-lint\""),
+        floor,
+        "floor gate listed as missing:\n{out}"
+    );
     // The recorded agent failed its own verify phase before ending, so the
     // refused claim leaves it `failed`, not `blocked` (ADR-0036).
     assert_eq!(
