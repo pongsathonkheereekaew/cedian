@@ -26,12 +26,21 @@ const SKIP_EXTS: &[&str] = &[
 /// Recursively collect text files under workdir (sorted, bounded).
 pub fn scan_text_files(workdir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    scan_dir(workdir, &mut out);
+    scan_dir(workdir, true, &mut out);
     out.sort();
     out
 }
 
-fn scan_dir(dir: &Path, out: &mut Vec<PathBuf>) {
+/// Every file evidence can depend on: lockfiles, binaries and large files
+/// too, so a change to any of them makes tree-bound evidence stale.
+pub fn scan_code_state_files(workdir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    scan_dir(workdir, false, &mut out);
+    out.sort();
+    out
+}
+
+fn scan_dir(dir: &Path, text_only: bool, out: &mut Vec<PathBuf>) {
     let entries = std::fs::read_dir(dir)
         .map(|r| r.collect::<Vec<_>>())
         .unwrap_or_default();
@@ -41,8 +50,12 @@ fn scan_dir(dir: &Path, out: &mut Vec<PathBuf>) {
         let name = entry.file_name().to_string_lossy().into_owned();
         if path.is_dir() {
             if !SKIP_DIRS.contains(&name.as_str()) {
-                scan_dir(&path, out);
+                scan_dir(&path, text_only, out);
             }
+            continue;
+        }
+        if !text_only {
+            out.push(path);
             continue;
         }
         let ext = path
