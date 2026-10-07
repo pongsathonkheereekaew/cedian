@@ -86,7 +86,7 @@ Known gaps that no slice exit names yet. Each row has the slice it must be settl
 
 | Follow-up | Found in | Settle before |
 |---|---|---|
-| The benchmark harness counts a hidden test that fails to compile as a failed predicate, so a correct fix with different private names scores as a fail | `script/bench/run.sh`, `splice_tests.py` | S2 benchmark run |
+| Installed OMP is 18.7.0, the pin is 18.6.1 (`vendor/omp-revision.json`). The live smoke test fails only on P3: 18.7's `read` adds a `1:` line prefix to host-URI content. The S2 benchmark baseline is recorded on 18.7.0 | `crates/cedian_omp/tests/smoke_real_omp.rs:89` | next OMP pin bump (with `docs/OMP_PARITY.md`) |
 | A call headless denied still makes earlier evidence born stale, though it changed nothing | [S2 plan](plans/s2-workflow-core.md) findings | S9 (row H) |
 | The S0 row names no remaining gap: recheck its exit, then flip it or name the gap | README S0 row | S3 |
 | `worker steer` sets status and appends a note; it does not start a turn in the worker's session | [S5 plan](plans/done/s5-parallel-workers.md) | S9 (S5 exit) |
