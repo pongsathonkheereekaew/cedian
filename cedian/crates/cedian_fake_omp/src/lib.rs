@@ -62,6 +62,42 @@ pub fn run(args: &[String]) -> i32 {
     2
 }
 
+/// `omp config get <key> --json` stand-in: the badge's query in a replay.
+/// Reads `tools.approvalMode` and `computer.enabled` from `.omp/config.yml`
+/// in the current directory, with fixed defaults (`write`, `false`), so a
+/// test workspace's project config shows up and an empty dir gives defaults.
+pub fn config_get(args: &[String]) -> i32 {
+    let Some(key) = args.get(2) else {
+        return 2;
+    };
+    let config = std::fs::read_to_string(".omp/config.yml").unwrap_or_default();
+    let field = |section: &str, name: &str| {
+        let mut inside = false;
+        for line in config.lines() {
+            if !line.starts_with(' ') {
+                inside = line.trim_end() == format!("{section}:");
+            } else if let Some(v) = line.trim().strip_prefix(&format!("{name}:")) {
+                if inside {
+                    return Some(v.trim().to_string());
+                }
+            }
+        }
+        None
+    };
+    let value = match key.as_str() {
+        "tools.approvalMode" => {
+            serde_json::json!(field("tools", "approvalMode").unwrap_or_else(|| "write".into()))
+        }
+        "computer.enabled" => {
+            serde_json::json!(field("computer", "enabled").as_deref() == Some("true"))
+        }
+        _ => return 1,
+    };
+    use std::io::Write as _;
+    let line = serde_json::json!({"key": key, "value": value});
+    i32::from(writeln!(std::io::stdout(), "{line}").is_err())
+}
+
 fn flag(args: &[String], name: &str) -> Option<PathBuf> {
     args.iter()
         .position(|a| a == name)
