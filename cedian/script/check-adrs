@@ -1,0 +1,30 @@
+#!/bin/sh
+# Fails when ADR numbers collide or docs/decisions/README.md disagrees with the files.
+# Checks: one file per number; each file's title names its own number; the index
+# lists every file exactly once, under the file's number, and links no missing file.
+set -eu
+
+DIR="$(git rev-parse --show-toplevel)/docs/decisions"
+INDEX="$DIR/README.md"
+status=0
+fail() { echo "check-adrs: $*" >&2; status=1; }
+
+files=$(cd "$DIR" && ls | grep -E '^[0-9]{4}-.*\.md$' || true)
+
+for n in $(printf '%s\n' "$files" | cut -c1-4 | sort | uniq -d); do
+  fail "ADR number $n is used by more than one file: $(printf '%s\n' "$files" | grep "^$n-" | tr '\n' ' ')"
+done
+
+for f in $files; do
+  n=$(printf '%s' "$f" | cut -c1-4)
+  head -1 "$DIR/$f" | grep -q "^# ADR-$n:" || fail "$f: title does not start with '# ADR-$n:'"
+  rows=$(grep -c "(${f})" "$INDEX" || true)
+  [ "$rows" = 1 ] || fail "$f: listed $rows times in README.md (want 1)"
+  grep -q "^| \[$n\]($f) |" "$INDEX" || fail "$f: README.md row does not read '| [$n]($f) |'"
+done
+
+for link in $(grep -oE '\]\([0-9]{4}-[^)]*\.md\)' "$INDEX" | sed 's/^](//; s/)$//'); do
+  [ -f "$DIR/$link" ] || fail "README.md links $link, which does not exist"
+done
+
+exit $status
