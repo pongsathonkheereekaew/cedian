@@ -1,6 +1,6 @@
 # ADR-0030: Zed fork layout and build profile
 
-- **Status:** Proposed. Layout option needs the owner's choice; the build profile part is already in use on the spike branch.
+- **Status:** Accepted (owner chose option B, 2026-10-07)
 - **Date:** 2026-10-07
 - **Rule text:** [ARCHITECTURE.md](../ARCHITECTURE.md) §7
 - **Evidence:** S9a spike, fork `~/src/zed` branch `cedian/s9a-spike`
@@ -21,12 +21,15 @@ Build facts on the dev machine (8 cores, 8 GB RAM, Command Line Tools only, no M
 2. Dev builds on this machine use `-j4`, `line-tables-only` debug info and `runtime_shaders`. A release `.app` bundle with precompiled shaders needs full Xcode; that is an S9 packaging task, not a dev requirement.
 3. Zed core is touched only at registration points (`initialize_panels`, `main.rs` init, the manifests). cedian logic lives in `cedian_*` crates (§7).
 
-## Options for the layout (to decide before S9)
+## Layout decision: option B
+
+The cedian crates move into the fork at S9 start: one workspace, one lockfile, one CI. Until then, option A (sibling path deps) stays, so the headless slices (S2–S5) keep their fast `cargo test` here. At the move, this repo keeps docs, OMP vendoring and the headless CLI until the CLI dies at S9.
+
+### Options considered
 
 | Option | How | For | Against |
 |---|---|---|---|
 | A. Sibling path deps (spike today) | fork crates depend on `../cedian/crates/*` | zero setup, both repos stay as they are | builds only with a fixed checkout layout; CI needs both repos; two lockfiles |
-| **B. cedian crates move into the fork** (recommended) | `crates/cedian_*` live in the fork; this repo keeps docs, OMP vendoring and the headless CLI until it dies at S9 | one workspace, one lockfile, one CI; matches §7 "cedian-owned crates" inside the fork | the move is a one-time migration; upstream rebases see more files (they are all new crates, so no conflicts) |
+| **B. cedian crates move into the fork** (chosen) | `crates/cedian_*` live in the fork; this repo keeps docs, OMP vendoring and the headless CLI until it dies at S9 | one workspace, one lockfile, one CI; matches §7 "cedian-owned crates" inside the fork | the move is a one-time migration; upstream rebases see more files (they are all new crates, so no conflicts) |
 | C. Fork as a git submodule of this repo | this repo pins the fork commit | one entry point | submodule friction; still two workspaces |
 
-Recommendation: B at S9 start. Keep A until then so the headless slices (S2–S5) keep their fast `cargo test` in this repo.
