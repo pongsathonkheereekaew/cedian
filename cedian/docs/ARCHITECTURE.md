@@ -591,7 +591,7 @@ TextDeltaBuffer
 
 Flush approximately every frame or every ~16–33 ms.
 
-Speed is measured, not claimed ([ADR-0026](decisions/0026-fast-lane.md)): UI frame time never blocks while an agent streams; cedian's per-turn overhead (spawn, context assembly, edit apply, diff rebuild) is recorded and must beat Cursor's with the same model; the OMP session stays warm (no spawn per prompt).
+Speed is measured, not claimed ([ADR-0026](decisions/0026-fast-lane.md)): UI frame time never blocks while an agent streams; cedian's per-turn overhead (spawn, context assembly, edit apply, diff rebuild) is recorded per turn against the budgets in [ADR-0037](decisions/0037-benchmark-without-cursor.md) (median under 1 s, any turn under 3 s, excluding OMP's time); the OMP session stays warm (no spawn per prompt).
 
 ---
 

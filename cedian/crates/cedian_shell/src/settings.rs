@@ -195,7 +195,7 @@ pub enum SettingsError {
     Parse(String),
     BadSchema(Option<u32>),
     BadFloor(String),
-    /// A `cedian.json` from before row E.
+    /// A `cedian.json` from before ADR-0018.
     Legacy {
         found: PathBuf,
         user: Option<PathBuf>,
@@ -242,7 +242,7 @@ impl std::fmt::Display for SettingsError {
                 f,
                 "{} is no longer read: settings live in the user's {SETTINGS_FILE}. \
                  Move its keys to {} as TOML with `schema = {SETTINGS_SCHEMA}` on the first line, \
-                 then delete {} (ROADMAP row E, ADR-0018)",
+                 then delete {} (ADR-0018)",
                 found.display(),
                 user_path_hint(user),
                 found.display()
