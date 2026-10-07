@@ -42,3 +42,5 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0036](0036-s2-evidence-freshness-and-turn-end-block.md) | S2 readings of ADR-0024: historical reproduction evidence, turn-end block, headless code state |
 | [0037](0037-benchmark-without-cursor.md) | The speed benchmark measures cedian on its own, against fixed budgets |
 | [0038](0038-s4-s5-close-inside-s9.md) | After S3 comes S9; S4 and S5 close inside S9 |
+| [0039](0039-model-roles-and-independent-review.md) | Model roles are OMP's `modelRoles`; an independent review needs a different model (Proposed) |
+| [0040](0040-omp-settings-mirror-omp-config.md) | The OMP settings page mirrors OMP's config; OMP's CLI and cedian edit the same state (Proposed) |
