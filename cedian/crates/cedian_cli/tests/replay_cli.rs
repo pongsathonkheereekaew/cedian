@@ -551,6 +551,22 @@ fn worktree_scenario(record: bool) {
         out.contains("[✗] refused (no UI to approve): Allow tool: bash"),
         "bash approval refused headless:\n{out}"
     );
+    // S3 gate item 4: cedian's own gate decisions are audit rows.
+    let rows = audit(&root);
+    for (i, row) in rows.iter().enumerate() {
+        assert_eq!(row["ordinal"], i as u64, "audit file replays in order");
+    }
+    let gate = |decision: &str| {
+        rows.iter()
+            .filter(|r| r["item"]["kind"] == "gate" && r["item"]["decision"] == decision)
+            .map(|r| r["item"]["tool"].as_str().unwrap_or("").to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(gate("deny"), ["bash"], "refused dialog audited:\n{rows:?}");
+    assert!(
+        gate("allow").contains(&"cedian_worktree_request".to_string()),
+        "served host tool audited:\n{rows:?}"
+    );
     assert!(
         started.elapsed() < std::time::Duration::from_secs(300),
         "no stall on the dialog ({:?})",

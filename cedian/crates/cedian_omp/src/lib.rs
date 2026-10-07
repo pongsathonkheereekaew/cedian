@@ -16,7 +16,7 @@ pub use errors::OmpError;
 pub use event_router::{
     DeltaKind, EventRouter, FinishedToolCall, LogEntry, PromptStatus, RouterEvent,
 };
-pub use headless_ui::headless_answer;
+pub use headless_ui::{headless_answer, GateDecision, Refusal};
 pub use runtime::{
     image_content, last_text, OmpBinary, OmpRuntime, RuntimeConfig, RuntimeControl, RuntimeState,
 };
