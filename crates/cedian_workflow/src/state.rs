@@ -101,6 +101,49 @@ pub struct WorkflowState {
     pub evidence: HashMap<String, Evidence>,
     pub continue_used: HashMap<String, u32>,
     pub status: WorkflowStatus,
+    /// The last `cedian_complete` call: its claims ledger and result.
+    #[serde(default)]
+    pub last_completion: Option<CompletionAttempt>,
+}
+
+/// How a completion claim knows what it says (ADR-0024 decision 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaimLabel {
+    Measured,
+    Inferred,
+    Guess,
+}
+
+/// One claim the agent makes when it says done.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Claim {
+    pub text: String,
+    pub label: ClaimLabel,
+    /// Evidence ids it rests on.
+    #[serde(default)]
+    pub evidence: Vec<String>,
+}
+
+/// A claim as checked: `flag` says why it is not backed. Flagged claims
+/// are shown, never dropped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckedClaim {
+    pub claim: Claim,
+    pub flag: Option<String>,
+}
+
+/// One `cedian_complete` call.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompletionAttempt {
+    pub claims: Vec<CheckedClaim>,
+    pub accepted: bool,
+    /// What blocked it (empty when accepted).
+    pub missing: Vec<String>,
+    /// Set by [`WorkflowState::end_turn`] once the turn that made this
+    /// attempt has ended.
+    #[serde(default)]
+    pub turn_ended: bool,
 }
 
 impl WorkflowState {
@@ -150,6 +193,7 @@ impl WorkflowState {
             evidence: HashMap::new(),
             continue_used: HashMap::new(),
             status: WorkflowStatus::Running,
+            last_completion: None,
         })
     }
 
@@ -289,6 +333,47 @@ impl WorkflowState {
         }
     }
 
+    /// Check a claims ledger against the stored evidence (pure). A
+    /// `measured` claim needs at least one cited id, and every cited item
+    /// must be attributed, fresh and `pass`. Any claim citing nothing or an
+    /// unknown id is flagged; a `guess` is always flagged as one.
+    pub fn check_claims(&self, claims: Vec<Claim>, current: &CurrentState) -> Vec<CheckedClaim> {
+        claims
+            .into_iter()
+            .map(|claim| {
+                let unknown: Vec<&str> = claim
+                    .evidence
+                    .iter()
+                    .filter(|id| !self.evidence.contains_key(*id))
+                    .map(String::as_str)
+                    .collect();
+                let flag = if claim.evidence.is_empty() {
+                    Some("no evidence cited".to_string())
+                } else if !unknown.is_empty() {
+                    Some(format!("unknown evidence {}", unknown.join(", ")))
+                } else if claim.label == ClaimLabel::Measured {
+                    claim.evidence.iter().find_map(|id| {
+                        let e = &self.evidence[id];
+                        if !e.is_attributed() {
+                            Some(format!("{id} is unattributed"))
+                        } else if let Some(why) = e.stale_reason(current) {
+                            Some(format!("{id} is stale ({why})"))
+                        } else if e.outcome != crate::Outcome::Pass {
+                            Some(format!("{id} is {:?}", e.outcome).to_lowercase())
+                        } else {
+                            None
+                        }
+                    })
+                } else if claim.label == ClaimLabel::Guess {
+                    Some("guess".to_string())
+                } else {
+                    None
+                };
+                CheckedClaim { claim, flag }
+            })
+            .collect()
+    }
+
     /// Record an OMP continue for a gate (§54 anti-loop). `new_evidence_ids`:
     /// ids attached since the last continue for this gate — empty advances
     /// the counter WITHOUT progress. On exhaustion the workflow blocks and
@@ -426,6 +511,41 @@ mod tests {
         assert!(w.can_complete(&ws()).is_err());
         assert!(w.complete(&ws()).is_err());
         assert_eq!(w.status, WorkflowStatus::Blocked);
+    }
+
+    #[test]
+    fn claims_are_checked_against_evidence() {
+        let mut w = WorkflowState::start(bugfix_task(Risk::Low)).unwrap();
+        w.attach(attributed("v1", &["verify"], true)).unwrap();
+        w.attach(attributed("f1", &["verify"], false)).unwrap();
+        let mut stale = attributed("s1", &["verify"], true);
+        stale.born_stale = Some("edit ran after".into());
+        w.attach(stale).unwrap();
+        let claim = |label, ids: &[&str]| Claim {
+            text: "tests pass".into(),
+            label,
+            evidence: ids.iter().map(|s| s.to_string()).collect(),
+        };
+        let checked = w.check_claims(
+            vec![
+                claim(ClaimLabel::Measured, &["v1"]),
+                claim(ClaimLabel::Measured, &[]),
+                claim(ClaimLabel::Measured, &["f1"]),
+                claim(ClaimLabel::Measured, &["s1"]),
+                claim(ClaimLabel::Inferred, &["v1"]),
+                claim(ClaimLabel::Inferred, &["nope"]),
+                claim(ClaimLabel::Guess, &["v1"]),
+            ],
+            &ws(),
+        );
+        let flags: Vec<Option<&str>> = checked.iter().map(|c| c.flag.as_deref()).collect();
+        assert_eq!(flags[0], None);
+        assert_eq!(flags[1], Some("no evidence cited"));
+        assert_eq!(flags[2], Some("f1 is fail"));
+        assert!(flags[3].unwrap().starts_with("s1 is stale"), "{flags:?}");
+        assert_eq!(flags[4], None);
+        assert_eq!(flags[5], Some("unknown evidence nope"));
+        assert_eq!(flags[6], Some("guess"));
     }
 
     #[test]

@@ -16,8 +16,8 @@
 //!   the agent cannot attribute evidence by saying so.
 
 use crate::{
-    state::ContinueOutcome, CurrentState, Evidence, EvidenceKind, GateStatus, Outcome, Risk,
-    TaskKind, TaskProfile, WorkflowState, WorkflowStatus,
+    state::ContinueOutcome, Claim, CompletionAttempt, CurrentState, Evidence, EvidenceKind,
+    GateStatus, Outcome, Risk, TaskKind, TaskProfile, WorkflowState, WorkflowStatus,
 };
 use omp_rpc::HostTool;
 use serde_json::{json, Map, Value};
@@ -218,10 +218,12 @@ impl WorkflowChannel {
         }
     }
 
-    /// `cedian_complete`. No workflow → nothing to check (fast lane,
-    /// ADR-0026). Unmet required gates → error with what is missing; each
-    /// counts one continue, and at `MAX_CONTINUE` the workflow is `blocked`.
-    pub fn complete(&self, _args: &Map<String, Value>) -> Result<String, String> {
+    /// `cedian_complete {claims?}`. No workflow → nothing to check (fast
+    /// lane, ADR-0026). The claims ledger is checked and stored with the
+    /// result either way (ADR-0024); flagged claims never block, gates do.
+    /// Unmet required gates → error with what is missing; each counts one
+    /// continue, and at `MAX_CONTINUE` the workflow is `blocked`.
+    pub fn complete(&self, args: &Map<String, Value>) -> Result<String, String> {
         let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let Some(mut state) = self.store.load()? else {
             return Ok("no cedian workflow is active; nothing to check".to_string());
@@ -236,15 +238,35 @@ impl WorkflowChannel {
             }
             _ => {}
         }
+        let claims: Vec<Claim> = match args.get("claims") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(v) => serde_json::from_value(v.clone()).map_err(|e| {
+                format!("bad `claims` ({e}): each is {{text, label: measured|inferred|guess, evidence: [ids]}}")
+            })?,
+        };
         let current = (self.current)();
+        let checked = state.check_claims(claims, &current);
+        let ledger = ledger_lines(&checked);
         let missing = match state.can_complete(&current) {
             Ok(_) => {
                 state.complete(&current).map_err(|m| m.join("; "))?;
+                state.last_completion = Some(CompletionAttempt {
+                    claims: checked,
+                    accepted: true,
+                    missing: Vec::new(),
+                    turn_ended: false,
+                });
                 self.store.save(&state)?;
-                return Ok(format!("complete\n{}", summary(&state, &current)));
+                return Ok(format!("complete\n{}{ledger}", summary(&state, &current)));
             }
             Err(missing) => missing,
         };
+        state.last_completion = Some(CompletionAttempt {
+            claims: checked,
+            accepted: false,
+            missing: missing.clone(),
+            turn_ended: false,
+        });
         let failing: Vec<String> = state
             .all_gates(&current)
             .into_iter()
@@ -279,7 +301,7 @@ impl WorkflowChannel {
             "not complete: produce the missing evidence, report it, then call cedian_complete again"
         };
         Err(format!(
-            "{next}\n  - {}\n{}",
+            "{next}\n  - {}\n{}{ledger}",
             missing.join("\n  - "),
             budget.join("\n")
         ))
@@ -329,13 +351,46 @@ impl WorkflowChannel {
             HostTool::new(
                 COMPLETE_TOOL,
                 "cedian's own host tool (trusted). Call before saying a task under a cedian workflow is done. \
-                 Returns an error listing missing gates when it is not; keep working on those, or stop and \
-                 report when it says BLOCKED.",
-                object(json!({"summary": {"type": "string"}}), &[]),
+                 claims = what you say is true, each {text, label, evidence}: label measured (you ran it and \
+                 reported the evidence), inferred (follows from evidence) or guess; evidence = the evidence ids \
+                 (e1, e2, ...) cedian returned. Returns an error listing missing gates when it is not done; keep \
+                 working on those, or stop and report when it says BLOCKED.",
+                object(json!({
+                    "summary": {"type": "string"},
+                    "claims": {"type": "array", "items": {"type": "object", "properties": {
+                        "text": {"type": "string"},
+                        "label": {"type": "string", "enum": ["measured", "inferred", "guess"]},
+                        "evidence": {"type": "array", "items": {"type": "string"}}
+                    }, "required": ["text", "label"]}}
+                }), &[]),
                 move |args, _ctx| complete.complete(&args).map(Into::into).map_err(Into::into),
             ),
         ]
     }
+}
+
+/// The claims ledger as the completion view shows it: every claim with its
+/// label, evidence and flag (never hidden).
+pub fn ledger_lines(claims: &[crate::CheckedClaim]) -> String {
+    if claims.is_empty() {
+        return "\nclaims: none given".to_string();
+    }
+    let mut out = String::from("\nclaims:");
+    for c in claims {
+        let label = format!("{:?}", c.claim.label).to_lowercase();
+        let ids = if c.claim.evidence.is_empty() {
+            "-".to_string()
+        } else {
+            c.claim.evidence.join(",")
+        };
+        let flag = c
+            .flag
+            .as_deref()
+            .map(|f| format!("  ⚑ {f}"))
+            .unwrap_or_default();
+        out.push_str(&format!("\n  [{label}] {} ({ids}){flag}", c.claim.text));
+    }
+    out
 }
 
 /// One-screen status the agent reads back after each call.
@@ -631,6 +686,34 @@ mod tests {
             ))
             .unwrap_err();
         assert!(err.contains("missing `outcome`"), "{err}");
+    }
+
+    #[test]
+    fn complete_stores_and_shows_the_claims_ledger() {
+        let (ch, store, _) = channel();
+        start(&ch);
+        evidence(&ch, "verify", true, "bash", "cargo test");
+        let claims = json!({"claims": [
+            {"text": "tests pass", "label": "measured", "evidence": ["e1"]},
+            {"text": "no other callers", "label": "guess"}
+        ]});
+        let err = ch.complete(&args(claims)).unwrap_err();
+        assert!(err.contains("[measured] tests pass (e1)\n"), "{err}");
+        assert!(
+            err.contains("[guess] no other callers (-)  ⚑ no evidence cited"),
+            "{err}"
+        );
+        let last = store.load().unwrap().unwrap().last_completion.unwrap();
+        assert!(!last.accepted);
+        assert_eq!(last.claims.len(), 2);
+        assert!(
+            last.missing.iter().any(|m| m.contains("reproduce")),
+            "{last:?}"
+        );
+        let bad = ch
+            .complete(&args(json!({"claims": [{"text": "x", "label": "sure"}]})))
+            .unwrap_err();
+        assert!(bad.contains("bad `claims`"), "{bad}");
     }
 
     #[test]
