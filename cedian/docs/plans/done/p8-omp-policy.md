@@ -54,4 +54,12 @@ Reviewers: sonnet (9 findings) and opus (9 findings); the third seat (fable) had
 
 ## Findings
 
-(filled in as units land)
+All units landed 2026-10-07: U1 `f3dd28e` + `6f32e26` (fail closed on doubt), U2–U3 `a33a8ca`, U5 `4125312`, U6 `511bd61`, U4 `82931f5`, U7 with this file.
+
+- **OMP enforces a cedian Deny under yolo.** The recorded `p8deny` turn: `tool_execution_start write`, then `tool_execution_end` with `Tool "write" is blocked by user policy.` Strict-wins holds through OMP's resolver in the opt-in profile.
+- **A blocked call still starts.** OMP emits `tool_execution_start` before its policy check, so "the call started" does not mean "the call was approved". The `approved by OMP` label needs a completed exec-tier call; the audit row for a blocked call ends with `is_error: true`. S9 should take approval from the dialog record per `tool_call_id`.
+- **OMP sends fire-and-forget UI requests in every turn** (`setWidget`, key `autoresearch`). "No dialog" means no `select|confirm|input|editor|ask` request, not no `extension_ui_request`.
+- **The live recording used the model OMP picked** (`opencode-go/muse-spark-1.3-contributor`), not a pinned one; the fixture records it.
+- **Badge, live.** `cedian state` in an opted-in temp project against real OMP printed `approvalMode: yolo; computer: on`. Both values equal the global config on this machine, so the badge does not name the project layer there; the replay covers the case where they differ.
+- **The `ask` tier note prints in every opted-in workspace** with default permissions, because `dangerous = "ask"` is the default. It is true and short; it stays.
+- **Order changed:** U4 (badge) landed after U6, as the partial exit allowed.
