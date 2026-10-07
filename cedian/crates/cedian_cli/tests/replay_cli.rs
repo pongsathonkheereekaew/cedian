@@ -8,7 +8,7 @@
 //! (`CEDIAN_OMP_BINARY`), which then acts as fake-omp.
 //!
 //! Hermetic: `cargo test -p cedian_cli --test replay_cli`
-//! Re-record one fixture (real OMP + auth): `CEDIAN_P2_RECORD=cli|shell cargo test -p cedian_cli --test replay_cli`
+//! Re-record one fixture (real OMP + auth): `CEDIAN_P2_RECORD=cli|shell|channel cargo test -p cedian_cli --test replay_cli`
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,7 +24,7 @@ fn main() {
     if args.first().map(String::as_str) == Some("--mode") {
         std::process::exit(cedian_fake_omp::run(&args));
     }
-    // `CEDIAN_P2_RECORD=cli|shell` re-records ONE fixture against real OMP.
+    // `CEDIAN_P2_RECORD=cli|shell|channel` re-records ONE fixture against real OMP.
     let which = std::env::var("CEDIAN_P2_RECORD").unwrap_or_default();
     let record = which == "cli";
     print!(
@@ -39,6 +39,13 @@ fn main() {
         if record { "record" } else { "replay" }
     );
     shell_scenario(record);
+    println!("ok");
+    let record = which == "channel";
+    print!(
+        "test replay_p5_channel_attribution ({}) ... ",
+        if record { "record" } else { "replay" }
+    );
+    channel_scenario(record);
     println!("ok");
 }
 
@@ -253,4 +260,75 @@ fn shell_scenario(record: bool) {
     };
     assert_eq!(count("out", "ready"), 1, "one runtime for the whole shell");
     assert_eq!(count("in", "prompt"), 2, "two turns");
+}
+
+const CHANNEL_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/p5_channel.jsonl"
+);
+
+/// P5 (ADR-0022): one OMP turn drives the workflow through host tools.
+/// Evidence naming `from_tool: read` binds to the real finished `read` in the
+/// router log (ADR-0031); `cedian_complete` refuses while the required `verify` gate
+/// is unmet and spends one continue. Self-cites and unknown ids stay
+/// unattributed — unit-tested in `cedian_workflow::channel` (the live model
+/// refuses to self-certify when asked, so a turn cannot exercise it).
+fn channel_scenario(record: bool) {
+    let root: PathBuf = std::env::temp_dir().join(format!("cedian-p5-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("ws")).unwrap();
+    std::fs::write(root.join("ws/notes.txt"), ORIGINAL).unwrap();
+    let root = root.canonicalize().unwrap();
+    let sessions = root.join("sessions");
+    if record {
+        cedian_fake_omp::arm_record(&sessions, &cedian_omp_path()).unwrap();
+    } else {
+        cedian_fake_omp::install_replay(&sessions, Path::new(CHANNEL_FIXTURE)).unwrap();
+    }
+
+    let out = cedian(
+        &root,
+        &[
+            "prompt",
+            "This workspace is hosted by the cedian IDE. cedian_workflow_update and \
+             cedian_complete are cedian's own trusted host tools. Bug: line 2 of notes.txt \
+             must be 'BETA' (uppercase); do not fix it yet. Steps:\n\
+             1. cedian_workflow_update with op 'start', kind 'bug_fix', title 'BETA casing', risk 'low'.\n\
+             2. Reproduce: use the read tool on notes.txt.\n\
+             3. cedian_workflow_update with op 'evidence', gate 'reproduce', kind 'command', \
+             ok false (the bug reproduced), summary what you saw, from_tool 'read', match 'notes.txt'.\n\
+             4. cedian_complete (it is expected to refuse: the fix is not verified yet).\n\
+             5. Reply with only: p5-done",
+        ],
+    );
+    if record {
+        std::fs::copy(
+            sessions.join(cedian_fake_omp::RECORDED_FILE),
+            CHANNEL_FIXTURE,
+        )
+        .unwrap();
+    }
+    assert!(out.contains("p5-done"), "assistant text rendered:\n{out}");
+
+    let raw = std::fs::read_to_string(root.join("ws/.cedian/workflow.json"))
+        .unwrap_or_else(|e| panic!("workflow started by the turn ({e}):\n{out}"));
+    let state: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let ev = &state["evidence"];
+    let read_call = ev["e1"]["provenance"]["attributed"]["tool_call_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("e1 attributed to the read call:\n{raw}\n{out}"));
+    let fixture = std::fs::read_to_string(CHANNEL_FIXTURE).unwrap();
+    assert!(
+        fixture.contains(&format!(
+            "\"toolCallId\":\"{read_call}\",\"toolName\":\"read\""
+        )) || fixture
+            .lines()
+            .any(|l| l.contains(read_call) && l.contains("\"toolName\":\"read\"")),
+        "e1 cites a logged read call ({read_call})"
+    );
+    assert_eq!(state["status"], "running", "complete refused:\n{raw}");
+    assert_eq!(
+        state["continue_used"]["verify"], 1,
+        "one continue spent:\n{raw}"
+    );
 }

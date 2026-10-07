@@ -55,11 +55,15 @@ impl Record {
 pub struct Placeholders {
     /// `(real, token)`, longest `real` first so nested paths redact correctly.
     pairs: Vec<(String, &'static str)>,
+    /// Redact-only spellings, never expanded: OMP may report a
+    /// `/private/var/…` path cedian passed as `/var/…`.
+    aliases: Vec<(String, &'static str)>,
 }
 
 impl Placeholders {
     pub fn new(session_dir: &Path, cwd: &Path, home: Option<String>) -> Self {
         let mut pairs = Vec::new();
+        let mut aliases = Vec::new();
         let mut add = |path: &Path, token: &'static str| {
             let s = path.to_string_lossy().trim_end_matches('/').to_string();
             if s.len() > 1 {
@@ -70,6 +74,9 @@ impl Placeholders {
                         pairs.push((canon, token));
                     }
                 }
+                if let Some(short) = s.strip_prefix("/private") {
+                    aliases.push((short.to_string(), token));
+                }
                 pairs.push((s, token));
             }
         };
@@ -79,13 +86,16 @@ impl Placeholders {
             add(Path::new(&home), "${HOME}");
         }
         pairs.sort_by_key(|p| std::cmp::Reverse(p.0.len()));
-        Self { pairs }
+        aliases.sort_by_key(|p| std::cmp::Reverse(p.0.len()));
+        Self { pairs, aliases }
     }
 
     /// Real paths → tokens (recording).
     pub fn redact(&self, text: &str) -> String {
+        // Full spellings first: an alias is a suffix of its `/private` form.
         self.pairs
             .iter()
+            .chain(&self.aliases)
             .fold(text.to_string(), |acc, (real, token)| {
                 acc.replace(real.as_str(), token)
             })
@@ -180,6 +190,18 @@ mod tests {
             v["m"]["providerPayload"]["items"][0]["encrypted_content"],
             OPAQUE
         );
+    }
+
+    #[test]
+    fn private_var_short_spelling_is_redacted_not_expanded() {
+        let p = Placeholders::new(
+            Path::new("/private/var/t/s"),
+            Path::new("/private/var/t/ws"),
+            None,
+        );
+        assert_eq!(p.redact("/var/t/ws/notes.txt"), "${CEDIAN_CWD}/notes.txt");
+        assert_eq!(p.redact("/private/var/t/ws/a"), "${CEDIAN_CWD}/a");
+        assert_eq!(p.expand("${CEDIAN_CWD}/a"), "/private/var/t/ws/a");
     }
 
     #[test]

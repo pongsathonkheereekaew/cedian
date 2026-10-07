@@ -26,7 +26,7 @@ pub mod profile;
 pub mod state;
 
 pub use channel::{
-    is_channel_call, WorkflowChannel, WorkflowStore, CHANNEL_TOOLS, COMPLETE_TOOL,
+    is_channel_call, BoundCall, WorkflowChannel, WorkflowStore, CHANNEL_TOOLS, COMPLETE_TOOL,
     WORKFLOW_UPDATE_TOOL,
 };
 pub use evidence::{Evidence, EvidenceKind, Provenance};

@@ -11,13 +11,13 @@
 
 | Slice | State |
 |---|---|
-| S0 Foundation loop | ◐ prompt → cards → edit → review → accept/reject in CLI; streaming text, task attribution + STALE, persisted resolutions fixed 2026-10-06; P1 spawn profile live-verified 2026-10-07 (project yolo/computer-on loses to the overlay); P2 hermetic replay 2026-10-07: `cedian prompt` → card → host-tool edit → `review` → `reject` from a recorded OMP turn — gap: OMP-native disk edits are not replayed (fake-omp writes no files); P4 `cedian shell` 2026-10-07: one runtime serves two turns + `.cedian/shell.lock` blocks mutating one-shots (hermetic replay), steer/abort mid-turn live-verified |
+| S0 Foundation loop | ◐ prompt → cards → edit → review → accept/reject in CLI; streaming text, task attribution + STALE, persisted resolutions fixed 2026-10-06; P1 spawn profile live-verified 2026-10-07 (project yolo/computer-on loses to the overlay); P2 hermetic replay 2026-10-07: `cedian prompt` → card → host-tool edit → `review` → `reject` from a recorded OMP turn — gap: OMP-native disk edits are not replayed (fake-omp writes no files); P4 `cedian shell` 2026-10-07: one runtime serves two turns + `.cedian/shell.lock` blocks mutating one-shots (hermetic replay), steer/abort mid-turn live-verified; gap: headless never answers OMP's approval request, so an exec tool hangs the turn until the 600 s prompt timeout |
 | S1 Language services | ◐ LSP client + symbols + bridge (fake-green); live diagnostics need a warm server (`cedian shell`, P4), DAP-live needs Developer mode |
 | S9a App spike | ✅ 2026-10-07 — fork `~/src/zed` branch `cedian/s9a-spike` builds as `cedian` (runtime shaders, no Xcode); live gpui test drives the real `CedianPanel`: OMP turn through the spawn profile streams into `Thread`, OMP's own `edit` is imported as ONE transaction keyed by `tool_call_id`, one buffer undo reverts it (`cargo test -p cedian_panel -- --ignored live_` in the fork); findings → ADR-0029/0030 (layout choice pending) |
-| S2 Workflow engine | ◐ gates block completion when driven from CLI; not yet enforced on an OMP turn; A1-narrow decided (ADR-0010): OMP drives, cedian checks |
+| S2 Workflow engine | ◐ gates block completion when driven from CLI; A1-narrow decided (ADR-0010): OMP drives, cedian checks; P5 2026-10-07 (hermetic replay of an OMP turn): OMP starts a bug_fix workflow via `cedian_workflow_update`, evidence binds to the router-log `read` call (agent names the tool, cedian resolves the id — ADR-0031, proposed), `cedian_complete` refuses while `verify` is unmet — gaps: stale/inconclusive + claims ledger (ADR-0024), playbooks as OMP skills (ADR-0025) |
 | S3 Review agents | 🔜 gated on sandbox profile + audit tuples |
 | S4 Browser evidence | ◐ CDP screenshot/DOM as gate evidence; fresh Chrome per command, so frame seq / same-tab are not real yet (ROADMAP stand-in row D) |
-| S5 Parallel workers | ◐ worktree mechanism + safe merge-back/remove from CLI; OMP-requested worktrees + subagent view + real steer missing (ROADMAP stand-in row C) |
+| S5 Parallel workers | ◐ worktree mechanism + safe merge-back/remove from CLI; `cedian_worktree_request` host tool registered (unit-tested, not yet exercised by an OMP turn); subagent view + real steer missing (ROADMAP stand-in row C) |
 | S6 PR workspace | 🔜 `gh`, PR baselines, merge Deny-by-default |
 | S7 Local automations | 🔜 cron + history, no cloud ever |
 | S8 iOS track | 🔜 extension track, after v0.1 |
@@ -52,7 +52,7 @@ cargo test --workspace            # unit + fake-omp replay (fast, hermetic)
 cargo test -p cedian_omp -- --ignored --nocapture          # live smoke vs real omp
 cargo test -p cedian_omp --test live_spawn_profile -- --ignored --nocapture  # P1 precedence + auth
 cargo test -p cedian_fake_omp -- --ignored record_       # re-record runtime fixture (live)
-CEDIAN_P2_RECORD=cli cargo test -p cedian_cli --test replay_cli    # re-record CLI fixture (live; or =shell)
+CEDIAN_P2_RECORD=cli cargo test -p cedian_cli --test replay_cli    # re-record CLI fixture (live; or =shell|channel)
 cargo test -p cedian_agent_ui -- --ignored --nocapture     # live panel + tool cards
 cargo clippy --workspace --all-targets && cargo fmt --all
 ```

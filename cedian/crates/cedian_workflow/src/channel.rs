@@ -5,10 +5,12 @@
 //! `WorkflowState` calls. Two seams keep it free of the runtime crates:
 //! - [`WorkflowStore`]: every call loads, mutates and saves, so the store on
 //!   disk stays the one truth even when CLI verbs run between turns.
-//! - the verifier `Fn(&str) -> bool`: true only for a `tool_call_id` the
-//!   router log saw finish successfully (built by the caller over
-//!   `EventRouter::finished_tool_call`, excluding [`is_channel_call`]s).
-//!   The agent cannot attribute evidence by saying so.
+//! - the resolver `Fn(tool, needle) -> Option<BoundCall>`: the agent names
+//!   the tool that produced the evidence (`from_tool`, optional `match` on
+//!   its args); the caller binds that to the most recent call the router log
+//!   saw finish successfully, excluding [`is_channel_call`]s (ADR-0031: the
+//!   model never sees `tool_call_id`s). The id always comes from the log, so
+//!   the agent cannot attribute evidence by saying so.
 
 use crate::{
     state::ContinueOutcome, Evidence, EvidenceKind, GateStatus, Risk, TaskKind, TaskProfile,
@@ -45,13 +47,21 @@ pub trait WorkflowStore: Send + Sync {
     fn save(&self, state: &WorkflowState) -> Result<(), String>;
 }
 
-type Verifier = dyn Fn(&str) -> bool + Send + Sync;
+/// A logged call evidence was bound to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundCall {
+    pub tool_call_id: String,
+    pub tool_name: String,
+    pub args_preview: String,
+}
 
-/// The two workflow host tools over one store + one verifier.
+type Resolver = dyn Fn(&str, &str) -> Option<BoundCall> + Send + Sync;
+
+/// The two workflow host tools over one store + one resolver.
 pub struct WorkflowChannel {
     task_id: String,
     store: Box<dyn WorkflowStore>,
-    verify: Box<Verifier>,
+    resolve: Box<Resolver>,
     /// Serializes load → mutate → save across handler threads.
     lock: Mutex<()>,
 }
@@ -60,12 +70,12 @@ impl WorkflowChannel {
     pub fn new(
         task_id: impl Into<String>,
         store: Box<dyn WorkflowStore>,
-        verify: impl Fn(&str) -> bool + Send + Sync + 'static,
+        resolve: impl Fn(&str, &str) -> Option<BoundCall> + Send + Sync + 'static,
     ) -> Arc<Self> {
         Arc::new(Self {
             task_id: task_id.into(),
             store,
-            verify: Box::new(verify),
+            resolve: Box::new(resolve),
             lock: Mutex::new(()),
         })
     }
@@ -108,27 +118,42 @@ impl WorkflowChannel {
                     .ok_or("missing `ok` (true = the observation succeeded)")?;
                 let text = str_arg(args, "summary")?;
                 let id = format!("e{}", state.evidence.len() + 1);
-                let cited = args
-                    .get("tool_call_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                let attributed = !cited.is_empty() && (self.verify)(cited);
-                let item = if attributed {
-                    Evidence::attributed(&id, kind, &[gate], text, ok, &self.task_id, cited)
-                } else {
-                    Evidence::unattributed(&id, kind, &[gate], text, ok)
+                let text_arg = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("");
+                let (from_tool, needle) = (text_arg("from_tool"), text_arg("match"));
+                let bound = match from_tool {
+                    "" => None,
+                    tool => (self.resolve)(tool, needle),
+                };
+                let (item, origin) = match &bound {
+                    Some(call) => (
+                        Evidence::attributed(
+                            &id,
+                            kind,
+                            &[gate],
+                            format!("{text} [{} {}]", call.tool_name, call.args_preview),
+                            ok,
+                            &self.task_id,
+                            &call.tool_call_id,
+                        ),
+                        format!(
+                            "attributed to {} call `{}`",
+                            call.tool_name, call.args_preview
+                        ),
+                    ),
+                    None => (
+                        Evidence::unattributed(&id, kind, &[gate], text, ok),
+                        if from_tool.is_empty() {
+                            "UNATTRIBUTED: no from_tool given".to_string()
+                        } else {
+                            format!(
+                                "UNATTRIBUTED: no finished, successful {from_tool:?} call{} in this session",
+                                if needle.is_empty() { String::new() } else { format!(" matching {needle:?}") }
+                            )
+                        },
+                    ),
                 };
                 state.attach(item).map_err(|e| e.to_string())?;
                 self.store.save(&state)?;
-                let origin = if attributed {
-                    format!("attributed to {cited}")
-                } else if cited.is_empty() {
-                    "UNATTRIBUTED: no tool_call_id given".to_string()
-                } else {
-                    format!(
-                        "UNATTRIBUTED: {cited} is not a finished, successful tool call in this session"
-                    )
-                };
                 let gate_line = match state.gate_result(gate) {
                     Ok(r) => format!("gate {gate}: {:?} — {}", r.status, r.reason),
                     Err(e) => e.to_string(),
@@ -229,9 +254,10 @@ impl WorkflowChannel {
             HostTool::new(
                 WORKFLOW_UPDATE_TOOL,
                 "cedian's own host tool (trusted). Report workflow progress to the cedian IDE. \
-                 op=start {kind,title,risk?} begins a workflow; op=evidence {gate,summary,ok,tool_call_id,kind?} \
-                 records what a tool call you already ran showed (cite that call's tool_call_id — evidence without \
-                 a real finished call is stored unattributed and cannot pass a required gate); \
+                 op=start {kind,title,risk?} begins a workflow; op=evidence {gate,summary,ok,from_tool,match?,kind?} \
+                 records what a tool call you already ran showed: from_tool = that tool's name (e.g. bash, read), \
+                 match = a substring of its arguments; cedian binds the evidence to your most recent successful \
+                 matching call (none found → stored unattributed, which cannot pass a required gate); \
                  op=advance {passed} moves to the next phase.",
                 object(json!({
                     "op": {"type": "string", "enum": ["start", "evidence", "advance"]},
@@ -241,7 +267,8 @@ impl WorkflowChannel {
                     "gate": {"type": "string"},
                     "summary": {"type": "string"},
                     "ok": {"type": "boolean"},
-                    "tool_call_id": {"type": "string"},
+                    "from_tool": {"type": "string"},
+                    "match": {"type": "string"},
                     "passed": {"type": "boolean"}
                 }), &["op"]),
                 move |args, _ctx| update.update(&args).map(Into::into).map_err(Into::into),
@@ -323,10 +350,16 @@ mod tests {
         }
     }
 
-    /// Channel whose verifier knows exactly one good call: `bash-1`.
+    /// Channel whose log holds exactly one good call: `bash-1` (`cargo test`).
     fn channel() -> (Arc<WorkflowChannel>, Arc<MemStore>) {
         let store = Arc::new(MemStore::default());
-        let ch = WorkflowChannel::new("t1", Box::new(Arc::clone(&store)), |id| id == "bash-1");
+        let ch = WorkflowChannel::new("t1", Box::new(Arc::clone(&store)), |tool, needle| {
+            (tool == "bash" && "cargo test".contains(needle)).then(|| BoundCall {
+                tool_call_id: "bash-1".into(),
+                tool_name: "bash".into(),
+                args_preview: "cargo test".into(),
+            })
+        });
         (ch, store)
     }
 
@@ -341,9 +374,10 @@ mod tests {
         .unwrap();
     }
 
-    fn evidence(ch: &WorkflowChannel, gate: &str, ok: bool, call: &str) -> String {
+    fn evidence(ch: &WorkflowChannel, gate: &str, ok: bool, tool: &str, needle: &str) -> String {
         ch.update(&args(json!({
-            "op": "evidence", "gate": gate, "summary": "ran it", "ok": ok, "tool_call_id": call
+            "op": "evidence", "gate": gate, "summary": "ran it", "ok": ok,
+            "from_tool": tool, "match": needle
         })))
         .unwrap()
     }
@@ -365,14 +399,15 @@ mod tests {
     fn evidence_is_attributed_only_through_the_verifier() {
         let (ch, store) = channel();
         start(&ch);
-        assert!(evidence(&ch, "reproduce", false, "bash-1").contains("attributed to bash-1"));
-        assert!(evidence(&ch, "reproduce", false, "made-up").contains("UNATTRIBUTED"));
+        assert!(evidence(&ch, "reproduce", false, "bash", "cargo").contains("attributed to bash"));
+        assert!(evidence(&ch, "reproduce", false, "bash", "npm").contains("UNATTRIBUTED"));
+        assert!(evidence(&ch, "reproduce", false, "read", "").contains("UNATTRIBUTED"));
         assert!(ch
             .update(&args(
                 json!({"op": "evidence", "gate": "verify", "summary": "s", "ok": true})
             ))
             .unwrap()
-            .contains("no tool_call_id"));
+            .contains("no from_tool"));
         let state = store.load().unwrap().unwrap();
         let attributed: Vec<_> = state
             .evidence
@@ -381,6 +416,13 @@ mod tests {
             .collect();
         assert_eq!(attributed.len(), 1);
         assert_eq!(attributed[0].id, "e1");
+        assert_eq!(
+            attributed[0].provenance,
+            crate::Provenance::Attributed {
+                task_id: "t1".into(),
+                tool_call_id: "bash-1".into()
+            }
+        );
     }
 
     #[test]
@@ -400,7 +442,7 @@ mod tests {
         let (ch, store) = channel();
         start(&ch);
         // Unattributed support only: required gates still fail.
-        evidence(&ch, "verify", true, "made-up");
+        evidence(&ch, "verify", true, "bash", "npm");
         for attempt in 1..=MAX_CONTINUE {
             let err = ch.complete(&Map::new()).unwrap_err();
             assert!(err.contains("required gate \"verify\""), "{err}");
@@ -421,8 +463,8 @@ mod tests {
     fn attributed_evidence_and_phases_complete() {
         let (ch, store) = channel();
         start(&ch);
-        evidence(&ch, "reproduce", false, "bash-1");
-        evidence(&ch, "verify", true, "bash-1");
+        evidence(&ch, "reproduce", false, "bash", "");
+        evidence(&ch, "verify", true, "bash", "test");
         // reproduce → investigate → implement → verify; review skipped (low risk).
         for _ in 0..4 {
             ch.update(&args(json!({"op": "advance", "passed": true})))
