@@ -74,6 +74,13 @@ fn main() {
     print!("test replay_row_e_floor_from_cedian_toml (replay) ... ");
     s2_blocked_scenario(false, true);
     println!("ok");
+    let record = which == "s2profile";
+    print!(
+        "test replay_s2_verification_profile ({}) ... ",
+        if record { "record" } else { "replay" }
+    );
+    s2_profile_scenario(record);
+    println!("ok");
     for deny in [false, true] {
         let name = if deny { "p8deny" } else { "p8" };
         let record = which == name;
@@ -838,6 +845,159 @@ fn p8_scenario(record: bool, deny: bool) {
             "badge names the project layer:\n{out}"
         );
     }
+}
+
+const S2_PROFILE_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/s2_verification_profile.jsonl"
+);
+const VERIFY_NOTES_SKILL: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/skills/verify-notes/SKILL.md"
+);
+
+/// A tiny notes app and its profile scripts. Every script exits 0 and says
+/// what it saw, so each stage is a successful `bash` call cedian can bind.
+const NOTES_APP: &[(&str, &str)] = &[
+    (
+        "app.sh",
+        "case \"$1\" in\n  add) shift; echo \"$*\" >> notes.db ;;\n  list) cat notes.db 2>/dev/null || true ;;\nesac\n",
+    ),
+    ("launch.sh", "rm -f notes.db\necho up > \".run-$1\"\necho \"launched $1\"\n"),
+    (
+        "doctor.sh",
+        "if [ -f \".run-$1\" ] && sh app.sh list >/dev/null; then echo \"doctor $1 ok\"; else echo \"doctor $1 FAILED\"; fi\n",
+    ),
+    ("drive.sh", "sh app.sh add hello\necho \"drove $1: added hello\"\n"),
+    (
+        "evidence.sh",
+        "if sh app.sh list | grep -q hello; then echo \"$1: hello is listed\"; else echo \"$1: hello is NOT listed\"; fi\n",
+    ),
+    ("cleanup.sh", "rm -f \".run-$1\" notes.db\necho \"cleaned $1\"\n"),
+];
+
+/// S2 exit (b) through an OMP turn (ADR-0025): OMP runs the verify-notes
+/// profile from the workspace's own `.omp/skills/` copy, by `bash` under the
+/// P8 opt-in. A draft profile's feature evidence is inconclusive; after one
+/// end-to-end run, feature evidence counts; a surprising drive makes the
+/// instance's evidence inconclusive until its Doctor passes again.
+fn s2_profile_scenario(record: bool) {
+    let root: PathBuf =
+        std::env::temp_dir().join(format!("cedian-s2-profile-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let skill_dir = root.join("ws/.omp/skills/verify-notes");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::copy(VERIFY_NOTES_SKILL, skill_dir.join("SKILL.md")).unwrap();
+    std::fs::write(root.join("ws/.omp/config.yml"), PROJECT_YOLO).unwrap();
+    for (name, body) in NOTES_APP {
+        std::fs::write(root.join("ws").join(name), body).unwrap();
+    }
+    let root = root.canonicalize().unwrap();
+    let ws = root.join("ws");
+    std::fs::write(
+        root.join("cedian.toml"),
+        format!(
+            "schema = 1\n[projects.{:?}]\npolicy = \"omp\"\n",
+            ws.display().to_string()
+        ),
+    )
+    .unwrap();
+    let sessions = root.join("sessions");
+    if record {
+        cedian_fake_omp::arm_record(&sessions, &cedian_omp_path()).unwrap();
+    } else {
+        cedian_fake_omp::install_replay(&sessions, Path::new(S2_PROFILE_FIXTURE)).unwrap();
+    }
+
+    let out = cedian(
+        &root,
+        &[
+            "prompt",
+            "Prove the notes-app feature `add-note` with the verify-notes skill in \
+             .omp/skills/verify-notes/SKILL.md. Do exactly these steps in order, one tool call at a \
+             time, and report each one with cedian_workflow_update right after it, as the skill shows. \
+             Never skip a report, even when cedian says it does not count.\n\
+             1. Start: {\"op\":\"start\",\"kind\":\"feature\",\"title\":\"prove add-note\",\"risk\":\"low\"}.\n\
+             2. Add the gate: {\"op\":\"gate\",\"gate\":\"add-note\",\"gate_kind\":\"behavior\",\"profile\":\"verify-notes\",\"feature\":\"add-note\"}.\n\
+             3. Before any profile run: run `sh drive.sh add-note`, then `sh evidence.sh add-note`, and report \
+             that output as feature evidence (op evidence) for instance i0 with outcome pass.\n\
+             4. Run the whole profile once for instance i1: Launch, Doctor, Drive, Evidence, Cleanup, \
+             reporting each stage (op profile).\n\
+             5. Instance i2: Launch, Doctor, Drive, then Evidence: report the Evidence stage and also the \
+             feature evidence (op evidence) for i2.\n\
+             6. Run `sh drive.sh add-note` again and report that drive for i2 with surprising true. Then run \
+             `sh evidence.sh add-note` and report feature evidence for i2.\n\
+             7. Run `sh doctor.sh i2` and report the Doctor stage. Then run `sh evidence.sh add-note` and report \
+             feature evidence for i2.\n\
+             8. Run the Cleanup for i2 and report it. Reply DONE.",
+        ],
+    );
+    if record {
+        std::fs::copy(
+            sessions.join(cedian_fake_omp::RECORDED_FILE),
+            S2_PROFILE_FIXTURE,
+        )
+        .unwrap();
+    }
+
+    let raw = std::fs::read_to_string(ws.join(".cedian/workflow.json"))
+        .unwrap_or_else(|e| panic!("the turn started a workflow ({e}):\n{out}"));
+    let state: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let mut items: Vec<&serde_json::Value> = state["evidence"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter(|e| e["feature"]["id"] == "add-note")
+        .collect();
+    items.sort_by_key(|e| e["id"].as_str().unwrap()[1..].parse::<u32>().unwrap());
+    let view: Vec<(String, String, String)> = items
+        .iter()
+        .map(|e| {
+            (
+                e["outcome"].as_str().unwrap().to_string(),
+                e["summary"].as_str().unwrap().to_string(),
+                e["provenance"]["attributed"].is_object().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(view.len(), 4, "four feature reports:\n{view:#?}\n{out}");
+    assert!(
+        view.iter().all(|(_, _, attributed)| attributed == "true"),
+        "every report bound to a bash call:\n{view:#?}"
+    );
+    let (draft, counted, surprised, healed) = (&view[0], &view[1], &view[2], &view[3]);
+    assert!(
+        draft.0 == "inconclusive" && draft.1.contains("is a draft"),
+        "draft profile: {draft:?}"
+    );
+    assert_eq!(counted.0, "pass", "after one end-to-end run: {counted:?}");
+    assert!(
+        surprised.0 == "inconclusive" && surprised.1.contains("no passing Doctor"),
+        "surprising drive: {surprised:?}"
+    );
+    assert_eq!(healed.0, "pass", "after Doctor passes again: {healed:?}");
+
+    let ledger: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".cedian/verify.json")).unwrap())
+            .unwrap();
+    assert!(
+        ledger["profiles"]["verify-notes"]["proven_skill"].is_u64(),
+        "profile proven end to end: {ledger}"
+    );
+    let status = cedian(&root, &["workflow", "status"]);
+    assert!(
+        status.contains("gate add-note: Passed"),
+        "the feature gate passes on counted evidence:\n{status}"
+    );
+    let omp: Vec<_> = walk(&ws.join(".omp"));
+    assert_eq!(
+        omp,
+        [
+            ws.join(".omp/config.yml"),
+            ws.join(".omp/skills/verify-notes/SKILL.md")
+        ],
+        "cedian wrote nothing under .omp/"
+    );
 }
 
 fn walk(dir: &Path) -> Vec<PathBuf> {

@@ -1554,6 +1554,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// The verify-notes profile skill (test fixture copy) only uses keys and
+    /// enum values the channel accepts, names every stage, and has a feature
+    /// map cedian can read (ADR-0025).
+    #[test]
+    fn verify_notes_skill_matches_the_channel_schema() {
+        let skill = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/skills/verify-notes/SKILL.md"
+        ))
+        .unwrap();
+        assert!(skill.contains("name: verify-notes"));
+        assert_eq!(cedian_workflow::feature_map(&skill), ["add-note"]);
+        let update = cedian_workflow::update_parameters();
+        let props = update["properties"].as_object().unwrap();
+        let mut stages = Vec::new();
+        for block in skill.split("```json").skip(1) {
+            let body = block.split("```").next().unwrap();
+            let obj: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_str(body.trim()).unwrap_or_else(|e| panic!("{body}: {e}"));
+            for (key, value) in &obj {
+                let prop = props
+                    .get(key)
+                    .unwrap_or_else(|| panic!("unknown key {key}"));
+                if let (Some(allowed), Some(v)) = (prop.get("enum"), value.as_str()) {
+                    assert!(
+                        v.starts_with('<') || allowed.as_array().unwrap().iter().any(|a| a == v),
+                        "{key}={v}"
+                    );
+                }
+            }
+            if let Some(stage) = obj.get("stage").and_then(|v| v.as_str()) {
+                stages.push(stage.to_string());
+            }
+        }
+        assert_eq!(stages, ["launch", "doctor", "drive", "evidence", "cleanup"]);
+    }
+
     /// U8: the bug-fix playbook skill (a test fixture copy — cedian never
     /// writes the user's `.omp/`, §77) only uses tool names, ops, keys and
     /// enum values the channel actually accepts, and the gates it reports
