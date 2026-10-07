@@ -12,7 +12,9 @@ pub mod session;
 pub mod spawn_profile;
 
 pub use errors::OmpError;
-pub use event_router::{DeltaKind, EventRouter, LogEntry, PromptStatus, RouterEvent};
+pub use event_router::{
+    DeltaKind, EventRouter, FinishedToolCall, LogEntry, PromptStatus, RouterEvent,
+};
 pub use runtime::{
     image_content, last_text, OmpBinary, OmpRuntime, RuntimeConfig, RuntimeControl, RuntimeState,
 };
