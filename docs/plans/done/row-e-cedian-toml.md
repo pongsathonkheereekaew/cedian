@@ -3,7 +3,7 @@
 ROADMAP stand-in row E ends here. The headless settings file stops being `<workdir>/cedian.json` and becomes the user's `cedian.toml`, the one settings file of ADR-0018. The gate floor (ADR-0010, ADR-0026) moves from code into that file. P8 (ADR-0035) then adds `[projects."<path>"]` to the same file without reshaping anything.
 
 **Exit (observable checks):**
-- `cedian.toml` with a `schema` key is the only settings file. A missing `schema`, a wrong `schema`, an unknown key at any depth, or a bad floor gate fails the command (exit 2) with the reason.
+- `cedian.toml` with a `schema` key is the only settings file. A missing `schema`, a wrong `schema`, an unknown key at any depth, or a bad floor gate fails the command with the reason.
 - A leftover `<workdir>/cedian.json` is refused with an error that names the exact move (the file found, the user `cedian.toml` path, `schema = 1`). A `<workdir>/cedian.toml` is refused the same way, citing §77, unless it is the user file itself.
 - Permissions behave as before (strict-wins, ADR-0012): the same `[permissions]` tiers map to the same spawn policy and host-tool set.
 - `[[workflow.floor]]` rules (`kind`, `min_risk`, `gates`) load into `cedian_workflow::GateFloor` and reach `WorkflowChannel::with_policy`. No floor means an empty floor (fast lane).
@@ -33,10 +33,17 @@ Accepted tradeoff: a repository can no longer ship its own permission tiers. Per
 |---|---|---|
 | E1 | `GateSpec` + `FloorRuleSpec` + `GateFloor::from_specs` in `cedian_workflow`; `op=gate` calls `GateSpec::build`; `GateFloor`/`FloorRule` drop `Deserialize` | `cargo test -p cedian_workflow`: existing `op=gate` tests unchanged and green; new test: a spec builds the same `Gate` `op=gate` builds; a non-fresh non-reproduction spec is impossible (fields absent) |
 | E2 | `cedian_shell` settings: TOML parse (`toml` crate), private wire types, `deny_unknown_fields`, required `schema`, `UpdateChannel` enum, floor, `default_settings_toml` emits TOML; `resolve_settings` with location + tripwires | `cargo test -p cedian_shell`: missing schema, schema 2, unknown nested key (`[permissions] dangerus`), bad floor gate, `cedian.json` tripwire message, workspace `cedian.toml` tripwire, explicit missing `CEDIAN_CONFIG` → error, implicit missing → defaults, default document round-trips |
-| E3 | CLI: resolve once, pass `&Settings` to prompt gate / `spawn` / `host_tools`; floor from settings into `with_policy`; replay harness sets `CEDIAN_CONFIG` | `cargo test -p cedian_cli` (unit + every `replay_cli` scenario) green; new CLI test: a `<workdir>/cedian.json` makes `cedian review` exit 2 naming the move |
+| E3 | CLI: resolve once, pass `&Settings` to prompt gate / `spawn` / `host_tools`; floor from settings into `with_policy`; replay harness sets `CEDIAN_CONFIG` | `cargo test -p cedian_cli` (unit + every `replay_cli` scenario) green; new CLI test: a `<workdir>/cedian.json` makes `cedian review` fail naming the move |
 | E4 | Floor reaches the channel: hermetic check that a floor from `cedian.toml` adds a required gate an OMP `op=start` workflow cannot drop | channel-level test through `resolve_settings` → `with_policy`, or a CLI test with `cedian workflow` verbs; replaying an existing recorded turn with a floor set shows the floor gate in `workflow.json` |
 | E5 | Docs: README Build/test (where settings live), every `cedian.json` reference, `floor.rs` and settings module docs, README slice rows that row E affects | `grep -rn cedian.json` shows only the migration message and its test; README S2 row drops "gate-floor config waits for row E" |
 
 ## Findings
 
-(filled in as units land)
+All five units landed 2026-10-07: E1 `e6353c9`, E2+E3 `f9a669a` (E2 alone would not compile the CLI), E4 `fc8d484`, E5 with this file.
+
+- **Settings errors exit 1, not 2.** The old loader called `exit(2)` from inside a helper. Settings now fail through `dispatch`'s normal error path, like every other refusal.
+- **`cedian workflow run` gets the floor too.** The CLI stand-in started workflows with `WorkflowState::start`, so it would have ignored the floor that OMP's `op=start` gets. It now calls `start_with_floor`, which also gave E3 a hermetic CLI check (`settings_cli.rs`).
+- **Floor gates carry no `feature`.** A feature gate names a `verify-<app>` skill in one workspace; a user-wide floor can't name one. `GateSpec.feature` is `#[serde(skip)]`, so a file that sets it fails as an unknown field.
+- **E4 replays the recorded S2 turn a second time** with a floor rule in the user's `cedian.toml`, instead of changing the exit (d) run. The OMP frames are the same; only cedian's side differs, and the refused completion lists `floor-lint`.
+- **ROADMAP stand-in row E is removed.** A stand-in has a row only while it exists (ADR-0017). References to "row E" now point at ADR-0018. ROADMAP stays status-free; README S2 and S3 rows carry the status.
+- **`grep -rn cedian.json` (outside `docs/archive/`):** the migration constant, message and their tests; README's sentence that a workspace `cedian.json` is refused; this plan; and the accepted ADR-0018's context paragraph, which is history and is not edited.

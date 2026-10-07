@@ -19,7 +19,7 @@ P1 spawn profile → P2 fake-omp → P3 snapshot_version
   → S9a app spike
   → P4 cedian shell → P5 host-tool channel → P6 revert turn + inline edit
   → P7 OMP parity ledger + test
-  → S2 workflow core → P8 OMP policy opt-in (with row E) → S3 review agents → S4 browser evidence → S5 parallel workers
+  → S2 workflow core → `cedian.toml` move ([ADR-0018](decisions/0018-settings-in-one-toml.md)) → P8 OMP policy opt-in → S3 review agents → S4 browser evidence → S5 parallel workers
   → S9 real app  (= v0.1)
   → S6 PR workspace → S7 local automations  (= v0.2)
   → S8 iOS (extension)
@@ -76,7 +76,6 @@ Before the Zed fork lands (S9), some capabilities the plan assigns to Zed are bu
 | B | `cedian_lsp` / `cedian_dap` — own rust-analyzer / lldb-dap subprocesses | §21/§22 (one LSP/DAP, Zed's), §88 "custom LSP/DAP" | Deleted at S9; host tools + `cedian://` rebind to Zed's `Project` LSP/DAP. Until then: never spawned implicitly per prompt, and the duplicate-server cost (cedian + OMP `lsp`) is accepted for headless only. |
 | C | `cedian_worker` — user-driven `git worktree` registry | §43 (OMP requests via host tool), §42 (subagent tree) | Stays as the mechanism. Missing pieces before S5 counts as ✅: host tool `cedian_worktree_request` (OMP asks, cedian creates — P5) + router handling of `subagent_lifecycle/progress` for the visualization + steer through a live session (P4). |
 | D | `cedian_browser` — separate cedian-owned headless Chrome, one per CLI invocation | §25 (one shared Chromium with OMP), §29 R4 (frame binding) | S9: single long-lived Chrome, OMP `browser` connects to the same CDP endpoint. Until then evidence from it is labelled `headless-capture` and cannot satisfy a `required: true` browser gate. |
-| E | Settings in `cedian.json` (JSON) | §64/§2.5 (permission TOML) | **Decision: TOML wins** (the plan, the CI policy gate — ARCHITECTURE §64 — and the settings UI all assume one TOML file). Migrate `cedian_shell` to `cedian.toml` before S3; JSON is not accepted after that. |
 | G | Headless form of the agent-edit import: no Zed buffers yet, so writes stay on disk | §12 (agent writes imported as Zed transactions, [ADR-0027](decisions/0027-zero-omp-fork.md)) | At S9 each OMP write is imported as one agent transaction (S9a proves it). Until then: disk is authoritative for OMP-native edits; cedian never writes a buffer back over a file that changed on disk during the turn (fail closed + report), and provenance for such edits is recorded per turn from disk diffs (attribution = turn, not tool call → hunks the turn cannot pin to a tool call are `UNATTRIBUTED`). |
 | H | Headless code state: evidence binds to FNV-1a content hashes per file (or a workspace tree fingerprint), not buffer versions | §53 / [ADR-0024](decisions/0024-evidence-bound-to-code-state.md) (`clock::Global`) | [ADR-0036](decisions/0036-s2-evidence-freshness-and-turn-end-block.md) (proposed). Deleted at S9: evidence binds to Zed's `clock::Global`. Until then, staleness compares hashes the CLI computes from disk, passed into the pure gate engine. |
 
@@ -92,7 +91,7 @@ Shared foundations that several slice exits depend on. Each is small; build it b
 | P4 | **`cedian shell`.** One long-lived headless process + `.cedian/shell.lock` | [ADR-0021](decisions/0021-headless-host-process.md) | S4 exit (frame seq), S5 exit (steer), S7 (scheduler), S3 (reviewer sessions) |
 | P6 | **Revert turn + headless inline edit.** Turn-grouped provenance → one-action revert (skips `STALE`); `cedian shell` `edit <path> <range> <instruction>` | [ADR-0026](decisions/0026-fast-lane.md) | S2 exit (benchmark), S9 (⌘K + revert UI) |
 | P7 | **OMP parity ledger + test.** `docs/OMP_PARITY.md` has a row for every RPC command, server notification (agent events included) and UI request in the vendored `wire.rs` (by wire name) plus hand-reviewed tool and config rows; `cargo test -p cedian_omp --test omp_parity` fails on any missing row. Runs in pre-commit and on every pin bump | [ADR-0034](decisions/0034-identity-and-omp-parity.md) | every OMP pin bump; S9 (v0.1 gate) |
-| P8 | **OMP policy opt-in.** `[projects."<path>"] policy = "omp"` in `cedian.toml` → spawn profile variant without approval or `computer` keys; badge, `approved by OMP` tool-card label, `decision_source: omp` audit rows; reviewers and automations always get the default profile. Live test: opted-in project + project yolo config → exec-tier call runs without a prompt and is audited | [ADR-0035](decisions/0035-omp-native-approval-opt-in.md) | S3 (audit log shape, reviewer profile), S7, S9 settings UI; needs row E |
+| P8 | **OMP policy opt-in.** `[projects."<path>"] policy = "omp"` in `cedian.toml` → spawn profile variant without approval or `computer` keys; badge, `approved by OMP` tool-card label, `decision_source: omp` audit rows; reviewers and automations always get the default profile. Live test: opted-in project + project yolo config → exec-tier call runs without a prompt and is audited | [ADR-0035](decisions/0035-omp-native-approval-opt-in.md) | S3 (audit log shape, reviewer profile), S7, S9 settings UI; needs the user's `cedian.toml` ([ADR-0018](decisions/0018-settings-in-one-toml.md)) |
 | P5 | **Host-tool channel.** `cedian_workflow_update`, `cedian_complete`, `cedian_worktree_request`; evidence checked against the router log | [ADR-0022](decisions/0022-host-tool-first.md) | S2 exit, S5 exit, S3 findings (`cedian_review_finding`) |
 
 ## Slice dependencies
@@ -102,7 +101,7 @@ Shared foundations that several slice exits depend on. Each is small; build it b
 | S0 | P1, P2 |
 | S9a | P1 |
 | S2 | P2, P3, P5, P6 |
-| S3 | gate (below) — gate 1 = P1; gate 3 = row E; plus P2, P4, P5 |
+| S3 | gate (below) — gate 1 = P1; gate 3 = `cedian.toml` ([ADR-0018](decisions/0018-settings-in-one-toml.md)); plus P2, P4, P5 |
 | S4 | P4 (frame seq is only real inside one live session) |
 | S5 | P2, P4, P5 (`cedian_worktree_request` + subagent events) |
 | S6 | S3 gate items 1, 2, 4 (merge is `Deny`-by-default and audited) |
@@ -366,7 +365,7 @@ Bug Fix
 **Gate (must ALL hold before S3 work starts):**
 1. OMP resolver made strict at runtime spawn through the spawn profile (P1, [ADR-0020](decisions/0020-omp-spawn-profile.md)): `--approval-mode` (`always-ask` or `write`), generated overlay with `tools.approval.*`, `bash.patterns` and `computer.enabled: false`, then `set_ask_dialog(true)` over RPC. Verified by the precedence test ([ADR-0028](decisions/0028-spawn-profile-approval-findings.md)): a project `.omp/config.yml` that says yolo / computer-on / `bash: allow` still yields an approval request for `bash` (exec tier, the default `write` profile) and no computer prelude. Open before this item counts: project `tools.approval` allows for tools the overlay does not name (ADR-0028 known gap).
 2. Reviewer Seatbelt profile at `policy/reviewer.sbpl`, generated per §64 mechanism 2 (deny-default, only `/usr/bin/sandbox-exec`), plus a **bypass-proof test**: a reviewer process attempting a write inside the workspace and a non-allow-listed `bash` command gets `Deny` from the kernel, not from a policy check.
-3. Reviewer `bash` allow-list lives in `cedian.toml` (row E) beside `[permissions]` — one file, one CI gate.
+3. Reviewer `bash` allow-list lives in the user's `cedian.toml` ([ADR-0018](decisions/0018-settings-in-one-toml.md)) beside `[permissions]` — one file, one CI gate.
 4. Audit tuple `{timestamp, ordinal, tool, command/prefix, decision, scope}` appended as JSONL to `.cedian/audit.jsonl` for every cedian-gate decision, including `Abstain`; a test replays the file.
 
 **Exit:** an OMP turn spawns at least one reviewer subagent under the reviewer profile (fresh context, a different model from the implementer where OMP routing allows — [ADR-0011](decisions/0011-reviewers-read-only-sandbox.md)); each finding arrives through the `cedian_review_finding` host tool and attaches to the hunk it names; a `blocker` finding keeps the review gate unmet until it is fixed or dismissed with a recorded reason (audit log); triggered from `cedian shell` with `review --agent`. **Correction ledger** ([ADR-0032](decisions/0032-correction-ledger.md)): each rejected hunk, reverted turn, user edit of an agent hunk, refused completion and dismissed finding appends a row to `.cedian/corrections.jsonl`; `cedian_correction_class` refuses a class with fewer than two events from two turns; a class shows `enforced` only with evidence that its check fails on the recorded mistake and passes at head.
