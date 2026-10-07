@@ -80,16 +80,16 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
     if !in_shell && !is_read_only(&args) {
         shell_lock::refuse_if_shell_live(&workdir, &args.join(" "))?;
     }
-    // Settings gate: dangerous tier Deny refuses prompt (the shell rule —
-    // headless reads the same file the future UI will edit).
-    let settings = load_workdir_settings(&workdir);
+    // One settings document per command (the user's `cedian.toml`, row E).
+    // The dangerous tier Deny refuses prompt (the shell rule).
+    let settings = cedian_shell::resolve_settings(&workdir).map_err(|e| e.to_string())?;
     match cmd {
         "prompt" => {
             let message = args.get(1).ok_or("usage: cedian prompt <message>")?;
             if settings.permissions.dangerous == cedian_shell::Verdict::Deny {
                 return Err("refused: settings [permissions] dangerous = deny".to_string());
             }
-            cmd_prompt(&session_dir, &workdir, message)
+            cmd_prompt(&session_dir, &workdir, &settings, message)
         }
         "review" => match args.get(1).map(|s| s.as_str()) {
             None => cmd_review(&workdir),
@@ -124,9 +124,9 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
             let which = args.get(1).ok_or("usage: cedian revert-turn <n|last>")?;
             revert_turn::cmd_revert_turn(&workdir, which)
         }
-        "state" => cmd_state(&session_dir, &workdir),
+        "state" => cmd_state(&session_dir, &workdir, &settings),
         "shell" if in_shell => Err("already inside cedian shell".to_string()),
-        "shell" => shell::run(&session_dir, &workdir),
+        "shell" => shell::run(&session_dir, &workdir, &settings),
         "palette" => {
             let query = args.get(1).map(|s| s.as_str()).unwrap_or("");
             for action in cedian_shell::Palette::filter(query) {
@@ -140,7 +140,7 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
         }
         "diagnostics" => cmd_diagnostics(&workdir),
         "browser" => cmd_browser(&workdir, &args[1..]),
-        "workflow" => cmd_workflow(&workdir, &args[1..]),
+        "workflow" => cmd_workflow(&workdir, &settings, &args[1..]),
         "worker" => cmd_worker(&workdir, &args[1..]),
         _ => {
             eprintln!(
@@ -150,19 +150,6 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
             eprintln!("env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR, CEDIAN_OMP_BINARY");
             Ok(())
         }
-    }
-}
-
-/// Load workdir settings (`cedian.json` beside `.cedian/`), falling back to
-/// defaults when absent. Invalid files fail the command (fail closed).
-fn load_workdir_settings(workdir: &Path) -> cedian_shell::Settings {
-    let path = workdir.join("cedian.json");
-    match std::fs::read_to_string(&path) {
-        Ok(raw) => cedian_shell::load_settings(&raw).unwrap_or_else(|e| {
-            eprintln!("cedian: bad {path:?}: {e}");
-            std::process::exit(2);
-        }),
-        Err(_) => cedian_shell::Settings::default(),
     }
 }
 
@@ -280,6 +267,7 @@ impl cedian_workflow::WorkflowStore for DiskWorkflowStore {
 fn host_tools(
     rt: &OmpRuntime,
     workdir: &Path,
+    settings: &cedian_shell::Settings,
     host: &std::sync::Arc<HostTools>,
 ) -> Vec<omp_rpc::HostTool> {
     let router = rt.router();
@@ -306,16 +294,15 @@ fn host_tools(
         })
     };
     let root = workdir.to_path_buf();
-    // Floor: empty until `cedian.toml` carries it (row E) — fast lane.
     let channel = cedian_workflow::WorkflowChannel::with_policy(
         "cli",
         Box::new(DiskWorkflowStore(workdir.to_path_buf())),
         resolve,
         move || current_state(&root),
-        cedian_workflow::GateFloor::default(),
+        settings.floor.clone(),
         Box::new(verify_store::DiskProfileStore(workdir.to_path_buf())),
     );
-    let names = host_tool_names(&load_workdir_settings(workdir));
+    let names = host_tool_names(settings);
     let mut tools = vec![host.apply_edit_tool()];
     tools.extend(channel.host_tools());
     if names.contains(&cedian_worker::WORKTREE_REQUEST_TOOL) {
@@ -329,6 +316,7 @@ fn host_tools(
 fn spawn(
     session_dir: &Path,
     workdir: &Path,
+    settings: &cedian_shell::Settings,
     host: &std::sync::Arc<HostTools>,
 ) -> Result<OmpRuntime, String> {
     // `CEDIAN_OMP_BINARY` (absolute) points the harness at another binary —
@@ -343,12 +331,12 @@ fn spawn(
         cwd: workdir.to_path_buf(),
         ask_dialog: true,
         prompt_timeout: Duration::from_secs(600),
-        policy: spawn_policy(&load_workdir_settings(workdir)),
+        policy: spawn_policy(settings),
     })
     .map_err(|e| e.to_string())?;
     // Nothing in the CLI can answer an OMP dialog: refuse at once (P5 gap).
     rt.deny_ui_requests();
-    rt.set_host_tools(host_tools(&rt, workdir, host))
+    rt.set_host_tools(host_tools(&rt, workdir, settings, host))
         .map_err(|e| e.to_string())?;
     rt.set_host_uris(vec![host.cedian_uri_scheme()])
         .map_err(|e| e.to_string())?;
@@ -405,9 +393,14 @@ fn workflow_ambient(workdir: &Path) -> Option<String> {
 /// Tools whose successful completion may have changed files on disk.
 const EDIT_TOOLS: &[&str] = &["edit", "write", "ast_edit", "cedian_apply_edit"];
 
-fn cmd_prompt(session_dir: &Path, workdir: &Path, message: &str) -> Result<(), String> {
+fn cmd_prompt(
+    session_dir: &Path,
+    workdir: &Path,
+    settings: &cedian_shell::Settings,
+    message: &str,
+) -> Result<(), String> {
     let host = HostTools::shared(workdir);
-    let mut rt = spawn(session_dir, workdir, &host)?;
+    let mut rt = spawn(session_dir, workdir, settings, &host)?;
     rt.open_session("cli").map_err(|e| e.to_string())?;
     let result = run_turn(
         &mut rt,
@@ -729,9 +722,13 @@ fn cmd_accept_all(workdir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn cmd_state(session_dir: &Path, workdir: &Path) -> Result<(), String> {
+fn cmd_state(
+    session_dir: &Path,
+    workdir: &Path,
+    settings: &cedian_shell::Settings,
+) -> Result<(), String> {
     let host = HostTools::shared(workdir);
-    let rt = spawn(session_dir, workdir, &host)?;
+    let rt = spawn(session_dir, workdir, settings, &host)?;
     let state = rt.get_state().map_err(|e| e.to_string())?;
     let (model, thinking) = cedian_agent::state::model_from_state(&state);
     println!("model: {}/{}", model.provider, model.id);
@@ -836,7 +833,11 @@ fn cmd_diagnostics(workdir: &Path) -> Result<(), String> {
 /// cedian workflow resume                                       # unblock (ADR-0036)
 /// cedian workflow complete                                     # §55 completion gate
 /// ```
-fn cmd_workflow(workdir: &Path, args: &[String]) -> Result<(), String> {
+fn cmd_workflow(
+    workdir: &Path,
+    settings: &cedian_shell::Settings,
+    args: &[String],
+) -> Result<(), String> {
     match args.first().map(|s| s.as_str()) {
         Some("run") => {
             let kind = args
@@ -871,8 +872,8 @@ fn cmd_workflow(workdir: &Path, args: &[String]) -> Result<(), String> {
                     flag => return Err(format!("unknown flag {flag:?}")),
                 }
             }
-            let state =
-                cedian_workflow::WorkflowState::start(profile).map_err(|e| e.to_string())?;
+            let state = cedian_workflow::WorkflowState::start_with_floor(profile, &settings.floor)
+                .map_err(|e| e.to_string())?;
             workflow_store::save(workdir, &state)?;
             render_workflow(&state, &current_state(workdir));
             Ok(())
@@ -1422,12 +1423,22 @@ mod tests {
             workflow_store::load(&d).unwrap().status,
             WorkflowStatus::Blocked
         );
-        cmd_workflow(&d, &["resume".to_string()]).unwrap();
+        cmd_workflow(
+            &d,
+            &cedian_shell::Settings::default(),
+            &["resume".to_string()],
+        )
+        .unwrap();
         assert_eq!(
             workflow_store::load(&d).unwrap().status,
             WorkflowStatus::Running
         );
-        assert!(cmd_workflow(&d, &["resume".to_string()]).is_err());
+        assert!(cmd_workflow(
+            &d,
+            &cedian_shell::Settings::default(),
+            &["resume".to_string()]
+        )
+        .is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
 

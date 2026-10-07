@@ -61,10 +61,14 @@ fn rest(line: &str) -> &str {
         .unwrap_or("")
 }
 
-pub fn run(session_dir: &Path, workdir: &Path) -> Result<(), String> {
+pub fn run(
+    session_dir: &Path,
+    workdir: &Path,
+    settings: &cedian_shell::Settings,
+) -> Result<(), String> {
     let _lock = ShellLock::acquire(workdir)?;
     let host = HostTools::shared(workdir);
-    let mut rt = crate::spawn(session_dir, workdir, &host)?;
+    let mut rt = crate::spawn(session_dir, workdir, settings, &host)?;
     rt.open_session("shell").map_err(|e| e.to_string())?;
     println!(
         "cedian shell — {} (pid {}). {HELP}",

@@ -70,14 +70,23 @@ fn main() {
     println!("ok");
 }
 
-fn cedian(root: &Path, args: &[&str]) -> String {
-    let out = Command::new(env!("CARGO_BIN_EXE_cedian"))
-        .args(args)
+/// The CLI under test, isolated in `root`: its own workspace, session dir
+/// and user `cedian.toml` (never the developer's).
+fn cli(root: &Path) -> Command {
+    let config = root.join("cedian.toml");
+    if !config.exists() {
+        std::fs::write(&config, "schema = 1\n").unwrap();
+    }
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_cedian"));
+    cmd.env("CEDIAN_CONFIG", config)
         .env("CEDIAN_WORKDIR", root.join("ws"))
         .env("CEDIAN_SESSION_DIR", root.join("sessions"))
-        .env("CEDIAN_OMP_BINARY", std::env::current_exe().unwrap())
-        .output()
-        .expect("run cedian");
+        .env("CEDIAN_OMP_BINARY", std::env::current_exe().unwrap());
+    cmd
+}
+
+fn cedian(root: &Path, args: &[&str]) -> String {
+    let out = cli(root).args(args).output().expect("run cedian");
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -179,11 +188,8 @@ fn shell_scenario(record: bool) {
         cedian_fake_omp::install_replay(&sessions, Path::new(SHELL_FIXTURE)).unwrap();
     }
 
-    let mut shell = Command::new(env!("CARGO_BIN_EXE_cedian"))
+    let mut shell = cli(&root)
         .arg("shell")
-        .env("CEDIAN_WORKDIR", root.join("ws"))
-        .env("CEDIAN_SESSION_DIR", &sessions)
-        .env("CEDIAN_OMP_BINARY", std::env::current_exe().unwrap())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -226,11 +232,7 @@ fn shell_scenario(record: bool) {
     );
 
     // One-shot commands from another terminal while the shell is live.
-    let refused = Command::new(env!("CARGO_BIN_EXE_cedian"))
-        .arg("accept-all")
-        .env("CEDIAN_WORKDIR", root.join("ws"))
-        .output()
-        .unwrap();
+    let refused = cli(&root).arg("accept-all").output().unwrap();
     assert!(!refused.status.success());
     assert!(
         String::from_utf8_lossy(&refused.stderr).contains("inside the shell"),
@@ -476,11 +478,8 @@ fn revert_scenario(record: bool) {
         cedian_fake_omp::install_replay(&sessions, Path::new(REVERT_FIXTURE)).unwrap();
     }
 
-    let mut shell = Command::new(env!("CARGO_BIN_EXE_cedian"))
+    let mut shell = cli(&root)
         .arg("shell")
-        .env("CEDIAN_WORKDIR", root.join("ws"))
-        .env("CEDIAN_SESSION_DIR", &sessions)
-        .env("CEDIAN_OMP_BINARY", std::env::current_exe().unwrap())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

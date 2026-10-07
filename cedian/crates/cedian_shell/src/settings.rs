@@ -1,12 +1,28 @@
-//! Settings: permissions + reviewer allow-list + update channel.
+//! Settings: the user's `cedian.toml`, the one settings and policy file
+//! (ADR-0018). Permissions, reviewer allow-list, update channel and the
+//! workflow gate floor.
 //!
-//! Rule (§2.5): the settings UI EDITS the same files CI gates — no second
-//! source of truth. Headless format is JSON (`cedian.json`); the TOML switch
-//! happens with the fork (one migration, same `Settings` shape). Unknown keys
-//! fail closed — a typo'd policy must never silently become permissive.
+//! The file belongs to the user, never to a workspace: `$CEDIAN_CONFIG`, else
+//! `$XDG_CONFIG_HOME/cedian/cedian.toml`, else `~/.config/cedian/cedian.toml`.
+//! Nothing inside a workspace is read for settings, so a repository cannot
+//! loosen policy or opt itself in to anything (ADR-0035, §77). A settings
+//! file found in the workspace is refused, never silently ignored.
+//!
+//! Unknown keys at any depth, a missing or wrong `schema`, and a bad floor
+//! gate fail closed: a typo'd policy must never silently become permissive.
 
+use cedian_workflow::{FloorRuleSpec, GateFloor};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+/// Current settings schema (P3). Required in the file. Bump on any breaking
+/// shape change.
+pub const SETTINGS_SCHEMA: u32 = 1;
+pub const SETTINGS_FILE: &str = "cedian.toml";
+/// Env override for the settings path. Set but missing is an error.
+pub const CONFIG_ENV: &str = "CEDIAN_CONFIG";
+/// The pre-row-E headless file, refused wherever it is found.
+const LEGACY_FILE: &str = "cedian.json";
 
 /// Permission tier verdicts (canonical: Allow | Ask | Deny; Abstain is
 /// system-generated, never persisted here).
@@ -18,8 +34,9 @@ pub enum Verdict {
     Deny,
 }
 
-/// `[permissions]` tiers (plan §64: safe / project_write / dangerous).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// `[permissions]` tiers (§64: safe / project_write / dangerous).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Permissions {
     pub safe: Verdict,
     pub project_write: Verdict,
@@ -36,138 +53,397 @@ impl Default for Permissions {
     }
 }
 
-/// Full settings document (`cedian.json` headless; `cedian.toml` with the fork).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    Beta,
+}
+
+/// Validated settings. Only [`parse_settings`] builds one from text, so a
+/// `Settings` in hand passed the schema check and every floor gate passed
+/// `Gate::register`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Settings {
-    /// Settings-file schema (P3). User-edited, so a missing key means
-    /// [`SETTINGS_SCHEMA`] (the only schema that predates the key); any other
-    /// value fails closed.
-    #[serde(default = "default_schema")]
-    pub schema: u32,
-    #[serde(default)]
     pub permissions: Permissions,
-    /// Reviewer allow-list: shell commands reviewers may run (Phase 5+).
-    #[serde(default)]
+    /// Reviewer allow-list: shell commands reviewers may run (S3).
     pub reviewer_allow_list: Vec<String>,
-    /// Update channel: `stable` | `beta` (auto-update reads this).
-    #[serde(default = "default_channel")]
-    pub update_channel: String,
+    pub update_channel: UpdateChannel,
+    /// Gates cedian requires per task kind × risk. Empty = fast lane
+    /// (ADR-0026).
+    pub floor: GateFloor,
 }
 
-/// Current settings schema. Bump on any breaking shape change.
-pub const SETTINGS_SCHEMA: u32 = 1;
-
-fn default_schema() -> u32 {
-    SETTINGS_SCHEMA
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSettings {
+    schema: Option<u32>,
+    #[serde(default)]
+    permissions: Permissions,
+    #[serde(default)]
+    reviewer_allow_list: Vec<String>,
+    #[serde(default)]
+    update_channel: UpdateChannel,
+    #[serde(default)]
+    workflow: RawWorkflow,
 }
 
-fn default_channel() -> String {
-    "stable".to_string()
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWorkflow {
+    #[serde(default)]
+    floor: Vec<FloorRuleSpec>,
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            schema: SETTINGS_SCHEMA,
-            permissions: Permissions::default(),
-            reviewer_allow_list: Vec::new(),
-            update_channel: default_channel(),
-        }
-    }
-}
-
-/// Settings failures (caller-visible, rendered in the settings UI later).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsError {
+    /// TOML syntax, a wrong type, or an unknown key (the message names it).
     Parse(String),
-    UnknownKey(String),
-    BadChannel(String),
-    BadSchema(u32),
+    BadSchema(Option<u32>),
+    BadFloor(String),
+    /// A `cedian.json` from before row E.
+    Legacy {
+        found: PathBuf,
+        user: Option<PathBuf>,
+    },
+    /// A settings file inside the workspace (§77).
+    InWorkspace {
+        found: PathBuf,
+        user: Option<PathBuf>,
+    },
+    /// `CEDIAN_CONFIG` names a file that does not exist.
+    Missing(PathBuf),
+    Read {
+        path: PathBuf,
+        error: String,
+    },
+    /// A parse error in the file at `path`.
+    InFile {
+        path: PathBuf,
+        error: Box<SettingsError>,
+    },
+}
+
+fn user_path_hint(user: &Option<PathBuf>) -> String {
+    match user {
+        Some(path) => format!("{}", path.display()),
+        None => format!("${CONFIG_ENV} or ~/.config/cedian/{SETTINGS_FILE}"),
+    }
 }
 
 impl std::fmt::Display for SettingsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Parse(e) => write!(f, "settings parse error: {e}"),
-            Self::UnknownKey(k) => write!(f, "unknown settings key: {k}"),
-            Self::BadSchema(v) => write!(
+            Self::BadSchema(None) => write!(
+                f,
+                "settings file has no `schema` key — add `schema = {SETTINGS_SCHEMA}` as the first line"
+            ),
+            Self::BadSchema(Some(v)) => write!(
                 f,
                 "settings schema {v} not supported (want {SETTINGS_SCHEMA}) — fix or regenerate the file"
             ),
-            Self::BadChannel(c) => write!(f, "bad update channel: {c} (want stable|beta)"),
+            Self::BadFloor(e) => write!(f, "bad [[workflow.floor]]: {e}"),
+            Self::Legacy { found, user } => write!(
+                f,
+                "{} is no longer read: settings live in the user's {SETTINGS_FILE}. \
+                 Move its keys to {} as TOML with `schema = {SETTINGS_SCHEMA}` on the first line, \
+                 then delete {} (ROADMAP row E, ADR-0018)",
+                found.display(),
+                user_path_hint(user),
+                found.display()
+            ),
+            Self::InWorkspace { found, user } => write!(
+                f,
+                "{} is inside the workspace and is not read: settings live only in the user's \
+                 {SETTINGS_FILE} ({}), so a repository cannot set policy (§77, ADR-0035). \
+                 Move it there or delete it",
+                found.display(),
+                user_path_hint(user)
+            ),
+            Self::Missing(path) => {
+                write!(f, "${CONFIG_ENV} names {}, which does not exist", path.display())
+            }
+            Self::Read { path, error } => write!(f, "cannot read {}: {error}", path.display()),
+            Self::InFile { path, error } => write!(f, "{}: {error}", path.display()),
         }
     }
 }
 
 impl std::error::Error for SettingsError {}
 
-/// Known top-level keys — anything else fails closed.
-const KNOWN_KEYS: &[&str] = &[
-    "schema",
-    "permissions",
-    "reviewer_allow_list",
-    "update_channel",
-];
+/// Parse and validate a `cedian.toml` document. Pure.
+pub fn parse_settings(toml_src: &str) -> Result<Settings, SettingsError> {
+    let raw: RawSettings =
+        toml::from_str(toml_src).map_err(|e| SettingsError::Parse(e.message().to_string()))?;
+    if raw.schema != Some(SETTINGS_SCHEMA) {
+        return Err(SettingsError::BadSchema(raw.schema));
+    }
+    Ok(Settings {
+        permissions: raw.permissions,
+        reviewer_allow_list: raw.reviewer_allow_list,
+        update_channel: raw.update_channel,
+        floor: GateFloor::from_specs(raw.workflow.floor).map_err(SettingsError::BadFloor)?,
+    })
+}
 
-/// Parse + validate settings JSON. Unknown keys and bad channels fail closed.
-pub fn load_settings(json: &str) -> Result<Settings, SettingsError> {
-    let raw: HashMap<String, serde_json::Value> =
-        serde_json::from_str(json).map_err(|e| SettingsError::Parse(e.to_string()))?;
-    for key in raw.keys() {
-        if !KNOWN_KEYS.contains(&key.as_str()) {
-            return Err(SettingsError::UnknownKey(key.clone()));
-        }
+/// Where the user's settings file is: `(path, explicit)`. `explicit` means
+/// `CEDIAN_CONFIG` named it. `None` when no location can be derived.
+fn locate(env: impl Fn(&str) -> Option<String>) -> Option<(PathBuf, bool)> {
+    let set = |key: &str| env(key).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(path) = set(CONFIG_ENV) {
+        return Some((path, true));
     }
-    let settings: Settings =
-        serde_json::from_str(json).map_err(|e| SettingsError::Parse(e.to_string()))?;
-    if settings.schema != SETTINGS_SCHEMA {
-        return Err(SettingsError::BadSchema(settings.schema));
+    let dir = set("XDG_CONFIG_HOME").or_else(|| set("HOME").map(|home| home.join(".config")))?;
+    Some((dir.join("cedian").join(SETTINGS_FILE), false))
+}
+
+/// The settings `workdir` runs under: refuse workspace settings files, then
+/// read the user's file. No file at the default location = defaults.
+pub fn resolve_settings(workdir: &Path) -> Result<Settings, SettingsError> {
+    resolve_with(workdir, |key| std::env::var(key).ok())
+}
+
+fn resolve_with(
+    workdir: &Path,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<Settings, SettingsError> {
+    let located = locate(env);
+    let user = located.as_ref().map(|(path, _)| path.clone());
+    let legacy = workdir.join(LEGACY_FILE);
+    if legacy.exists() {
+        return Err(SettingsError::Legacy {
+            found: legacy,
+            user,
+        });
     }
-    if settings.update_channel != "stable" && settings.update_channel != "beta" {
-        return Err(SettingsError::BadChannel(settings.update_channel.clone()));
+    let local = workdir.join(SETTINGS_FILE);
+    let same_file = |a: &Path, b: &Path| match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
+    if local.exists() && !user.as_deref().is_some_and(|u| same_file(u, &local)) {
+        return Err(SettingsError::InWorkspace { found: local, user });
     }
-    Ok(settings)
+    let Some((path, explicit)) = located else {
+        return Ok(Settings::default());
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(src) => parse_settings(&src).map_err(|error| SettingsError::InFile {
+            path,
+            error: Box::new(error),
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && !explicit => Ok(Settings::default()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(SettingsError::Missing(path)),
+        Err(e) => Err(SettingsError::Read {
+            path,
+            error: e.to_string(),
+        }),
+    }
 }
 
 /// Canonical default document (what onboarding writes on first run).
 pub fn default_settings_toml() -> String {
-    serde_json::to_string_pretty(&Settings::default()).unwrap_or_default()
+    format!(
+        "schema = {SETTINGS_SCHEMA}\n\
+         update_channel = \"stable\"\n\
+         reviewer_allow_list = []\n\
+         \n\
+         [permissions]\n\
+         safe = \"allow\"\n\
+         project_write = \"allow\"\n\
+         dangerous = \"ask\"\n\
+         \n\
+         # Gates cedian requires per task kind and risk. None = fast lane.\n\
+         # [[workflow.floor]]\n\
+         # kind = \"bug_fix\"\n\
+         # min_risk = \"medium\"\n\
+         # gates = [{{ id = \"tests\", gate_kind = \"test\", evidence_kinds = [\"test\"] }}]\n"
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cedian_workflow::{Risk, TaskKind};
+    use std::collections::HashMap;
+
+    fn parse(src: &str) -> Result<Settings, SettingsError> {
+        parse_settings(src)
+    }
 
     #[test]
-    fn schema_key_written_and_mismatch_fails_closed() {
-        assert!(default_settings_toml().contains("\"schema\": 1"));
-        assert_eq!(load_settings(r#"{"schema":1}"#).unwrap().schema, 1);
+    fn default_document_round_trips() {
         assert_eq!(
-            load_settings(r#"{"schema":2}"#).unwrap_err(),
-            SettingsError::BadSchema(2)
+            parse(&default_settings_toml()).unwrap(),
+            Settings::default()
         );
     }
 
     #[test]
-    fn defaults_are_safe() {
-        let s = load_settings("{}").unwrap();
-        assert_eq!(s.permissions.dangerous, Verdict::Ask);
-        assert_eq!(s.update_channel, "stable");
+    fn schema_is_required_and_checked() {
+        assert_eq!(parse("").unwrap_err(), SettingsError::BadSchema(None));
+        assert_eq!(
+            parse("schema = 2").unwrap_err(),
+            SettingsError::BadSchema(Some(2))
+        );
+        assert!(parse("schema = 1").is_ok());
     }
 
     #[test]
-    fn unknown_key_fails_closed() {
-        assert!(matches!(
-            load_settings(r#"{"dangerous_stuff": true}"#),
-            Err(SettingsError::UnknownKey(_))
-        ));
+    fn defaults_are_safe() {
+        let s = parse("schema = 1").unwrap();
+        assert_eq!(s.permissions.dangerous, Verdict::Ask);
+        assert_eq!(s.update_channel, UpdateChannel::Stable);
+        assert!(s.floor.rules.is_empty());
+    }
+
+    #[test]
+    fn unknown_keys_fail_closed_at_any_depth() {
+        for src in [
+            "schema = 1\ndangerous_stuff = true",
+            "schema = 1\n[permissions]\nsafe = \"allow\"\nproject_write = \"allow\"\ndangerous = \"ask\"\ndangerus = \"allow\"",
+            "schema = 1\n[workflow]\nflor = []",
+            "schema = 1\n[projects.\"/x\"]\npolicy = \"omp\"",
+        ] {
+            match parse(src) {
+                Err(SettingsError::Parse(e)) => assert!(e.contains("unknown field"), "{src}: {e}"),
+                other => panic!("{src}: {other:?}"),
+            }
+        }
     }
 
     #[test]
     fn bad_channel_rejected() {
         assert!(matches!(
-            load_settings(r#"{"update_channel": "nightly"}"#),
-            Err(SettingsError::BadChannel(_))
+            parse("schema = 1\nupdate_channel = \"nightly\""),
+            Err(SettingsError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn floor_loads_and_bad_floor_fails() {
+        let s = parse(
+            "schema = 1\n[[workflow.floor]]\nkind = \"bug_fix\"\nmin_risk = \"medium\"\n\
+             gates = [{ id = \"tests\", gate_kind = \"test\", evidence_kinds = [\"test\"] }]",
+        )
+        .unwrap();
+        let rule = &s.floor.rules[0];
+        assert_eq!((rule.kind, rule.min_risk), (TaskKind::BugFix, Risk::Medium));
+        assert!(rule.gates[0].required && rule.gates[0].predicate.fresh);
+        assert!(matches!(
+            parse("schema = 1\n[[workflow.floor]]\nkind = \"bug_fix\"\nmin_risk = \"low\"\ngates = [{ id = \"t\", gate_kind = \"test\", fresh = false }]"),
+            Err(SettingsError::Parse(_))
+        ));
+    }
+
+    struct Tmp(PathBuf);
+    impl Tmp {
+        fn new(name: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("cedian-settings-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("ws")).unwrap();
+            Self(dir.canonicalize().unwrap())
+        }
+        fn ws(&self) -> PathBuf {
+            self.0.join("ws")
+        }
+    }
+    impl Drop for Tmp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn env(pairs: &[(&str, &Path)]) -> impl Fn(&str) -> Option<String> {
+        let map: HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.display().to_string()))
+            .collect();
+        move |key| map.get(key).cloned()
+    }
+
+    #[test]
+    fn location_prefers_env_then_xdg_then_home() {
+        let p = Path::new("/c/cedian.toml");
+        assert_eq!(locate(env(&[("CEDIAN_CONFIG", p)])), Some((p.into(), true)));
+        assert_eq!(
+            locate(env(&[
+                ("XDG_CONFIG_HOME", Path::new("/x")),
+                ("HOME", Path::new("/h"))
+            ])),
+            Some((PathBuf::from("/x/cedian/cedian.toml"), false))
+        );
+        assert_eq!(
+            locate(env(&[("HOME", Path::new("/h"))])),
+            Some((PathBuf::from("/h/.config/cedian/cedian.toml"), false))
+        );
+        assert_eq!(locate(env(&[])), None);
+    }
+
+    #[test]
+    fn user_file_is_read_and_missing_default_means_defaults() {
+        let t = Tmp::new("read");
+        let user = t.0.join("cedian.toml");
+        std::fs::write(&user, "schema = 1\n[permissions]\nsafe = \"allow\"\nproject_write = \"deny\"\ndangerous = \"deny\"\n").unwrap();
+        let s = resolve_with(&t.ws(), env(&[("CEDIAN_CONFIG", &user)])).unwrap();
+        assert_eq!(s.permissions.dangerous, Verdict::Deny);
+        let s = resolve_with(&t.ws(), env(&[("XDG_CONFIG_HOME", &t.0.join("none"))])).unwrap();
+        assert_eq!(s, Settings::default());
+    }
+
+    #[test]
+    fn explicit_missing_file_is_an_error() {
+        let t = Tmp::new("missing");
+        let gone = t.0.join("typo.toml");
+        assert_eq!(
+            resolve_with(&t.ws(), env(&[("CEDIAN_CONFIG", &gone)])).unwrap_err(),
+            SettingsError::Missing(gone)
+        );
+    }
+
+    #[test]
+    fn bad_user_file_names_its_path() {
+        let t = Tmp::new("bad");
+        let user = t.0.join("cedian.toml");
+        std::fs::write(&user, "schema = 3").unwrap();
+        let err = resolve_with(&t.ws(), env(&[("CEDIAN_CONFIG", &user)])).unwrap_err();
+        assert!(
+            err.to_string().starts_with(&user.display().to_string()),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn leftover_json_is_refused_naming_the_move() {
+        let t = Tmp::new("legacy");
+        let user = t.0.join("cedian.toml");
+        std::fs::write(&user, "schema = 1").unwrap();
+        std::fs::write(t.ws().join("cedian.json"), "{}").unwrap();
+        let err = resolve_with(&t.ws(), env(&[("CEDIAN_CONFIG", &user)])).unwrap_err();
+        let text = err.to_string();
+        assert!(matches!(err, SettingsError::Legacy { .. }));
+        assert!(
+            text.contains("cedian.json is no longer read")
+                && text.contains(&user.display().to_string())
+                && text.contains("schema = 1"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn workspace_toml_is_refused_unless_it_is_the_user_file() {
+        let t = Tmp::new("local");
+        let local = t.ws().join("cedian.toml");
+        std::fs::write(&local, "schema = 1\n[permissions]\nsafe = \"allow\"\nproject_write = \"allow\"\ndangerous = \"allow\"\n").unwrap();
+        let user = t.0.join("cedian.toml");
+        std::fs::write(&user, "schema = 1").unwrap();
+        assert!(matches!(
+            resolve_with(&t.ws(), env(&[("CEDIAN_CONFIG", &user)])),
+            Err(SettingsError::InWorkspace { .. })
+        ));
+        assert!(resolve_with(&t.ws(), env(&[("CEDIAN_CONFIG", &local)])).is_ok());
     }
 }
