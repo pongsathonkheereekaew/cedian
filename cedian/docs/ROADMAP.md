@@ -1,6 +1,6 @@
 # cedian — Roadmap
 
-**cedian is an agentic IDE built in Rust + GPUI (a Zed fork), with OMP as its only harness: OMP decides, cedian executes, renders, and verifies** ([ADR-0023](decisions/0023-product-scope.md)).
+**cedian is a Cursor-style agentic IDE — the same agent + IDE workflow and product features — built for OMP: OMP runs as upstream ships it, every OMP feature gets a native surface, and Zed is forked only as far as OMP needs. OMP decides; cedian executes, renders, and verifies.** ([ADR-0034](decisions/0034-identity-and-omp-parity.md), scope [ADR-0023](decisions/0023-product-scope.md)).
 
 The ONE schedule: vertical slices S0–S9. Each slice is a thin cut that ends triable in the `cedian` CLI (or the app once S9 lands). Never start a slice whose exit can't be exercised in this repo — integration risk first, never accumulate untested layers. Old phase numbers survive only as the "Scope from Phase N" blocks under each slice.
 
@@ -18,7 +18,8 @@ Slice numbers are names, not order ([ADR-0023](decisions/0023-product-scope.md))
 P1 spawn profile → P2 fake-omp → P3 snapshot_version
   → S9a app spike
   → P4 cedian shell → P5 host-tool channel → P6 revert turn + inline edit
-  → S2 workflow core → S3 review agents → S4 browser evidence → S5 parallel workers
+  → P7 OMP parity ledger + test
+  → S2 workflow core → P8 approval opt-in (with row E) → S3 review agents → S4 browser evidence → S5 parallel workers
   → S9 real app  (= v0.1)
   → S6 PR workspace → S7 local automations  (= v0.2)
   → S8 iOS (extension)
@@ -38,6 +39,32 @@ Version numbers exist only once the app exists:
 | iOS | S8 | extension track, after v0.1, never gating |
 
 OMP-only multi-provider note: cedian speaks to ONE harness. Multi-model choice lives INSIDE OMP (provider/model routing, `set_model`) — cedian never adds a second harness adapter to chase providers. If OMP gains a provider, cedian gains it for free.
+
+## Cursor workflow coverage
+
+"Cursor-style" means Cursor's workflow and product features, agent + IDE in one app ([ADR-0034](decisions/0034-identity-and-omp-parity.md)). Each row is a Cursor workflow the owner uses and the slice that delivers it in cedian. A row is added only for a workflow the owner actually uses. Status stays in README.
+
+| Cursor workflow | cedian | Delivered by |
+|---|---|---|
+| Agent panel: prompt, stream, stop, image input | agent panel over one OMP session per task (§41) | S0 (headless), S9 |
+| Steer and queue follow-ups while the agent runs | `steer`, `follow_up`, queued-message chips | P4, S9 |
+| Agent edits as diffs, accept/reject per hunk | Review Changes on the task baseline (§15–§18) | S0, S9 |
+| Checkpoints / restore | revert turn ([ADR-0026](decisions/0026-fast-lane.md)) + OMP `branch`/`fork` thread tree | P6, S9 |
+| ⌘K inline edit | inline edit on a selection | P6, S9 |
+| Tab completion | Zed edit prediction, not routed through OMP ([ADR-0023](decisions/0023-product-scope.md)) | S9 |
+| Plan mode | separate plan runtime ([ADR-0014](decisions/0014-agent-modes.md)) | S9 |
+| Rules, `AGENTS.md`, skills, MCP, hooks | OMP config used as-is (§77); listed in settings | S9 |
+| Model picker | OMP routing via `set_model` | S9 |
+| Agent runs terminal commands | OMP `bash` tool cards; user-run `bash` in agent context | S0, S9 |
+| Parallel agents in worktrees, best-of-N | OMP subagents + cedian worktrees; arena preset | S5 |
+| Agents window (every running agent) | subagent tree + session manager | S5, S9 |
+| Built-in browser the agent drives | one shared Chromium, agent and user on the same tab | S4, S9 |
+| Point at a page element to give the agent context (Design Mode) | element pick in the browser pane → prompt context | S4 (new; add to the S4 plan) |
+| PR review bot | review agents + PR workspace | S3, S6 |
+| Background agents | local only: `cedian shell` + scheduled runs; no cloud ([ADR-0019](decisions/0019-scope-cuts.md)) | P4, S7 |
+| Usage and cost | `get_session_stats` meter | S9 |
+
+Not targets: Cursor's own models (OMP routes models), cloud VMs (ADR-0019), the VS Code extension marketplace (Zed's extensions stay as upstream ships them).
 
 ## Headless stand-ins (pre-S9)
 
@@ -63,6 +90,8 @@ Shared foundations that several slice exits depend on. Each is small; build it b
 | P3 | **`snapshot_version` on every store.** `workflow.json`, `workers.json`, `browser.json`, session manager; user-edited `cedian.toml` carries a `schema` key instead; mismatch fails closed | ADR-0016 | before any slice adds a new store |
 | P4 | **`cedian shell`.** One long-lived headless process + `.cedian/shell.lock` | [ADR-0021](decisions/0021-headless-host-process.md) | S4 exit (frame seq), S5 exit (steer), S7 (scheduler), S3 (reviewer sessions) |
 | P6 | **Revert turn + headless inline edit.** Turn-grouped provenance → one-action revert (skips `STALE`); `cedian shell` `edit <path> <range> <instruction>` | [ADR-0026](decisions/0026-fast-lane.md) | S2 exit (benchmark), S9 (⌘K + revert UI) |
+| P7 | **OMP parity ledger + test.** `docs/OMP_PARITY.md` has a row for every RPC command, agent event and UI request in the vendored `wire.rs` (by serde name) plus hand-reviewed tool and config rows; a `cargo test` in `cedian_omp` fails on any missing row. Runs in pre-commit and on every pin bump | [ADR-0034](decisions/0034-identity-and-omp-parity.md) | every OMP pin bump; S9 (v0.1 gate) |
+| P8 | **Approval opt-in.** `[projects."<path>"] approval = "omp" \| computer = "omp"` in `cedian.toml` → spawn profile variant; badge, `approved by OMP` tool-card label, `decision_source: omp` audit rows; reviewers and automations always get the default profile. Live test: opted-in project + project yolo config → exec-tier call runs without a prompt and is audited | [ADR-0035](decisions/0035-omp-native-approval-opt-in.md) | S3 (audit log shape, reviewer profile), S7, S9 settings UI; needs row E |
 | P5 | **Host-tool channel.** `cedian_workflow_update`, `cedian_complete`, `cedian_worktree_request`; evidence checked against the router log | [ADR-0022](decisions/0022-host-tool-first.md) | S2 exit, S5 exit, S3 findings (`cedian_review_finding`) |
 
 ## Slice dependencies
@@ -77,7 +106,7 @@ Shared foundations that several slice exits depend on. Each is small; build it b
 | S5 | P2, P4, P5 (`cedian_worktree_request` + subagent events) |
 | S6 | S3 gate items 1, 2, 4 (merge is `Deny`-by-default and audited) |
 | S7 | P4 (scheduler runs inside the shell), S3 gate 4 (run history = audit log) |
-| S9 | all ✅ slices it binds; deletes stand-ins B and D |
+| S9 | all ✅ slices it binds; deletes stand-ins B and D; P7 (parity rows), P8 (opt-in UI) |
 
 ## OMP changes
 
@@ -591,6 +620,9 @@ Do not call cedian “fully native OMP-integrated” until all critical items be
 □ OMP crash does not crash IDE
 □ restart restores session
 □ protocol mismatch fails safely
+
+□ every OMP_PARITY.md row is native, gated with a working opt-in, or upstream-blocked
+□ parity test green on the pinned OMP
 
 □ no second harness
 □ no ACP dependency in core architecture

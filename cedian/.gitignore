@@ -52,3 +52,6 @@ tests/fixtures/live/
 # Nested-crate lockfiles excluded: covered by root Cargo.lock.
 spike/*/Cargo.lock
 vendor/*/Cargo.lock
+
+# Worker / parallel-task worktrees (cedian_worker, ADR-0009)
+.worktrees/

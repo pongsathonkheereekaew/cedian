@@ -1,5 +1,7 @@
 # Phase 0.5 — RPC Spike Capability Table
 
+> **Frozen history (2026-10-07).** Per-feature OMP coverage now lives in [`docs/OMP_PARITY.md`](../docs/OMP_PARITY.md) ([ADR-0034](../docs/decisions/0034-identity-and-omp-parity.md)). Do not update this file.
+
 Proven against real `omp --mode rpc-ui` (v18.6.1) on 2026-10-06.
 Harness: `spike/rpc-spike` (`cargo run -p rpc-spike -- --full` → `SPIKE-RESULT: PASS`, 14/14).
 Protocol reference: upstream `can1357/oh-my-pi` `docs/rpc.md` + `sdk/rust/omp-rpc` (blocking

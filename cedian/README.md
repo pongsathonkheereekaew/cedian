@@ -1,8 +1,10 @@
 # cedian
 
-**cedian is an agentic IDE built in Rust + GPUI (a Zed fork), with OMP as its only harness: OMP decides, cedian executes, renders, and verifies.**
+**cedian is a Cursor-style agentic IDE — the same agent + IDE workflow and product features — built for OMP: OMP runs as upstream ships it, every OMP feature gets a native surface, and Zed is forked only as far as OMP needs. OMP decides; cedian executes, renders, and verifies.**
 
-> Docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (rules) · [`docs/decisions/`](docs/decisions/) (why) · [`docs/ROADMAP.md`](docs/ROADMAP.md) (slices, exits, stand-ins). This table is the only status source.
+Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisions/0034-identity-and-omp-parity.md).
+
+> Docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (rules) · [`docs/decisions/`](docs/decisions/) (why) · [`docs/ROADMAP.md`](docs/ROADMAP.md) (slices, exits, stand-ins, Cursor workflow coverage) · [`docs/OMP_PARITY.md`](docs/OMP_PARITY.md) (per-feature OMP coverage). This table is the only status source.
 > Stack lock: Rust + GPUI only in the cedian process. No TypeScript/Electron/WebView/Tauri.
 
 ## Status (slices; execution order in ROADMAP)

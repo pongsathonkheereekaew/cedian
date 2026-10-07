@@ -1,6 +1,6 @@
 # cedian — Architecture
 
-**cedian is an agentic IDE built in Rust + GPUI (a Zed fork), with OMP as its only harness: OMP decides, cedian executes, renders, and verifies.** Scope and priorities: [ADR-0023](decisions/0023-product-scope.md).
+**cedian is a Cursor-style agentic IDE — the same agent + IDE workflow and product features — built for OMP: OMP runs as upstream ships it, every OMP feature gets a native surface, and Zed is forked only as far as OMP needs. OMP decides; cedian executes, renders, and verifies.** Built in Rust + GPUI on a Zed fork. Identity and OMP parity: [ADR-0034](decisions/0034-identity-and-omp-parity.md); scope and priorities: [ADR-0023](decisions/0023-product-scope.md). Per-feature OMP coverage: [`OMP_PARITY.md`](OMP_PARITY.md).
 
 > **cedian = environment. OMP = intelligence.** A minimal Zed fork turned into a fully native agentic IDE, powered by one and only one harness: OMP (Oh My Pi). cedian is personal: no other agent harnesses, no ACP agents, no generic third-party runtimes, no public agent marketplace. The user experiences one product: **cedian**.
 
@@ -333,6 +333,8 @@ Window management
 ```
 
 Patch Zed core only at clean integration points.
+
+**Fork scope.** Zed is forked only as far as OMP needs: a core patch exists only to give an OMP capability a native surface or to bind a cedian crate at a registration point ([ADR-0030](decisions/0030-fork-layout-and-build-profile.md)). Every other Zed feature behaves as upstream ships it, and the fork rebases on upstream Zed on a fixed cadence (S9 fork hygiene). *(→ [ADR-0034](decisions/0034-identity-and-omp-parity.md))*
 
 Create cedian-owned crates instead of scattering custom logic everywhere.
 
@@ -704,7 +706,7 @@ open_session(...)
 
 ### §9 Tool Coverage
 
-Target: OMP should retain access to all useful existing OMP tools while gaining direct IDE-native integration where cedian should be the source of truth.
+Target: every OMP tool stays available and gains a native surface; cedian is the source of truth only where the IDE owns the state. Coverage of every OMP feature, tools included, is tracked in [`OMP_PARITY.md`](OMP_PARITY.md) ([ADR-0034](decisions/0034-identity-and-omp-parity.md)).
 
 | Capability | Owner | Integration |
 |---|---|---|
@@ -722,7 +724,7 @@ Target: OMP should retain access to all useful existing OMP tools while gaining 
 | `todo` | OMP | projected into Workflow UI |
 | `ask` | OMP | native GPUI dialog |
 | `browser` | OMP | shared Chromium/CDP + cedian browser surface |
-| `computer` | OMP | CUA-driver backend (`trycua/cua` `cua-driver` Rust crates, MIT) behind OMP tool semantics — default-deny, per-action `ask`, audit-logged; never raw OS input outside the driver contract. Until the atomic landing it is disabled with `computer.enabled: false` in the cedian spawn overlay — it is an `eval` prelude, not a separate tool, so a tool allow-list cannot remove it ([ADR-0020](decisions/0020-omp-spawn-profile.md)). **Driver-only first** — `cua-driver` (inspect + operate via typed contract) now; Lume/Spaces VM sandbox is deferred (§89). **Pin:** pin `cua-driver` by git rev + cargo vendor, update on a fixed cadence alongside `vendor/omp-revision.json` — never float on latest. |
+| `computer` | OMP | CUA-driver backend (`trycua/cua` `cua-driver` Rust crates, MIT) behind OMP tool semantics — default-deny, per-action `ask`, audit-logged; never raw OS input outside the driver contract. Until the atomic landing it is disabled with `computer.enabled: false` in the cedian spawn overlay — it is an `eval` prelude, not a separate tool, so a tool allow-list cannot remove it ([ADR-0020](decisions/0020-omp-spawn-profile.md)). **Driver-only first** — `cua-driver` (inspect + operate via typed contract) now; Lume/Spaces VM sandbox is deferred (§89). **Pin:** pin `cua-driver` by git rev + cargo vendor, update on a fixed cadence alongside `vendor/omp-revision.json` — never float on latest. **Opt-in:** a project with `computer = "omp"` in `cedian.toml` gets OMP's own prelude as upstream ships it ([ADR-0035](decisions/0035-omp-native-approval-opt-in.md)). |
 | Git/GitHub | OMP + cedian | OMP execution, cedian visualization |
 | Images | OMP | native RPC image content |
 | Review | OMP + cedian | OMP reasoning, cedian UI |
@@ -905,7 +907,7 @@ keymaps
 window state
 ```
 
-The cedian spawn overlay ([ADR-0020](decisions/0020-omp-spawn-profile.md)) is GENERATED from `cedian.toml` into a cedian-owned path at spawn; cedian never writes the user's `.omp/`.
+The cedian spawn overlay ([ADR-0020](decisions/0020-omp-spawn-profile.md)) is GENERATED from `cedian.toml` into a cedian-owned path at spawn; cedian never writes the user's `.omp/`. Per-project opt-ins to OMP's own approval mode and `computer` ([ADR-0035](decisions/0035-omp-native-approval-opt-in.md)) live in the user's `cedian.toml` only; no file inside a workspace can set them.
 
 Permission policy + sandbox profiles live on the cedian side (TOML + Seatbelt `.sbpl`, §64): they are enforced at the IDE process's OS layer, so they version with cedian, not `.omp/`. OMP never ships its own copy.
 
@@ -2515,6 +2517,17 @@ Because cedian is personal, use a simple policy.
 >
 > **Upstream fact (oh-my-pi `docs/approval-mode.md` resolver, verified 2026-10-06) — strict-wins is NOT how OMP resolves.** OMP's real order: tool-`Deny` absolute → user-`Deny` absolute → yolo-mode: explicit tool allow/prompt wins, else user policy, else allow (bare `override` ignored) → non-yolo: `override:true` allows ONLY with tool-allow else prompt; then tool→user→mode-tier. Provider `pendingSafetyChecks` force-prompt EVEN UNDER YOLO; no-UI prompt-needing tools FAIL CLOSED. CONSEQUENCE: cedian strict-wins applies at the CEDIAN GATE (host-tool dispatch + sandbox), never inside OMP's resolver — cedian cannot reorder OMP's pipeline, only refuse at its own boundary. So: (a) the runtime MUST set (at spawn, via the spawn profile — [ADR-0020](decisions/0020-omp-spawn-profile.md)) `approvalMode: always-ask|write` + `approval.*` + `bash.patterns` + `eval`-gate + `set_ask_dialog(true)` to make OMP's resolver strict in the first place; (b) cedian's gate re-evaluates every granted action independently and can still `Deny` what OMP allowed; (c) fail-closed (no-UI, safety-check) is NORMAL CONTROL FLOW the UI renders, not an error path. *(→ [ADR-0012](decisions/0012-permissions-strict-wins-at-cedian-gate.md))*
 
+**Approval source (per project).** By default the spawn profile makes OMP's resolver strict (`approval = "cedian"`, above). A project listed in the user's `cedian.toml` with `approval = "omp"` gets OMP's own approval mode instead, yolo included: no `--approval-mode`, no approval keys in the overlay. In both modes:
+
+- strict-wins at the cedian gate (host-tool dispatch, protected metadata paths, Seatbelt) is unchanged
+- OMP prompts still render as native dialogs
+- every tool execution is audited; in opt-in mode with `decision_source: omp`
+- the agent panel shows a persistent badge, and auto-approved tool cards say "approved by OMP"
+- reviewers (§58) and automations (S7) always use the default profile
+- a repository can never opt itself in: the key lives only in the user's `cedian.toml` (§77)
+
+*(→ [ADR-0035](decisions/0035-omp-native-approval-opt-in.md))*
+
 ##### Safe
 
 ```text
@@ -2592,7 +2605,7 @@ Use `computer` as a fallback.
 
 Use explicit `ios` for iOS because it is more deterministic and structured.
 
-> "Desktop automation" here means the CUA `cua-driver` contract ONLY (§9, AGENTS.md) — never raw AX calls outside the driver. The driver + macOS Seatbelt profile + bypass-proof test land atomically; until then `computer` stays hard-disabled, including as a fallback — enforced today by `computer.enabled: false` in the cedian spawn overlay ([ADR-0020](decisions/0020-omp-spawn-profile.md)). *(→ [ADR-0008](decisions/0008-computer-tool-cua-driver-only.md))*
+> "Desktop automation" here means the CUA `cua-driver` contract ONLY (§9, AGENTS.md) — never raw AX calls outside the driver. The driver + macOS Seatbelt profile + bypass-proof test land atomically; until then `computer` stays disabled by default, including as a fallback — enforced by `computer.enabled: false` in the default spawn overlay ([ADR-0020](decisions/0020-omp-spawn-profile.md)). A project opts in to OMP's own prelude with `computer = "omp"`; that opt-in is separate from the approval opt-in, so OMP's yolo never turns on desktop control by itself ([ADR-0035](decisions/0035-omp-native-approval-opt-in.md)). *(→ [ADR-0008](decisions/0008-computer-tool-cua-driver-only.md))*
 
 ---
 
