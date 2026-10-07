@@ -46,6 +46,10 @@ pub struct GatePredicate {
     /// stale (ADR-0036).
     #[serde(default = "fresh_default")]
     pub fresh: bool,
+    /// `feature <id> proven` (ADR-0025): only evidence for this
+    /// verification-profile feature counts.
+    #[serde(default)]
+    pub feature: Option<crate::verification::FeatureRef>,
 }
 
 fn fresh_default() -> bool {
@@ -135,6 +139,7 @@ impl Gate {
             .iter()
             .filter(|e| e.for_gates.iter().any(|g| g == &self.id))
             .filter(|e| self.predicate.kinds.is_empty() || self.predicate.kinds.contains(&e.kind))
+            .filter(|e| self.predicate.feature.is_none() || e.feature == self.predicate.feature)
             .collect();
         let (mut unattributed, mut stale, mut inconclusive, mut wrong_outcome) = (0, 0, 0, 0);
         let mut relevant: Vec<&Evidence> = Vec::new();
@@ -223,6 +228,7 @@ mod tests {
             min_items,
             require_ok,
             fresh: true,
+            feature: None,
         }
     }
 
@@ -411,6 +417,26 @@ mod tests {
             GateStatus::Pending
         );
         e.measurement = Some(full);
+        assert_eq!(g.evaluate(&[e], &now).status, GateStatus::Passed);
+    }
+
+    #[test]
+    fn feature_gate_counts_only_that_features_evidence() {
+        use crate::verification::FeatureRef;
+        let now = ws("1");
+        let feature = FeatureRef {
+            profile: "verify-notes".into(),
+            id: "search".into(),
+        };
+        let mut p = pred(vec![], 1, true);
+        p.feature = Some(feature.clone());
+        let g = Gate::register("search", GateKind::Behavior, true, p, false).unwrap();
+        let mut e = item("e1", "search", EvidenceKind::Browser, Outcome::Pass, &now);
+        assert_eq!(
+            g.evaluate(std::slice::from_ref(&e), &now).status,
+            GateStatus::Pending
+        );
+        e.feature = Some(feature);
         assert_eq!(g.evaluate(&[e], &now).status, GateStatus::Passed);
     }
 

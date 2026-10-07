@@ -541,6 +541,7 @@ mod tests {
             code_state: Some(ws().bind(&[])),
             born_stale: None,
             measurement: None,
+            feature: None,
         }
     }
 
@@ -631,6 +632,7 @@ mod tests {
             min_items: 1,
             require_ok: true,
             fresh: true,
+            feature: None,
         };
         let gate =
             |id: &str| Gate::register(id, GateKind::Test, false, pred.clone(), false).unwrap();
@@ -709,6 +711,7 @@ mod tests {
             code_state: Some(ws().bind(&[])),
             born_stale: None,
             measurement: None,
+            feature: None,
         })
         .unwrap();
         w.advance(true, &ws()).unwrap();

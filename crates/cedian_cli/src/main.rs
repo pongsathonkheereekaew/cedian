@@ -25,6 +25,7 @@ mod revert_turn;
 mod session;
 mod shell;
 mod shell_lock;
+mod verify_store;
 mod workflow_store;
 mod workspace_files;
 
@@ -299,11 +300,14 @@ fn host_tools(
         })
     };
     let root = workdir.to_path_buf();
-    let channel = cedian_workflow::WorkflowChannel::new(
+    // Floor: empty until `cedian.toml` carries it (row E) — fast lane.
+    let channel = cedian_workflow::WorkflowChannel::with_policy(
         "cli",
         Box::new(DiskWorkflowStore(workdir.to_path_buf())),
         resolve,
         move || current_state(&root),
+        cedian_workflow::GateFloor::default(),
+        Box::new(verify_store::DiskProfileStore(workdir.to_path_buf())),
     );
     let names = host_tool_names(&load_workdir_settings(workdir));
     let mut tools = vec![host.apply_edit_tool()];

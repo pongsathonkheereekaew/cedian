@@ -54,6 +54,7 @@ mod tests {
                 min_items: 1,
                 require_ok: true,
                 fresh: true,
+                feature: None,
             },
             false,
         )

@@ -16,9 +16,9 @@
 //!   the agent cannot attribute evidence by saying so.
 
 use crate::{
-    state::ContinueOutcome, Claim, CompletionAttempt, CurrentState, Evidence, EvidenceKind, Gate,
-    GateFloor, GateKind, GatePredicate, GateStatus, Outcome, Risk, TaskKind, TaskProfile,
-    WorkflowState, WorkflowStatus,
+    feature_map, state::ContinueOutcome, Claim, CompletionAttempt, CurrentState, Evidence,
+    EvidenceKind, FeatureRef, Gate, GateFloor, GateKind, GatePredicate, GateStatus, Outcome,
+    ProfileLedger, Risk, Stage, TaskKind, TaskProfile, WorkflowState, WorkflowStatus,
 };
 use omp_rpc::HostTool;
 use serde_json::{json, Map, Value};
@@ -75,6 +75,31 @@ pub struct BoundCall {
     pub mutated_after: Option<String>,
 }
 
+/// Verification profiles (ADR-0025): the ledger cedian keeps
+/// (`.cedian/verify.json`) and read-only access to the profile skills
+/// (`.omp/skills/<profile>/SKILL.md`, never written — §77).
+pub trait ProfileStore: Send + Sync {
+    fn load(&self) -> Result<ProfileLedger, String>;
+    fn save(&self, ledger: &ProfileLedger) -> Result<(), String>;
+    /// The skill text, `None` when the project has no such skill.
+    fn skill(&self, profile: &str) -> Option<String>;
+}
+
+/// No profiles: every profile op says so.
+pub struct NoProfiles;
+
+impl ProfileStore for NoProfiles {
+    fn load(&self) -> Result<ProfileLedger, String> {
+        Ok(ProfileLedger::default())
+    }
+    fn save(&self, _: &ProfileLedger) -> Result<(), String> {
+        Err("no verification profile store".to_string())
+    }
+    fn skill(&self, _: &str) -> Option<String> {
+        None
+    }
+}
+
 type Resolver = dyn Fn(&str, &str) -> Option<BoundCall> + Send + Sync;
 type Current = dyn Fn() -> CurrentState + Send + Sync;
 
@@ -85,6 +110,7 @@ pub struct WorkflowChannel {
     resolve: Box<Resolver>,
     current: Box<Current>,
     floor: GateFloor,
+    profiles: Box<dyn ProfileStore>,
     /// Serializes load → mutate → save across handler threads.
     lock: Mutex<()>,
 }
@@ -96,16 +122,25 @@ impl WorkflowChannel {
         resolve: impl Fn(&str, &str) -> Option<BoundCall> + Send + Sync + 'static,
         current: impl Fn() -> CurrentState + Send + Sync + 'static,
     ) -> Arc<Self> {
-        Self::with_floor(task_id, store, resolve, current, GateFloor::default())
+        Self::with_policy(
+            task_id,
+            store,
+            resolve,
+            current,
+            GateFloor::default(),
+            Box::new(NoProfiles),
+        )
     }
 
-    /// Same, with the cedian gate floor every started workflow gets.
-    pub fn with_floor(
+    /// Same, with the cedian gate floor every started workflow gets and the
+    /// project's verification profiles.
+    pub fn with_policy(
         task_id: impl Into<String>,
         store: Box<dyn WorkflowStore>,
         resolve: impl Fn(&str, &str) -> Option<BoundCall> + Send + Sync + 'static,
         current: impl Fn() -> CurrentState + Send + Sync + 'static,
         floor: GateFloor,
+        profiles: Box<dyn ProfileStore>,
     ) -> Arc<Self> {
         Arc::new(Self {
             task_id: task_id.into(),
@@ -113,6 +148,7 @@ impl WorkflowChannel {
             resolve: Box::new(resolve),
             current: Box::new(current),
             floor,
+            profiles,
             lock: Mutex::new(()),
         })
     }
@@ -204,6 +240,26 @@ impl WorkflowChannel {
                     ),
                 };
                 let mut item = item;
+                let mut origin = origin;
+                if let Some(feature) = self.feature_arg(args)? {
+                    // ADR-0025: a draft profile or an unhealthy instance
+                    // makes the observation inconclusive, whatever it says.
+                    let instance = text_arg("instance");
+                    let skill = self.profiles.skill(&feature.profile).unwrap_or_default();
+                    let check = if instance.is_empty() {
+                        Err("no `instance` given".to_string())
+                    } else {
+                        self.profiles
+                            .load()?
+                            .check(&feature.profile, &skill, instance)
+                    };
+                    if let Err(why) = check {
+                        item.outcome = Outcome::Inconclusive;
+                        item.summary.push_str(&format!(" [inconclusive: {why}]"));
+                        origin.push_str(&format!("; INCONCLUSIVE: {why}"));
+                    }
+                    item.feature = Some(feature);
+                }
                 if let Some(m) = args.get("measurement") {
                     item.measurement = Some(
                         serde_json::from_value(m.clone())
@@ -238,6 +294,7 @@ impl WorkflowChannel {
                 let kinds: Vec<EvidenceKind> =
                     enum_arg(args, "evidence_kinds")?.unwrap_or_default();
                 let min_items = args.get("min_items").and_then(Value::as_u64).unwrap_or(1);
+                let feature = self.feature_arg(args)?;
                 let gate = Gate::register(
                     id,
                     kind.clone(),
@@ -247,6 +304,7 @@ impl WorkflowChannel {
                         min_items: usize::try_from(min_items.max(1)).unwrap_or(1),
                         require_ok: kind != GateKind::Reproduction,
                         fresh: kind != GateKind::Reproduction,
+                        feature,
                     },
                     false,
                 )
@@ -258,8 +316,39 @@ impl WorkflowChannel {
                     summary(&state, &(self.current)())
                 ))
             }
+            "profile" => {
+                let profile = str_arg(args, "profile")?;
+                let instance = str_arg(args, "instance")?;
+                let stage: Stage = enum_arg(args, "stage")?
+                    .ok_or("missing `stage` (launch|doctor|drive|evidence|cleanup)")?;
+                let ok = args
+                    .get("ok")
+                    .and_then(Value::as_bool)
+                    .ok_or("missing `ok`")?;
+                let surprising = args
+                    .get("surprising")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let skill = self.profiles.skill(profile).ok_or_else(|| {
+                    format!("no verification profile skill {profile:?} in .omp/skills/")
+                })?;
+                let text_arg = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("");
+                let bound = match text_arg("from_tool") {
+                    "" => None,
+                    tool => (self.resolve)(tool, text_arg("match")),
+                };
+                let Some(call) = bound else {
+                    return Ok(format!(
+                        "{profile} {stage:?} NOT recorded: no finished, successful matching call                          (from_tool + match name the tool call that ran this stage)"
+                    ));
+                };
+                let mut ledger = self.profiles.load()?;
+                let line = ledger.record(profile, &skill, instance, stage, ok, surprising);
+                self.profiles.save(&ledger)?;
+                Ok(format!("{line} [{} {}]", call.tool_name, call.args_preview))
+            }
             other => Err(format!(
-                "unknown op {other:?} (start|evidence|advance|gate)"
+                "unknown op {other:?} (start|evidence|advance|gate|profile)"
             )),
         }
     }
@@ -353,6 +442,34 @@ impl WorkflowChannel {
         ))
     }
 
+    /// `profile` + `feature` args → a feature-map entry that exists in that
+    /// profile skill. Neither → `None`.
+    fn feature_arg(&self, args: &Map<String, Value>) -> Result<Option<FeatureRef>, String> {
+        let text_arg = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("");
+        let (profile, id) = (text_arg("profile"), text_arg("feature"));
+        if id.is_empty() {
+            return Ok(None);
+        }
+        if profile.is_empty() {
+            return Err("`feature` needs `profile` (the verify-<app> skill name)".to_string());
+        }
+        let skill = self
+            .profiles
+            .skill(profile)
+            .ok_or_else(|| format!("no verification profile skill {profile:?} in .omp/skills/"))?;
+        let features = feature_map(&skill);
+        if !features.iter().any(|f| f == id) {
+            return Err(format!(
+                "{profile} has no feature {id:?} (feature map: {})",
+                features.join(", ")
+            ));
+        }
+        Ok(Some(FeatureRef {
+            profile: profile.to_string(),
+            id: id.to_string(),
+        }))
+    }
+
     fn active(&self) -> Result<WorkflowState, String> {
         self.store.load()?.ok_or_else(|| {
             format!("no cedian workflow is active; start one with {WORKFLOW_UPDATE_TOOL} op=start")
@@ -374,9 +491,17 @@ impl WorkflowChannel {
                  outcome = pass | fail | inconclusive (could not run); evidence goes stale when a file it saw changes; \
                  performance evidence adds measurement {runs,median,range,limiter,build_profile} (any missing → inconclusive); \
                  op=advance {passed} moves to the next phase; op=gate {gate,gate_kind,evidence_kinds?,min_items?} \
-                 adds a required gate (you can add gates, never remove or weaken one).",
+                 adds a required gate (you can add gates, never remove or weaken one; profile+feature makes it \
+                 \"feature <id> proven\"); op=profile {profile,stage,instance,ok,surprising?,from_tool,match?} \
+                 records one verification-profile stage you ran (launch, doctor, drive, evidence, cleanup); \
+                 evidence for a profile feature adds profile, feature and instance.",
                 object(json!({
-                    "op": {"type": "string", "enum": ["start", "evidence", "advance", "gate"]},
+                    "op": {"type": "string", "enum": ["start", "evidence", "advance", "gate", "profile"]},
+                    "profile": {"type": "string"},
+                    "feature": {"type": "string"},
+                    "instance": {"type": "string"},
+                    "stage": {"type": "string", "enum": ["launch", "doctor", "drive", "evidence", "cleanup"]},
+                    "surprising": {"type": "boolean"},
                     "gate_kind": {"type": "string", "enum": ["build", "test", "lint", "reproduction", "behavior", "visual", "performance", "review"]},
                     "evidence_kinds": {"type": "array", "items": {"type": "string"}},
                     "min_items": {"type": "integer"},
@@ -777,6 +902,7 @@ mod tests {
                 min_items: 1,
                 require_ok: true,
                 fresh: true,
+                feature: None,
             },
             false,
         )
@@ -789,12 +915,13 @@ mod tests {
             }],
         };
         let store = Arc::new(MemStore::default());
-        let ch = WorkflowChannel::with_floor(
+        let ch = WorkflowChannel::with_policy(
             "t1",
             Box::new(Arc::clone(&store)),
             |_, _| None,
             || files("x"),
             floor,
+            Box::new(NoProfiles),
         );
         start(&ch);
         let gate = |id: &str, kind: &str| {
@@ -811,6 +938,99 @@ mod tests {
         assert!(
             err.contains("\"lint\"") && err.contains("\"bench\""),
             "{err}"
+        );
+    }
+
+    #[derive(Default)]
+    struct MemProfiles {
+        ledger: Mutex<ProfileLedger>,
+        skill: Mutex<String>,
+    }
+
+    impl ProfileStore for Arc<MemProfiles> {
+        fn load(&self) -> Result<ProfileLedger, String> {
+            Ok(self.ledger.lock().unwrap().clone())
+        }
+        fn save(&self, ledger: &ProfileLedger) -> Result<(), String> {
+            *self.ledger.lock().unwrap() = ledger.clone();
+            Ok(())
+        }
+        fn skill(&self, profile: &str) -> Option<String> {
+            (profile == "verify-notes").then(|| self.skill.lock().unwrap().clone())
+        }
+    }
+
+    #[test]
+    fn feature_gate_needs_a_proven_profile_and_a_healthy_instance() {
+        let store = Arc::new(MemStore::default());
+        let profiles = Arc::new(MemProfiles::default());
+        *profiles.skill.lock().unwrap() =
+            "# verify-notes\n## Feature map\n- `search`: finds the note\n".to_string();
+        let ch = WorkflowChannel::with_policy(
+            "t1",
+            Box::new(Arc::clone(&store)),
+            |tool, _| {
+                Some(BoundCall {
+                    tool_call_id: format!("{tool}-1"),
+                    tool_name: tool.into(),
+                    args_preview: "./run".into(),
+                    mutated_after: None,
+                })
+            },
+            || files("x"),
+            GateFloor::default(),
+            Box::new(Arc::clone(&profiles)),
+        );
+        start(&ch);
+        let gate = |feature: &str| {
+            ch.update(&args(json!({
+                "op": "gate", "gate": "search", "gate_kind": "behavior",
+                "profile": "verify-notes", "feature": feature
+            })))
+        };
+        assert!(gate("nope").unwrap_err().contains("no feature \"nope\""));
+        gate("search").unwrap();
+        let prove = |n: usize, instance: &str| {
+            let ev = json!({
+                "op": "evidence", "gate": "search", "summary": "found it", "outcome": "pass",
+                "from_tool": "bash", "profile": "verify-notes", "feature": "search",
+                "instance": instance
+            });
+            let out = ch.update(&args(ev)).unwrap();
+            let e = store.load().unwrap().unwrap().evidence[&format!("e{n}")].clone();
+            (out, e.outcome)
+        };
+        let stage = |stage: &str, ok: bool| {
+            ch.update(&args(json!({
+                "op": "profile", "profile": "verify-notes", "instance": "i1",
+                "stage": stage, "ok": ok, "from_tool": "bash"
+            })))
+            .unwrap()
+        };
+        // Draft: inconclusive.
+        let (out, outcome) = prove(1, "i1");
+        assert!(out.contains("is a draft"), "{out}");
+        assert_eq!(outcome, Outcome::Inconclusive);
+        for s in ["launch", "doctor", "drive", "evidence"] {
+            stage(s, true);
+        }
+        assert!(stage("cleanup", true).contains("proven end to end"));
+        let (_, outcome) = prove(2, "i1");
+        assert_eq!(outcome, Outcome::Pass);
+        // A surprising drive: the instance needs a passing doctor again.
+        ch.update(&args(json!({
+            "op": "profile", "profile": "verify-notes", "instance": "i1",
+            "stage": "drive", "ok": true, "surprising": true, "from_tool": "bash"
+        })))
+        .unwrap();
+        let (out, outcome) = prove(3, "i1");
+        assert!(out.contains("no passing Doctor"), "{out}");
+        assert_eq!(outcome, Outcome::Inconclusive);
+        let st = store.load().unwrap().unwrap();
+        assert_eq!(
+            st.gate_result("search", &files("x")).unwrap().status,
+            GateStatus::Passed,
+            "e2 (proven, healthy) satisfies the feature gate"
         );
     }
 
