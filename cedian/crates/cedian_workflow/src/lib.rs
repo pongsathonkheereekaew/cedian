@@ -21,6 +21,7 @@
 pub mod channel;
 pub mod code_state;
 pub mod evidence;
+pub mod floor;
 pub mod gate;
 pub mod playbook;
 pub mod profile;
@@ -32,6 +33,7 @@ pub use channel::{
 };
 pub use code_state::{content_hash, CodeState, CurrentState};
 pub use evidence::{Evidence, EvidenceKind, Measurement, Outcome, Provenance};
+pub use floor::{FloorRule, GateFloor};
 pub use gate::{
     Gate, GateError, GateId, GateKind, GatePredicate, GateResult, GateStatus, MAX_CONTINUE,
 };

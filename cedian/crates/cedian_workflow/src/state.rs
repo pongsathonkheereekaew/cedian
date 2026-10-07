@@ -7,6 +7,8 @@
 
 use super::code_state::CurrentState;
 use super::evidence::Evidence;
+use super::floor::GateFloor;
+use super::gate::Gate;
 use super::gate::{GateResult, GateStatus, MAX_CONTINUE};
 use super::playbook::{PhaseId, Playbook};
 use super::profile::TaskProfile;
@@ -104,6 +106,9 @@ pub struct WorkflowState {
     /// The last `cedian_complete` call: its claims ledger and result.
     #[serde(default)]
     pub last_completion: Option<CompletionAttempt>,
+    /// Ids of gates the cedian floor put here; OMP can't touch them.
+    #[serde(default)]
+    pub floor_gates: Vec<String>,
 }
 
 /// How a completion claim knows what it says (ADR-0024 decision 3).
@@ -150,8 +155,18 @@ impl WorkflowState {
     /// Start a workflow: snapshot the builtin playbook, apply risk-based
     /// skips (§56), enter the first non-skipped phase.
     pub fn start(task: TaskProfile) -> Result<Self, WorkflowError> {
-        let playbook = Playbook::builtin(task.playbook_id())
+        Self::start_with_floor(task, &GateFloor::default())
+    }
+
+    /// Start with the cedian gate floor merged in: a floor gate replaces a
+    /// playbook gate of the same id and is always required.
+    pub fn start_with_floor(task: TaskProfile, floor: &GateFloor) -> Result<Self, WorkflowError> {
+        let mut playbook = Playbook::builtin(task.playbook_id())
             .ok_or_else(|| WorkflowError::UnknownPlaybook(task.playbook_id().to_string()))?;
+        let floor_gates = floor.gates_for(&task);
+        let floor_ids: Vec<String> = floor_gates.iter().map(|g| g.id.clone()).collect();
+        playbook.gates.retain(|g| !floor_ids.contains(&g.id));
+        playbook.gates.extend(floor_gates);
         let skipped: Vec<&str> = playbook
             .skipped_for_risk(task.risk)
             .iter()
@@ -194,6 +209,7 @@ impl WorkflowState {
             continue_used: HashMap::new(),
             status: WorkflowStatus::Running,
             last_completion: None,
+            floor_gates: floor_ids,
         })
     }
 
@@ -331,6 +347,26 @@ impl WorkflowState {
         } else {
             Err(missing)
         }
+    }
+
+    /// OMP adds a gate (§46): add-only and always required. An existing id
+    /// (playbook or floor) is refused, so nothing can be replaced or
+    /// weakened this way.
+    pub fn add_gate(&mut self, mut gate: Gate) -> Result<(), String> {
+        if self.playbook.gates.iter().any(|g| g.id == gate.id) {
+            let whose = if self.floor_gates.contains(&gate.id) {
+                "a cedian floor gate"
+            } else {
+                "already a gate"
+            };
+            return Err(format!(
+                "gate {:?} is {whose}; OMP may only add new gates",
+                gate.id
+            ));
+        }
+        gate.required = true;
+        self.playbook.gates.push(gate);
+        Ok(())
     }
 
     /// Check a claims ledger against the stored evidence (pure). A
@@ -584,6 +620,52 @@ mod tests {
         assert_eq!(flags[4], None);
         assert_eq!(flags[5], Some("unknown evidence nope"));
         assert_eq!(flags[6], Some("guess"));
+    }
+
+    #[test]
+    fn floor_gates_merge_and_omp_can_only_add() {
+        use crate::floor::FloorRule;
+        use crate::gate::{GateKind, GatePredicate};
+        let pred = GatePredicate {
+            kinds: vec![],
+            min_items: 1,
+            require_ok: true,
+            fresh: true,
+        };
+        let gate =
+            |id: &str| Gate::register(id, GateKind::Test, false, pred.clone(), false).unwrap();
+        let floor = GateFloor {
+            rules: vec![FloorRule {
+                kind: TaskKind::BugFix,
+                min_risk: Risk::Low,
+                gates: vec![gate("verify"), gate("lint")],
+            }],
+        };
+        let mut w = WorkflowState::start_with_floor(bugfix_task(Risk::Low), &floor).unwrap();
+        assert_eq!(w.floor_gates, ["verify", "lint"]);
+        let lint = w.playbook.gates.iter().find(|g| g.id == "lint").unwrap();
+        assert!(lint.required);
+        assert_eq!(
+            w.playbook.gates.iter().filter(|g| g.id == "verify").count(),
+            1
+        );
+        let err = w.add_gate(gate("lint")).unwrap_err();
+        assert!(err.contains("cedian floor gate"), "{err}");
+        assert!(w
+            .add_gate(gate("reproduce"))
+            .unwrap_err()
+            .contains("already a gate"));
+        w.add_gate(gate("bench")).unwrap();
+        // Added gates are required: completion now needs them.
+        let missing = w.can_complete(&ws()).unwrap_err();
+        assert!(
+            missing.iter().any(|m| m.contains("\"bench\"")),
+            "{missing:?}"
+        );
+        assert!(
+            missing.iter().any(|m| m.contains("\"lint\"")),
+            "{missing:?}"
+        );
     }
 
     #[test]
