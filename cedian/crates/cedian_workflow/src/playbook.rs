@@ -57,6 +57,7 @@ impl Playbook {
                 min_items,
                 require_ok,
                 fresh,
+                feature: None,
             },
             false,
         )

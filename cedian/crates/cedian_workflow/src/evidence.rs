@@ -123,6 +123,9 @@ pub struct Evidence {
     /// Performance numbers, when the item is a measurement.
     #[serde(default)]
     pub measurement: Option<Measurement>,
+    /// The verification-profile feature this item proves (ADR-0025).
+    #[serde(default)]
+    pub feature: Option<crate::verification::FeatureRef>,
 }
 
 impl Evidence {
@@ -149,6 +152,7 @@ impl Evidence {
             code_state: None,
             born_stale: None,
             measurement: None,
+            feature: None,
         }
     }
 
@@ -170,6 +174,7 @@ impl Evidence {
             code_state: None,
             born_stale: None,
             measurement: None,
+            feature: None,
         }
     }
 
