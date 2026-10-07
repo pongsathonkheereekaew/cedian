@@ -341,11 +341,7 @@ fn host_tools(
 /// and `computer`, and whether the workspace's own `.omp/config.yml` set them
 /// (OMP's answer in the workspace differs from its answer in an empty dir).
 fn omp_policy_badge(workdir: &Path) -> String {
-    let binary = match std::env::var("CEDIAN_OMP_BINARY") {
-        Ok(path) => Ok(PathBuf::from(path)),
-        Err(_) => cedian_omp::resolve_on_path("omp", std::env::var("PATH").ok().as_deref())
-            .map_err(|e| e.to_string()),
-    };
+    let binary = omp_binary_path();
     let empty = std::env::temp_dir().join(format!("cedian-omp-global-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&empty);
     let get = |cwd: &Path, key: &str| {
@@ -379,6 +375,33 @@ fn omp_policy_badge(workdir: &Path) -> String {
     format!("◆ OMP policy — approvals and computer from your OMP config (approvalMode: {mode}; computer: {computer})")
 }
 
+/// The `omp` binary a spawn will run (`CEDIAN_OMP_BINARY`, else `PATH`).
+fn omp_binary_path() -> Result<PathBuf, String> {
+    match std::env::var("CEDIAN_OMP_BINARY") {
+        Ok(path) => Ok(PathBuf::from(path)),
+        Err(_) => cedian_omp::resolve_on_path("omp", std::env::var("PATH").ok().as_deref())
+            .map_err(|e| e.to_string()),
+    }
+}
+
+/// Tools OMP's merged config sets to `allow` in `workdir` (ADR-0039
+/// decision 2). Fails closed: without the record the default profile cannot
+/// pin them, so the spawn is refused.
+fn omp_config_allows(workdir: &Path) -> Result<std::collections::BTreeSet<String>, String> {
+    let binary = omp_binary_path()?;
+    let record =
+        cedian_omp::omp_config_get(&binary, workdir, "tools.approval", Duration::from_secs(10))
+            .map_err(|e| format!("cannot read OMP's tools.approval, so cannot pin it: {e}"))?;
+    let record = record
+        .as_object()
+        .ok_or("OMP's tools.approval is not a record")?;
+    Ok(record
+        .iter()
+        .filter(|(_, v)| v.as_str() == Some("allow"))
+        .map(|(k, _)| k.clone())
+        .collect())
+}
+
 /// Spawn the runtime with workspace host tools + cedian:// wired.
 fn spawn(
     session_dir: &Path,
@@ -407,13 +430,17 @@ fn spawn(
             );
         }
     }
+    let mut policy = spawn_policy(settings, choice.policy);
+    if choice.policy == cedian_shell::Policy::Cedian {
+        policy.config_allows = omp_config_allows(workdir)?;
+    }
     let rt = OmpRuntime::spawn(RuntimeConfig {
         binary,
         session_dir: session_dir.to_path_buf(),
         cwd: workdir.to_path_buf(),
         ask_dialog: true,
         prompt_timeout: Duration::from_secs(600),
-        policy: spawn_policy(settings, choice.policy),
+        policy,
     })
     .map_err(|e| e.to_string())?;
     // Nothing in the CLI can answer an OMP dialog: refuse at once (P5 gap).

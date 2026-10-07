@@ -91,6 +91,24 @@ pub fn config_get(args: &[String]) -> i32 {
         "computer.enabled" => {
             serde_json::json!(field("computer", "enabled").as_deref() == Some("true"))
         }
+        "tools.approval" => {
+            let mut record = serde_json::Map::new();
+            let (mut in_tools, mut in_approval) = (false, false);
+            for line in config.lines() {
+                let indent = line.len() - line.trim_start().len();
+                match indent {
+                    0 => in_tools = line.trim_end() == "tools:",
+                    2 => in_approval = in_tools && line.trim_end() == "  approval:",
+                    _ if in_approval => {
+                        if let Some((k, v)) = line.trim().split_once(':') {
+                            record.insert(k.trim().into(), serde_json::json!(v.trim()));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            serde_json::Value::Object(record)
+        }
         _ => return 1,
     };
     use std::io::Write as _;

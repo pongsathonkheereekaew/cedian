@@ -204,6 +204,14 @@ fn stale_scenario() {
     std::fs::create_dir_all(root.join("ws")).unwrap();
     let notes = root.join("ws/notes.txt");
     std::fs::write(&notes, ORIGINAL).unwrap();
+    // ADR-0039 decision 2: a project allow for a tool the overlay does not
+    // name is pinned to `prompt`.
+    std::fs::create_dir_all(root.join("ws/.omp")).unwrap();
+    std::fs::write(
+        root.join("ws/.omp/config.yml"),
+        "tools:\n  approval:\n    some_mcp_tool: allow\n    cedian_apply_edit: allow\n",
+    )
+    .unwrap();
     let root = root.canonicalize().unwrap();
     cedian_fake_omp::install_replay(&root.join("sessions"), Path::new(FIXTURE)).unwrap();
     cedian(
@@ -217,6 +225,12 @@ fn stale_scenario() {
     assert_eq!(
         std::fs::read_to_string(&notes).unwrap(),
         "alpha\nBETA\ngamma\n"
+    );
+    let approval = &overlay(&root.join("sessions"))["tools"]["approval"];
+    assert_eq!(approval["some_mcp_tool"], "prompt", "project allow pinned");
+    assert_eq!(
+        approval["cedian_apply_edit"], "allow",
+        "host tool keeps allow"
     );
 
     std::fs::write(&notes, "alpha\nBETA by user\ngamma\n").unwrap();
