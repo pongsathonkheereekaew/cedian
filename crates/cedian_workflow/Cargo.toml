@@ -9,6 +9,7 @@ edition = "2021"
 # OMP's agent/tool loop produces evidence; cedian only evaluates.
 
 [dependencies]
+omp-rpc = { path = "../../vendor/omp-rpc" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

@@ -18,14 +18,21 @@
 //!
 //! V1 playbooks (§49): investigation, bug_fix, feature, refactor, generic.
 
+pub mod channel;
 pub mod evidence;
 pub mod gate;
 pub mod playbook;
 pub mod profile;
 pub mod state;
 
+pub use channel::{
+    is_channel_call, WorkflowChannel, WorkflowStore, CHANNEL_TOOLS, COMPLETE_TOOL,
+    WORKFLOW_UPDATE_TOOL,
+};
 pub use evidence::{Evidence, EvidenceKind, Provenance};
 pub use gate::{Gate, GateError, GateId, GateKind, GateResult, GateStatus, MAX_CONTINUE};
 pub use playbook::{Phase, PhaseId, Playbook, BUILTINS};
 pub use profile::{AcceptanceCriterion, Complexity, Risk, Surface, TaskKind, TaskProfile};
-pub use state::{PhaseState, PhaseStatus, WorkflowError, WorkflowState, WorkflowStatus};
+pub use state::{
+    ContinueOutcome, PhaseState, PhaseStatus, WorkflowError, WorkflowState, WorkflowStatus,
+};
