@@ -84,6 +84,19 @@ predicate() {
   esac && cargo test -q --workspace
 }
 
+# The predicate's outcome, split so a correct fix whose private names differ
+# from the reference commit is not scored as a failure. Prints one word:
+#   pass                 the predicate holds
+#   fail                 the result does not build, or builds and the predicate fails
+#   hidden_tests_broken  the result builds but the hidden tests do not compile
+#                        against it; neither pass nor false-done, the owner reviews it
+verdict() {
+  local id=$1
+  cargo build -q --workspace --all-targets >&2 || { echo fail; return; }
+  predicate "$id" >&2 && { echo pass; return; }
+  if cargo test -q --workspace --no-run >&2; then echo fail; else echo hidden_tests_broken; fi
+}
+
 b8_unknown_kind_lists_kinds() {
   local tmp out
   tmp=$(mktemp -d)
@@ -124,7 +137,7 @@ worktree() { # <name> <rev> -> path
 drop() { git -C "$ROOT" worktree remove --force "$1"; }
 
 check() {
-  local id=$1 dir
+  local id=$1 dir v
   task "$id"
   if [ -n "$REF" ]; then
     dir=$(worktree "$id-ref" "$REF")
@@ -137,11 +150,12 @@ check() {
     drop "$dir"
   fi
   dir=$(worktree "$id-base" "$BASE")
-  if (cd "$dir" && predicate "$id") >"$WORK/logs/$id-base.log" 2>&1; then
+  v=$(cd "$dir" && verdict "$id" 2>"$WORK/logs/$id-base.log")
+  if [ "$v" = pass ]; then
     echo "$id: PASSES at its start commit $BASE (predicate does not detect the task)"
     drop "$dir"; return 1
   fi
-  echo "$id: fails at $BASE"
+  echo "$id: $v at $BASE"
   drop "$dir"
 }
 
@@ -163,11 +177,7 @@ run() {
         "$ROOT/target/release/cedian" prompt "$PROMPT" 2>&1) || true
   end=$(python3 -c 'import time; print(int(time.time()*1000))')
   printf '%s\n' "$out" > "$WORK/logs/$id-run.out"
-  if (cd "$dir" && predicate "$id") >"$WORK/logs/$id-predicate.log" 2>&1; then
-    verdict=pass
-  else
-    verdict=fail
-  fi
+  verdict=$(cd "$dir" && verdict "$id" 2>"$WORK/logs/$id-predicate.log")
   python3 - "$id" "$verdict" "$((end - start))" "$WORK" <<'PY'
 import json, re, subprocess, sys
 id, verdict, wall, work = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]

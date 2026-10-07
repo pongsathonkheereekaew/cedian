@@ -42,7 +42,7 @@ Exit (ROADMAP S2 is the contract; restated here as observable checks):
 
 ## Benchmark tasks (ADR-0026) — PROPOSED, awaiting owner approval
 
-Method: each history task starts in a fresh worktree at the commit's **parent**, with a one-paragraph task statement and no view of the commit. The predicate is checked after the run by applying the commit's own tests (hidden from the agent) plus `cargo test --workspace`. The two open-work tasks have predicates written up front. cedian only ([ADR-0037](../decisions/0037-benchmark-without-cursor.md), accepted 2026-10-07; the Cursor arm is dropped). Recorded per task: time-to-usable-result, false-done (claimed done, predicate fails), cedian overhead per turn, optional owner review time. The model and OMP version are recorded with every result.
+Method: each history task starts in a fresh worktree at the commit's **parent**, with a one-paragraph task statement and no view of the commit. The predicate is checked after the run by applying the commit's own tests (hidden from the agent) plus `cargo test --workspace`. A result whose own code builds but whose hidden tests do not compile against it is `hidden_tests_broken`: it counts as neither a pass nor a false-done, and the owner reviews it by hand. The two open-work tasks have predicates written up front. cedian only ([ADR-0037](../decisions/0037-benchmark-without-cursor.md), accepted 2026-10-07; the Cursor arm is dropped). Recorded per task: time-to-usable-result, false-done (claimed done, predicate fails), cedian overhead per turn, optional owner review time. The model and OMP version are recorded with every result.
 
 | # | Kind | Task (start point) | Done predicate (pass/fail) |
 |---|---|---|---|
