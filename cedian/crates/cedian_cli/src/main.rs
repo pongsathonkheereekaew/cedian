@@ -165,9 +165,9 @@ fn load_workdir_settings(workdir: &Path) -> cedian_shell::Settings {
 fn spawn_policy(settings: &cedian_shell::Settings) -> SpawnPolicy {
     use cedian_shell::Verdict;
     let mut policy = SpawnPolicy::default();
-    policy
-        .host_tools
-        .insert(cedian_workspace::APPLY_EDIT_TOOL.to_string());
+    for tool in host_tool_names(settings) {
+        policy.host_tools.insert(tool.to_string());
+    }
     if settings.permissions.project_write != Verdict::Allow {
         policy.approval_mode = ApprovalMode::AlwaysAsk;
     }
@@ -185,6 +185,66 @@ fn spawn_policy(settings: &cedian_shell::Settings) -> SpawnPolicy {
         deny(cedian_omp::spawn_profile::EXEC_TOOLS);
     }
     policy
+}
+
+/// The complete cedian host-tool set for these settings (ADR-0004: one
+/// `set_host_tools` call replaces the whole set, so register all of it).
+/// `cedian_worktree_request` writes `.worktrees/` + a branch: absent when
+/// project writes are denied.
+fn host_tool_names(settings: &cedian_shell::Settings) -> Vec<&'static str> {
+    let mut names = vec![
+        cedian_workspace::APPLY_EDIT_TOOL,
+        cedian_workflow::WORKFLOW_UPDATE_TOOL,
+        cedian_workflow::COMPLETE_TOOL,
+    ];
+    if settings.permissions.project_write != cedian_shell::Verdict::Deny {
+        names.push(cedian_worker::WORKTREE_REQUEST_TOOL);
+    }
+    names
+}
+
+/// `.cedian/workflow.json` as the channel's store.
+struct DiskWorkflowStore(PathBuf);
+
+impl cedian_workflow::WorkflowStore for DiskWorkflowStore {
+    fn load(&self) -> Result<Option<cedian_workflow::WorkflowState>, String> {
+        if !workflow_store::exists(&self.0) {
+            return Ok(None);
+        }
+        workflow_store::load(&self.0).map(Some)
+    }
+    fn save(&self, state: &cedian_workflow::WorkflowState) -> Result<(), String> {
+        workflow_store::save(&self.0, state)
+    }
+}
+
+/// Every host tool, with the P5 evidence verifier over this runtime's
+/// router log: a cited call counts only if it finished without error and
+/// is not itself a channel report (ADR-0022).
+fn host_tools(
+    rt: &OmpRuntime,
+    workdir: &Path,
+    host: &std::sync::Arc<HostTools>,
+) -> Vec<omp_rpc::HostTool> {
+    let router = rt.router();
+    let verify = move |id: &str| {
+        router.finished_tool_call(id).is_some_and(|call| {
+            !call.is_error && !cedian_workflow::is_channel_call(&call.tool_name, &call.args_preview)
+        })
+    };
+    let channel = cedian_workflow::WorkflowChannel::new(
+        "cli",
+        Box::new(DiskWorkflowStore(workdir.to_path_buf())),
+        verify,
+    );
+    let names = host_tool_names(&load_workdir_settings(workdir));
+    let mut tools = vec![host.apply_edit_tool()];
+    tools.extend(channel.host_tools());
+    if names.contains(&cedian_worker::WORKTREE_REQUEST_TOOL) {
+        tools.push(cedian_worker::worktree_request_tool(workdir.to_path_buf()));
+    }
+    debug_assert_eq!(tools.len(), names.len());
+    tools
 }
 
 /// Spawn the runtime with workspace host tools + cedian:// wired.
@@ -208,7 +268,7 @@ fn spawn(
         policy: spawn_policy(&load_workdir_settings(workdir)),
     })
     .map_err(|e| e.to_string())?;
-    rt.set_host_tools(vec![host.apply_edit_tool()])
+    rt.set_host_tools(host_tools(&rt, workdir, host))
         .map_err(|e| e.to_string())?;
     rt.set_host_uris(vec![host.cedian_uri_scheme()])
         .map_err(|e| e.to_string())?;
@@ -226,6 +286,32 @@ fn load_workspace(host: &HostTools, workdir: &Path) -> Vec<PathBuf> {
             Some(key)
         })
         .collect()
+}
+
+/// One ambient line while a workflow is open (ADR-0022: the model must be
+/// told when to call the channel; compliance is checked, never assumed).
+fn workflow_ambient(workdir: &Path) -> Option<String> {
+    use cedian_workflow::WorkflowStatus;
+    if !workflow_store::exists(workdir) {
+        return None;
+    }
+    let state = workflow_store::load(workdir).ok()?;
+    if !matches!(
+        state.status,
+        WorkflowStatus::Running | WorkflowStatus::Blocked
+    ) {
+        return None;
+    }
+    Some(format!(
+        "cedian workflow active: {:?} ({:?}, {:?}, phase {}). Report evidence with {} \
+         (cite the tool_call_id of the call that produced it) and call {} before saying it is done.",
+        state.task.title,
+        state.task.kind,
+        state.status,
+        state.current_phase.as_deref().unwrap_or("-"),
+        cedian_workflow::WORKFLOW_UPDATE_TOOL,
+        cedian_workflow::COMPLETE_TOOL,
+    ))
 }
 
 /// Tools whose successful completion may have changed files on disk.
@@ -300,6 +386,10 @@ pub(crate) fn run_turn(
     // Ambient context travels with the prompt (§39).
     let ambient =
         cedian_workspace::render_snapshot(&cedian_workspace::capture_ambient(host.as_ref()));
+    let ambient = match workflow_ambient(workdir) {
+        Some(line) => format!("{ambient}{line}\n"),
+        None => ambient,
+    };
     let full = if ambient.is_empty() {
         message.to_string()
     } else {
@@ -1157,3 +1247,23 @@ impl CardGlyph for cedian_agent_ui::ToolCard {
 use cedian_workspace::Version as _Version;
 #[allow(unused)]
 fn _keep_version(_: _Version) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_reporting_host_tool_is_a_channel_call() {
+        let mut settings = cedian_shell::Settings::default();
+        let names = host_tool_names(&settings);
+        assert!(names.contains(&cedian_worker::WORKTREE_REQUEST_TOOL));
+        for name in names
+            .iter()
+            .filter(|n| **n != cedian_workspace::APPLY_EDIT_TOOL)
+        {
+            assert!(cedian_workflow::is_channel_call(name, ""), "{name}");
+        }
+        settings.permissions.project_write = cedian_shell::Verdict::Deny;
+        assert!(!host_tool_names(&settings).contains(&cedian_worker::WORKTREE_REQUEST_TOOL));
+    }
+}

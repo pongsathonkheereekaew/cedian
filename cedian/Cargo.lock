@@ -76,6 +76,7 @@ dependencies = [
  "cedian_worker",
  "cedian_workflow",
  "cedian_workspace",
+ "omp-rpc",
  "serde",
  "serde_json",
 ]
