@@ -47,6 +47,7 @@ impl Playbook {
         min_items: usize,
         require_ok: bool,
     ) -> Gate {
+        let fresh = kind != GateKind::Reproduction;
         Gate::register(
             id,
             kind,
@@ -55,6 +56,7 @@ impl Playbook {
                 kinds,
                 min_items,
                 require_ok,
+                fresh,
             },
             false,
         )
@@ -253,7 +255,8 @@ pub const BUILTINS: &[&str] = &["investigation", "bug_fix", "feature", "refactor
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evidence::{Evidence, EvidenceKind};
+    use crate::code_state::CurrentState;
+    use crate::evidence::{Evidence, EvidenceKind, Outcome};
     use crate::gate::GateStatus;
 
     #[test]
@@ -283,11 +286,13 @@ mod tests {
             EvidenceKind::Screenshot,
             &["live"],
             "shot frame F1 seq 1",
-            true,
+            Outcome::Pass,
             "t",
             "c",
         );
-        let r = g.evaluate(std::slice::from_ref(&e));
+        let now = CurrentState::default();
+        let e = e.with_code_state(now.bind(&[]));
+        let r = g.evaluate(std::slice::from_ref(&e), &now);
         assert_eq!(r.status, GateStatus::Passed);
         assert!(!r.unverified_origin);
     }
@@ -302,11 +307,13 @@ mod tests {
             EvidenceKind::Screenshot,
             &["visual"],
             "shot frame F1 seq 1",
-            true,
+            Outcome::Pass,
             "t",
             "c",
         );
-        let r = g.evaluate(std::slice::from_ref(&e));
+        let now = CurrentState::default();
+        let e = e.with_code_state(now.bind(&[]));
+        let r = g.evaluate(std::slice::from_ref(&e), &now);
         assert_eq!(r.status, GateStatus::Passed);
         assert!(!r.unverified_origin);
     }

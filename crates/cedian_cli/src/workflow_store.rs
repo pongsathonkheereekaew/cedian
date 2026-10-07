@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// `workflow.json` schema version. Bump on any `WorkflowState` shape change.
-pub const WORKFLOW_SNAPSHOT_VERSION: u32 = 1;
+pub const WORKFLOW_SNAPSHOT_VERSION: u32 = 2;
 
 /// On-disk shape: `{"snapshot_version": N, ...WorkflowState}`.
 #[derive(Serialize, Deserialize)]
@@ -92,7 +92,7 @@ mod tests {
         .unwrap();
         save(&d, &state).unwrap();
         let raw = std::fs::read_to_string(workflow_path(&d)).unwrap();
-        assert!(raw.contains("\"snapshot_version\": 1"));
+        assert!(raw.contains("\"snapshot_version\": 2"));
         assert_eq!(load(&d).unwrap().task.title, "t");
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -103,8 +103,9 @@ mod tests {
         std::fs::create_dir_all(d.join(".cedian")).unwrap();
         std::fs::write(workflow_path(&d), "{}").unwrap();
         assert!(load(&d).unwrap_err().contains("too old (got v0"));
-        std::fs::write(workflow_path(&d), r#"{"snapshot_version":2}"#).unwrap();
-        assert!(load(&d).unwrap_err().contains("too old (got v2"));
+        // v1 = pre-ADR-0024 evidence (`ok: bool`, no code state).
+        std::fs::write(workflow_path(&d), r#"{"snapshot_version":1}"#).unwrap();
+        assert!(load(&d).unwrap_err().contains("too old (got v1"));
         let _ = std::fs::remove_dir_all(&d);
     }
 }
