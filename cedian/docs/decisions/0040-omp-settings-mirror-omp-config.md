@@ -1,6 +1,6 @@
 # ADR-0040: The OMP settings page mirrors OMP's config; OMP's CLI and cedian edit the same state
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-10-07)
 - **Date:** 2026-10-07
 - **Rule text:** [ARCHITECTURE.md](../ARCHITECTURE.md) §77 (config ownership); [OMP_PARITY.md](../OMP_PARITY.md) "Launch options and config", `config_update`, `config_warnings_changed`, `open_session`; [ROADMAP.md](../ROADMAP.md) S9 (settings)
 - **Follows from:** ADR-0034 (OMP feature parity), ADR-0018 (`cedian.toml` holds cedian settings only), ADR-0020 and ADR-0035 (spawn overlay and its opt-out)

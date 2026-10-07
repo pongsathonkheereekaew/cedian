@@ -1,6 +1,6 @@
 # ADR-0039: Model roles are OMP's `modelRoles`; an independent review needs a different model
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-10-07)
 - **Date:** 2026-10-07
 - **Rule text:** [ARCHITECTURE.md](../ARCHITECTURE.md) §57–§60 (reviewers), §64 (gate floor), §77 (config ownership); [OMP_PARITY.md](../OMP_PARITY.md) "Launch options and config"; [ROADMAP.md](../ROADMAP.md) S3, S9 (settings)
 - **Tightens:** ADR-0011 consequence "where OMP routing allows, a different model from the implementer"

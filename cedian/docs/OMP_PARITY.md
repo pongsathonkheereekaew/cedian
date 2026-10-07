@@ -81,7 +81,7 @@ Frames OMP sends besides the agent events above.
 | `btw_delta`, `btw_record` | side-question stream and history | planned S9 |
 | `command_output` | output of user-run `bash` | planned S9 |
 | `session_info_update` | session manager (name, metadata) | planned S9 |
-| `config_update` | settings refresh, live in both directions ([ADR-0040](decisions/0040-omp-settings-mirror-omp-config.md), proposed) | planned S9 |
+| `config_update` | settings refresh, live in both directions ([ADR-0040](decisions/0040-omp-settings-mirror-omp-config.md)) | planned S9 |
 
 ## UI requests (12)
 
@@ -121,4 +121,4 @@ Frames OMP sends besides the agent events above.
 | MCP servers, extensions | used as-is; listed read-only in settings | headless (used); listing planned S9 |
 | memory | used as-is | headless |
 | provider/model routing | model picker | planned S9 |
-| model roles (`modelRoles`, `modelRoleStorage`, `--smol`/`--slow`/`--plan`) | settings page "Model roles"; reviewer role ([ADR-0039](decisions/0039-model-roles-and-independent-review.md), proposed) | planned S9 (page), S3 (reviewer role) |
+| model roles (`modelRoles`, `modelRoleStorage`, `--smol`/`--slow`/`--plan`) | settings page "Model roles"; reviewer role ([ADR-0039](decisions/0039-model-roles-and-independent-review.md)) | planned S9 (page), S3 (reviewer role) |
