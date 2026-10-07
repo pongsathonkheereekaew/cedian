@@ -4,6 +4,7 @@
 - **Date:** 2026-10-06
 - **Rule text:** [ARCHITECTURE.md](../ARCHITECTURE.md) §15, §18, §62, §73; [ROADMAP.md](../ROADMAP.md) P6, S2 and S9 exits
 - **Refines:** ADR-0023 (product scope)
+- **Superseded in part by [ADR-0037](0037-benchmark-without-cursor.md):** decision 4's Cursor comparison for cedian overhead and decision 5 (benchmark against Cursor). The benchmark runs cedian alone against fixed budgets.
 
 ## Context
 

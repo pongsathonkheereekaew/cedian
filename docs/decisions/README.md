@@ -40,4 +40,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0034](0034-identity-and-omp-parity.md) | Identity: a Cursor-style IDE for OMP, with full OMP feature parity |
 | [0035](0035-omp-native-approval-opt-in.md) | Per-project opt-in to OMP's own policy (approval mode and `computer`) |
 | [0036](0036-s2-evidence-freshness-and-turn-end-block.md) | S2 readings of ADR-0024: historical reproduction evidence, turn-end block, headless code state |
-| [0037](0037-benchmark-without-cursor.md) | The speed benchmark measures cedian on its own, against fixed budgets (proposed) |
+| [0037](0037-benchmark-without-cursor.md) | The speed benchmark measures cedian on its own, against fixed budgets |

@@ -1,6 +1,6 @@
 # ADR-0037: The speed benchmark measures cedian on its own, against fixed budgets
 
-- **Status:** Proposed (awaiting the owner)
+- **Status:** Accepted (owner, 2026-10-07; run waits for the owner's go)
 - **Date:** 2026-10-07
 - **Rule text:** [ROADMAP.md](../ROADMAP.md) S2 exit (Benchmark), S9 exit; `docs/plans/s2-workflow-core.md` (B1–B10)
 - **Supersedes in part:** ADR-0026 decision 4, second bullet ("must be lower than Cursor's with the same model"), and decision 5 ("Benchmark against Cursor")
