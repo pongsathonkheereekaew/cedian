@@ -205,6 +205,9 @@ impl WorkflowChannel {
                 let current = (self.current)();
                 let (item, origin) = match &bound {
                     Some(call) => {
+                        // ADR-0031 consequence: the bound tool decides what
+                        // the evidence can show (a `read` is never a test).
+                        let kind = kind_for(&call.tool_name, kind);
                         let mut item = Evidence::attributed(
                             &id,
                             kind,
@@ -599,6 +602,27 @@ fn summary(state: &WorkflowState, current: &CurrentState) -> String {
         state.status,
         gates.join(" ")
     )
+}
+
+/// The evidence kind a bound call can support: exec tools show command or
+/// test results, read-only tools show files, the browser shows pages. The
+/// agent's `kind` only picks within that (test vs command, screenshot vs
+/// browser); anything else is overridden.
+pub fn kind_for(tool: &str, claimed: EvidenceKind) -> EvidenceKind {
+    use EvidenceKind as K;
+    match tool {
+        "bash" | "eval" => match claimed {
+            K::Test => K::Test,
+            _ => K::Command,
+        },
+        "browser" => match claimed {
+            K::Screenshot => K::Screenshot,
+            _ => K::Browser,
+        },
+        "debug" => K::Debugger,
+        t if READ_ONLY_TOOLS.contains(&t) => K::File,
+        _ => K::Custom,
+    }
 }
 
 /// Workspace files a call's args name (`read notes.txt`, `path=src/a.rs`).
@@ -1048,6 +1072,30 @@ mod tests {
             st.gate_result("search", &files("x")).unwrap().status,
             GateStatus::Passed,
             "e2 (proven, healthy) satisfies the feature gate"
+        );
+    }
+
+    #[test]
+    fn evidence_kind_follows_the_bound_tool() {
+        use EvidenceKind as K;
+        assert_eq!(kind_for("read", K::Test), K::File);
+        assert_eq!(kind_for("bash", K::Test), K::Test);
+        assert_eq!(kind_for("bash", K::File), K::Command);
+        assert_eq!(kind_for("browser", K::Screenshot), K::Screenshot);
+        assert_eq!(kind_for("mcp_x", K::Test), K::Custom);
+        // A read reported as a test cannot pass `verify` (test|command).
+        let (ch, store, _) = channel();
+        start(&ch);
+        ch.update(&args(json!({
+            "op": "evidence", "gate": "verify", "kind": "test", "outcome": "pass",
+            "summary": "looks right", "from_tool": "read"
+        })))
+        .unwrap();
+        let state = store.load().unwrap().unwrap();
+        assert_eq!(state.evidence["e1"].kind, K::File);
+        assert_ne!(
+            state.gate_result("verify", &files("beta")).unwrap().status,
+            GateStatus::Passed
         );
     }
 

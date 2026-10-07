@@ -29,9 +29,9 @@ pub mod state;
 pub mod verification;
 
 pub use channel::{
-    complete_parameters, is_channel_call, ledger_lines, may_mutate, named_paths, update_parameters,
-    BoundCall, NoProfiles, ProfileStore, WorkflowChannel, WorkflowStore, CHANNEL_TOOLS,
-    COMPLETE_TOOL, READ_ONLY_TOOLS, WORKFLOW_UPDATE_TOOL,
+    complete_parameters, is_channel_call, kind_for, ledger_lines, may_mutate, named_paths,
+    update_parameters, BoundCall, NoProfiles, ProfileStore, WorkflowChannel, WorkflowStore,
+    CHANNEL_TOOLS, COMPLETE_TOOL, READ_ONLY_TOOLS, WORKFLOW_UPDATE_TOOL,
 };
 pub use code_state::{content_hash, CodeState, CurrentState};
 pub use evidence::{Evidence, EvidenceKind, Measurement, Outcome, Provenance};
