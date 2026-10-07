@@ -57,7 +57,7 @@ Method: each history task starts in a fresh worktree at the commit's **parent**,
 | B9 | test | Write the P7 parity test from `docs/OMP_PARITY.md` + vendored `wire.rs` (`3d66849^`) | the test passes on the ledger, fails naming `steer` when that row is renamed, and asserts parse floors (≥60 commands / ≥40 notifications / ≥10 UI requests) |
 | B10 | docs-touching code | `browser.json` gets `snapshot_version` and fails closed on a mismatch, with the reset command in the error; README status line updated (`09e88b6^`, `cedian_cli` browser store) | 09e88b6's `browser_store` tests pass; a v0 `browser.json` gives an error naming the reset command; README mentions the versioned store |
 
-Owner (2026-10-07): B10 was row E; swapped for P3's `browser.json` part, since row E is real work done before P8. B6 is kept as the one medium task. **The list still needs the owner's final approval before any run.**
+Owner (2026-10-07): B10 was row E; swapped for P3's `browser.json` part, since row E is real work done before P8. B6 is kept as the one medium task. **Owner approved B1–B10 as listed on 2026-10-07 (in chat).** Runs go after P8 and the S2 close, and no number is reported before `benchmark-checklist`.
 
 ## Findings (2026-10-07)
 
