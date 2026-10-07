@@ -114,6 +114,10 @@ pub struct SpawnPolicy {
     /// gate (ADR-0012), so the overlay allows exactly these names. A
     /// `tool_policies` entry still overrides (a `deny` stays a `deny`).
     pub host_tools: BTreeSet<String>,
+    /// Tools the user's OMP config (global + project, as OMP merges them)
+    /// sets to `allow`. The overlay cannot delete those keys, so the default
+    /// profile pins each one it does not already name (ADR-0039 decision 2).
+    pub config_allows: BTreeSet<String>,
 }
 
 impl Default for SpawnPolicy {
@@ -123,6 +127,7 @@ impl Default for SpawnPolicy {
             tool_policies: BTreeMap::new(),
             bash_patterns: Vec::new(),
             host_tools: BTreeSet::new(),
+            config_allows: BTreeSet::new(),
         }
     }
 }
@@ -146,6 +151,15 @@ impl SpawnPolicy {
                 )));
             }
             record.insert(tool.clone(), json!(ToolPolicy::Allow.as_str()));
+        }
+        if let Approvals::Cedian(_) = self.approvals {
+            // Any key OMP accepted is safe as a JSON key; MCP names may carry
+            // `-` or `:`, which `check_tool_name` would refuse.
+            for tool in &self.config_allows {
+                record
+                    .entry(tool.clone())
+                    .or_insert_with(|| json!(ToolPolicy::Prompt.as_str()));
+            }
         }
         for (tool, policy) in &self.tool_policies {
             // The eval gate: eval runs Python/JS outside `bash.patterns`, so it
@@ -546,6 +560,47 @@ mod tests {
         );
         policy.host_tools.insert("bash".to_string());
         assert!(policy.overlay().is_err());
+    }
+
+    #[test]
+    fn config_allow_for_an_unnamed_tool_is_pinned_to_prompt() {
+        let mut policy = SpawnPolicy::default();
+        policy.host_tools.insert("cedian_apply_edit".to_string());
+        for tool in ["some_mcp_tool", "cedian_apply_edit", "bash"] {
+            policy.config_allows.insert(tool.to_string());
+        }
+        let overlay = policy.overlay().unwrap();
+        let approval = &overlay["tools"]["approval"];
+        assert_eq!(approval["some_mcp_tool"], "prompt", "ADR-0028 gap closed");
+        assert_eq!(
+            approval["cedian_apply_edit"], "allow",
+            "host tools keep allow"
+        );
+        assert_eq!(approval["bash"], "prompt", "exec floor unchanged");
+    }
+
+    #[test]
+    fn cedian_tool_policy_outranks_a_config_allow_pin() {
+        let mut policy = SpawnPolicy::default();
+        policy.config_allows.insert("some_mcp_tool".to_string());
+        policy
+            .tool_policies
+            .insert("some_mcp_tool".to_string(), ToolPolicy::Deny);
+        assert_eq!(
+            policy.overlay().unwrap()["tools"]["approval"]["some_mcp_tool"],
+            "deny"
+        );
+    }
+
+    #[test]
+    fn opt_in_leaves_config_allows_to_omp() {
+        let mut policy = SpawnPolicy {
+            approvals: Approvals::Omp,
+            ..SpawnPolicy::default()
+        };
+        policy.config_allows.insert("some_mcp_tool".to_string());
+        let overlay = policy.overlay().unwrap();
+        assert!(overlay["tools"]["approval"].get("some_mcp_tool").is_none());
     }
 
     #[test]
