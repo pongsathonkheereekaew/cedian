@@ -87,6 +87,15 @@ impl ReviewStore {
     }
 
     /// Append a turn (numbered here); no-op when it changed nothing.
+    /// The newest turn that changed `file` (a buffer key).
+    pub fn last_turn_touching(&self, file: &str) -> Option<u32> {
+        self.turns
+            .iter()
+            .rev()
+            .find(|t| t.files.iter().any(|f| f.file == file))
+            .map(|t| t.n)
+    }
+
     pub fn record_turn(
         &mut self,
         kind: TurnKind,

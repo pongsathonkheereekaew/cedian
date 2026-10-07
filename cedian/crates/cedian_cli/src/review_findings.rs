@@ -151,7 +151,18 @@ pub fn dismiss(workdir: &Path, id: &str, reason: &str) -> Result<String, String>
         .ok_or_else(|| format!("no finding {id}"))?;
     finding.dismiss(reason)?;
     let path = finding.finding.path.clone();
+    let excerpt = finding.hunk_text.clone();
     save(workdir, &mut store)?;
+    crate::corrections::record(
+        workdir,
+        crate::corrections::CorrectionKind::FindingDismissed,
+        crate::corrections::Event {
+            path: Some(path.clone()),
+            hunk_key: Some(id.to_string()),
+            excerpt: Some(excerpt),
+            ..crate::corrections::Event::default()
+        },
+    )?;
     crate::audit::AuditLog::open(workdir, cedian_omp::Approvals::Cedian(Default::default()))?
         .dismissal(id, reason.trim())?;
     Ok(format!("dismissed {id} on {path}: {}", reason.trim()))
