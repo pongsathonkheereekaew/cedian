@@ -31,3 +31,4 @@ A project `tools.approval.<tool>: allow` for a tool cedian does not name in the 
 - Tool cards name `xd://<tool>` writes after the host tool, and render the matching `read` as "Read host tool docs" (never counted as an edit).
 - New exec-tier OMP tools must be added to `EXEC_TOOLS` when the OMP pin moves.
 - Observed 2026-10-07 (live, `omp 18.6.3`): with a bare instruction to call `cedian_apply_edit`, the model refused because the `xd://` device was announced by a "dynamic-device notice" it treats as untrusted. A retry that names the tool as cedian's own and lets the model read the device docs first succeeded. Host-tool-first (ADR-0022) depends on the model trusting these devices, so P5 should state host tools' provenance in the tool description (or through an OMP skill, ADR-0025), and not rely on the prompt.
+- **Refined by ADR-0039:** the known gap closes by pinning every unnamed `allow` read from `omp config get tools.approval` before spawn.
