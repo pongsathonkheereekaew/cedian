@@ -19,8 +19,8 @@ P1 spawn profile → P2 fake-omp → P3 snapshot_version
   → S9a app spike
   → P4 cedian shell → P5 host-tool channel → P6 revert turn + inline edit
   → P7 OMP parity ledger + test
-  → S2 workflow core → `cedian.toml` move ([ADR-0018](decisions/0018-settings-in-one-toml.md)) → P8 OMP policy opt-in → S3 review agents → S4 browser evidence → S5 parallel workers
-  → S9 real app  (= v0.1)
+  → S2 workflow core → `cedian.toml` move ([ADR-0018](decisions/0018-settings-in-one-toml.md)) → P8 OMP policy opt-in → S3 review agents
+  → S9 real app, closing S4 browser evidence and S5 parallel workers  (= v0.1, ADR-0038)
   → S6 PR workspace → S7 local automations  (= v0.2)
   → S8 iOS (extension)
 ```
@@ -73,12 +73,27 @@ Before the Zed fork lands (S9), some capabilities the plan assigns to Zed are bu
 | Row | Stand-in (today) | Deviates from | Fate |
 |---|---|---|---|
 | A | `cedian_workflow` — TaskProfile/Playbook/phase state driven from the CLI | §46 split (OMP owns profile/playbook/phases) | **Decided: A1-narrow ([ADR-0010](decisions/0010-gate-checker-a1-narrow.md)).** KEEP permanently: evidence store, `Gate::evaluate`, `can_complete`, `max_continue`, gate-floor policy. MOVE to OMP (§8 `workflow/`): task classification, playbook choice, phase advancement. CLI `workflow run/advance` stay as stand-ins until OMP reports through host tools `cedian_workflow_update` / `cedian_complete` (P5, [ADR-0022](decisions/0022-host-tool-first.md)). |
-| B | `cedian_lsp` / `cedian_dap` — own rust-analyzer / lldb-dap subprocesses | §21/§22 (one LSP/DAP, Zed's), §88 "custom LSP/DAP" | Deleted at S9; host tools + `cedian://` rebind to Zed's `Project` LSP/DAP. Until then: never spawned implicitly per prompt, and the duplicate-server cost (cedian + OMP `lsp`) is accepted for headless only. |
+| B | `cedian_lsp` / `cedian_dap` — own rust-analyzer / lldb-dap subprocesses | §21/§22 (one LSP/DAP, Zed's), §88 "custom LSP/DAP" | Deleted at S9; host tools + `cedian://` rebind to Zed's `Project` LSP/DAP. Until then: never spawned implicitly per prompt, and the duplicate-server cost (cedian + OMP `lsp`) is accepted for headless only. `cedian_dap` is not wired into any binary and is frozen ([ADR-0038](decisions/0038-s4-s5-close-inside-s9.md)). |
 | C | `cedian_worker` — user-driven `git worktree` registry | §43 (OMP requests via host tool), §42 (subagent tree) | Stays as the mechanism. Missing pieces before S5 counts as ✅: host tool `cedian_worktree_request` (OMP asks, cedian creates — P5) + router handling of `subagent_lifecycle/progress` for the visualization + steer through a live session (P4). |
 | D | `cedian_browser` — separate cedian-owned headless Chrome, one per CLI invocation | §25 (one shared Chromium with OMP), §29 R4 (frame binding) | S9: single long-lived Chrome, OMP `browser` connects to the same CDP endpoint. Until then evidence from it is labelled `headless-capture` and cannot satisfy a `required: true` browser gate. |
 | G | Headless form of the agent-edit import: no Zed buffers yet, so writes stay on disk | §12 (agent writes imported as Zed transactions, [ADR-0027](decisions/0027-zero-omp-fork.md)) | At S9 each OMP write is imported as one agent transaction (S9a proves it). Until then: disk is authoritative for OMP-native edits; cedian never writes a buffer back over a file that changed on disk during the turn (fail closed + report), and provenance for such edits is recorded per turn from disk diffs (attribution = turn, not tool call → hunks the turn cannot pin to a tool call are `UNATTRIBUTED`). |
 | H | Headless code state: evidence binds to FNV-1a content hashes per file (or a workspace tree fingerprint), not buffer versions | §53 / [ADR-0024](decisions/0024-evidence-bound-to-code-state.md) (`clock::Global`) | [ADR-0036](decisions/0036-s2-evidence-freshness-and-turn-end-block.md). Deleted at S9: evidence binds to Zed's `clock::Global`. Until then, staleness compares hashes the CLI computes from disk, passed into the pure gate engine. |
 | I | `cedian_workspace` `buffer.rs` — in-memory buffer store: versioned text, transactions, undo; `Version` is a `u64` per buffer | §12 / editor and buffer stay Zed-native (`text::Buffer` + `History`, `clock::Global`) | Deleted at S9: host tools rebind to Zed buffers and `Version` becomes `clock::Global` with the same call shapes (`buffer_version`, `apply_edit(path, expected, edit)`). Until then: `apply_edit` checks `expected_version` and fails closed on a concurrent edit. |
+
+## Follow-ups
+
+Known gaps that no slice exit names yet. Each row has the slice it must be settled before. A row is deleted in the change that settles it; this table never says done.
+
+| Follow-up | Found in | Settle before |
+|---|---|---|
+| The freshness scan skips `*.lock` and files over 1 MiB, so a `Cargo.lock` bump does not make test evidence stale (ADR-0024) | `crates/cedian_cli/src/workspace_files.rs` | S2 benchmark run |
+| The benchmark harness counts a hidden test that fails to compile as a failed predicate, so a correct fix with different private names scores as a fail | `script/bench/run.sh`, `splice_tests.py` | S2 benchmark run |
+| A call headless denied still makes earlier evidence born stale, though it changed nothing | [S2 plan](plans/s2-workflow-core.md) findings | S9 (row H) |
+| The S0 row names no remaining gap: recheck its exit, then flip it or name the gap | README S0 row | S3 |
+| `worker steer` sets status and appends a note; it does not start a turn in the worker's session | [S5 plan](plans/done/s5-parallel-workers.md) | S9 (S5 exit) |
+| Browser items deferred from S4: user input preempts the agent, screencast, console and network capture, promotion to a required gate | [S4 plan](plans/done/s4-browser-evidence.md) | S9 (S4 exit) |
+| Inline edit runs on the session model: OMP has no RPC model-role switch, so it cannot use `smol` as ADR-0026 asks | README P6 row | next OMP pin bump |
+| The S9a fork reaches cedian crates through relative path deps; the layout decision is open | [S9a plan](plans/done/s9a-app-spike.md), ADR-0030 | S9 |
 
 ## Cross-cutting prerequisites
 
@@ -107,7 +122,7 @@ Shared foundations that several slice exits depend on. Each is small; build it b
 | S5 | P2, P4, P5 (`cedian_worktree_request` + subagent events) |
 | S6 | S3 gate items 1, 2, 4 (merge is `Deny`-by-default and audited) |
 | S7 | P4 (scheduler runs inside the shell), S3 gate 4 (run history = audit log) |
-| S9 | all ✅ slices it binds; deletes stand-ins B and D; P7 (parity rows), P8 (opt-in UI) |
+| S9 | all ✅ slices it binds; closes S4 and S5 ([ADR-0038](decisions/0038-s4-s5-close-inside-s9.md)); deletes stand-ins B and D; P7 (parity rows), P8 (opt-in UI) |
 
 ## OMP changes
 
