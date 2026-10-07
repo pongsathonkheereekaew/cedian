@@ -14,16 +14,20 @@ This is the one change that loosens the spawn profile. The default profile, whic
 ## Design
 
 - **Where the key lives.** `[projects."<abs path>"] policy = "omp" | "cedian"` in the user's `cedian.toml` (row E made that the only settings file, so a repository cannot opt itself in). The key is canonicalized at load. A key that is relative, or names a directory that does not exist, gives a note ("project key … ignored: …; default profile") and the default profile. A `cedian.toml` that fails its schema check refuses the command (row E), which is stricter than ADR-0035 decision 6's "default profile applies".
-- **Resolved per workspace, once.** `cedian_shell::Settings` gains `policy: Policy` (`Cedian` default, `Omp`) resolved for the canonical workdir, plus `notes: Vec<String>` the CLI prints.
-- **Unattended runs cannot opt in.** `Settings::policy_for(run: RunKind)` returns `Cedian` for `RunKind::Unattended` (reviewers, automations), whatever the key says. `spawn_policy` takes the `RunKind`. No reviewer or automation exists yet, so a unit test pins the rule for when S3 and S7 add one.
+- **Resolved per run, never stored.** `Settings::policy_for(workdir, RunKind) -> PolicyChoice { policy, notes }`. There is no public resolved field, so every caller names the run kind. The CLI prints the notes.
+- **Unattended runs cannot opt in.** `RunKind::Unattended` (reviewers, automations) always gets `Cedian`, whatever the key says. No reviewer or automation exists yet, so a unit test pins the rule for when S3 and S7 add one.
+- **Keys are exact and fail closed.** A key must be absolute and already canonical as written (no symlink in it, so nothing writable can repoint it). Two keys that match the same workspace with different values give `Cedian` and a note. The opt-in is refused (note, `Cedian`) when the user's `cedian.toml` itself sits inside the workspace.
 - **Spawn profile variant.** `SpawnPolicy.approvals: Approvals` replaces `approval_mode`:
   - `Approvals::Cedian { mode: ApprovalMode, bash_patterns }` is today's profile: `--approval-mode`, `tools.approvalMode`, the `EXEC_TOOLS` prompt pins, the eval gate, `bash.patterns`, `computer.enabled: false`.
   - `Approvals::Omp` drops `--approval-mode` from argv and leaves `tools.approvalMode`, the exec prompt pins, the eval gate, `bash` and `computer` out of the overlay.
-  - Both keep the host-tool allows (ADR-0028 decision 2), the scrubbed env, the `--config` overlay file, and every cedian `Deny` from `tool_policies` (strict-wins: a cedian Deny still lands in OMP's resolver, where tool-Deny is absolute).
+  - Both keep the host-tool allows (ADR-0028 decision 2), the scrubbed env, the `--config` overlay file, every cedian `Deny` in `tool_policies`, and every `Deny` rule in `bash_patterns` (with `allowCompoundCommands: false` when there is one). Strict-wins: a cedian Deny still lands in OMP's resolver, where tool-Deny is absolute. U6 proves that live (opted-in, project yolo, `project_write = "deny"`: OMP refuses `write`).
+  - cedian `Ask` tiers (`project_write = "ask"`, `dangerous = "ask"`) do not apply under `Omp`: that is what the opt-in hands over. The CLI prints a note when the user's `cedian.toml` has an `ask` tier in an opted-in workspace.
+  - The dedupe key carries the variant, so a runtime spawned under one profile is never reused for the other.
   - `ApprovalMode` still cannot represent yolo. Under `Omp`, cedian never names a mode at all; OMP reads the user's.
-- **Badge.** In an opted-in workspace the CLI prints, before the turn: `◆ OMP policy — approvals and computer from your OMP config (approvalMode: <v>, computer: <on|off|unknown>)`. The values come from `omp config get <key> --json` run in the workspace cwd through the spawn-profile module (same binary, scrubbed env), so cedian never re-implements OMP's config merge. A failure prints `unknown`.
+- **Badge.** In an opted-in workspace the CLI prints, before the turn: `◆ OMP policy — approvals and computer from your OMP config (approvalMode: <v>, computer: <on|off>)`. The values come from `omp config get <key> --json` run through the spawn-profile module (same binary, scrubbed env, 10 s timeout), so cedian never re-implements OMP's config merge. It runs twice: in the workspace (the effective value) and in an empty temp dir (the global value). When they differ the badge says `from the project's .omp/config.yml`. Owner decision 2026-10-07: under the opt-in the project layer may set these (ADR-0035 as written); the badge names it. A failure prints `unknown — assume on`.
 - **Audit.** Every `tool_execution_start`/`tool_execution_end` the router sees during a turn appends one line to `.cedian/audit.jsonl`: `{timestamp, ordinal, item: {tool, tool_call_id, event: start|end, is_error, decision_source}}`, the §64 envelope. `decision_source` is `omp` under the opt-in and `cedian` under the default profile. Append-only; the ordinal continues from the file's line count.
-- **Card label.** Under the opt-in, the tool card line of an OMP tool (not a cedian host tool) that ran gets ` · approved by OMP`. Headless refuses every dialog, so a call that ran was not approved by a person.
+- **Card label.** Under the opt-in, the card of an exec-tier call (`EXEC_TOOLS`: a call the default profile would have prompted for) that ran gets ` · approved by OMP`. Headless refuses every dialog, so such a call was not approved by a person. At S9, where dialogs can be answered, the label and the audit row must come from the dialog record per `tool_call_id`, not from the mode.
+- **Accepted risk, recorded.** Under yolo the agent can edit `.cedian/audit.jsonl`, the user's `cedian.toml` and the global OMP config. ADR-0035 accepts this (badge, audit, per-project scope are the mitigations); Seatbelt (S3) is what makes `.cedian/` unwritable. The audit append failing fails the turn.
 
 Not done here: Seatbelt, the S3 audit tuple for cedian-gate decisions (this file gains those rows in S3), GPUI badge and settings UI (S9).
 
@@ -38,6 +42,15 @@ Not done here: Seatbelt, the S3 audit tuple for cedian-gate decisions (this file
 | U5 | Audit rows + card label | unit test on the audit envelope and ordinal; replay asserts rows and label |
 | U6 | **Exit:** record `CEDIAN_P2_RECORD=p8` (opted-in temp project, project `.omp/config.yml` yolo, prompt asks for `bash touch probe`), then replay | fixture shows a `bash` tool start/end and no `extension_ui_request`; replay: probe exists, no `refused` line, audit has `bash` with `decision_source: omp`, card says `approved by OMP`; same workspace without the key → default argv and overlay |
 | U7 | Docs: OMP_PARITY rows (approval modes, `computer`, `omp config get`), README P8 row | P7 parity test green; README row names what is live and what is headless |
+
+## Interrogate verdict (2026-10-07)
+
+Reviewers: sonnet (9 findings) and opus (9 findings); the third seat (fable) had no credits and the first round died on a session limit.
+
+- **Act on.** Both flagged that the project's `.omp/config.yml` decides yolo and `computer` under the opt-in. The owner kept ADR-0035 as written; the badge names the project layer. Opus: keep bash Deny patterns under `Omp`; prove tool-Deny holds under yolo live; refuse non-canonical keys (symlink repointing); conflicting keys fail closed; refuse the opt-in when the user file is in the workspace. Sonnet: put the variant in the dedupe key; label only calls that would have prompted; `unknown` means assume on; a timeout on `omp config get`. Both: the audit append fails the turn on error.
+- **Consider.** Sonnet: `decision_source` describes the mode, not who decided. True once dialogs can be answered (S9); recorded above as an S9 rule.
+- **Noted.** The agent can tamper with the audit log and the user's config under yolo: ADR-0035's accepted risk until Seatbelt. Ordinal races: a mutating command can't run while `cedian shell` holds the workspace, so one writer at a time.
+- **Dismissed.** Sonnet: the row E floor can create `Prompt` tool policies. It can't; the floor is workflow gates, not tool policies. Sonnet: `dedupe_key` reuse lets an unattended run attach to an opted-in child. Nothing reuses runtimes by that key today; the variant goes in the key anyway.
 
 ## Findings
 
