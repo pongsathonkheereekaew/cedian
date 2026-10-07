@@ -21,6 +21,7 @@
 //! `session.rs`). `cedian review reset` starts a new review task.
 
 mod browser_store;
+mod revert_turn;
 mod session;
 mod shell;
 mod shell_lock;
@@ -53,7 +54,7 @@ fn is_read_only(args: &[String]) -> bool {
     let sub = args.get(1).map(String::as_str);
     match args.first().map(String::as_str).unwrap_or("help") {
         "review" => sub.is_none(),
-        "state" | "palette" | "symbols" | "diagnostics" | "help" | "shell" => true,
+        "state" | "palette" | "symbols" | "diagnostics" | "help" | "shell" | "turns" => true,
         "workflow" => sub == Some("status"),
         "worker" => matches!(sub, Some("list" | "preview")),
         "browser" => sub == Some("status"),
@@ -117,6 +118,11 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
             cmd_reject(&workdir, Path::new(path), hunk)
         }
         "accept-all" => cmd_accept_all(&workdir),
+        "turns" => revert_turn::cmd_turns(&workdir),
+        "revert-turn" => {
+            let which = args.get(1).ok_or("usage: cedian revert-turn <n|last>")?;
+            revert_turn::cmd_revert_turn(&workdir, which)
+        }
         "state" => cmd_state(&session_dir, &workdir),
         "shell" if in_shell => Err("already inside cedian shell".to_string()),
         "shell" => shell::run(&session_dir, &workdir),
@@ -137,7 +143,7 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
         "worker" => cmd_worker(&workdir, &args[1..]),
         _ => {
             eprintln!(
-                "usage: cedian <prompt|shell|review|accept|reject|accept-all|state|\
+                "usage: cedian <prompt|shell|review|accept|reject|accept-all|turns|revert-turn|state|\
                 palette|symbols|diagnostics|browser|workflow|worker> …"
             );
             eprintln!("env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR, CEDIAN_OMP_BINARY");
