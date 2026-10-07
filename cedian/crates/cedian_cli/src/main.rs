@@ -545,10 +545,12 @@ pub(crate) fn run_turn(
     let task = panel.get(&task_id).ok_or("task vanished")?;
     let (_messages, cards) = cedian_agent_ui::render_thread(task.thread().events());
     for card in &cards {
-        // Headless refuses every dialog, so an exec-tier call that ran under
-        // the opt-in was approved by OMP's config, not by a person.
+        // Headless refuses every dialog, so an exec-tier call that completed
+        // under the opt-in was approved by OMP's config, not by a person. A
+        // call OMP blocks still starts and then ends in error: no label.
         let label = if approvals == cedian_omp::Approvals::Omp
             && cedian_omp::spawn_profile::EXEC_TOOLS.contains(&card.name.as_str())
+            && card.status == cedian_agent_ui::ToolCardStatus::Done
         {
             " · approved by OMP"
         } else {
