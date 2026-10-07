@@ -40,7 +40,7 @@ impl AuditLog {
             next_ordinal: complete_rows,
             source: match approvals {
                 Approvals::Omp => "omp",
-                Approvals::Cedian(_) => "cedian",
+                Approvals::Cedian(_) | Approvals::Reviewer => "cedian",
             },
         })
     }

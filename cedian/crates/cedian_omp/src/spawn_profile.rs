@@ -89,6 +89,10 @@ pub enum Approvals {
     /// sets no mode, no prompt pins and no `computer` key. Only the
     /// interactive CLI may build this; reviewers and automations never do.
     Omp,
+    /// A reviewer (ADR-0039): `always-ask`, every write and exec-tier tool
+    /// denied except `bash`, which runs only through an allow pattern; a
+    /// config `allow` cedian does not name is pinned to `deny`.
+    Reviewer,
 }
 
 impl Approvals {
@@ -96,9 +100,31 @@ impl Approvals {
         match self {
             Self::Cedian(_) => "cedian",
             Self::Omp => "omp",
+            Self::Reviewer => "reviewer",
+        }
+    }
+
+    /// The `--approval-mode` cedian passes, if it names one.
+    fn mode(self) -> Option<ApprovalMode> {
+        match self {
+            Self::Cedian(mode) => Some(mode),
+            Self::Omp => None,
+            Self::Reviewer => Some(ApprovalMode::AlwaysAsk),
         }
     }
 }
+
+/// Tools a reviewer may never run: it reads and reports, nothing else.
+const REVIEWER_DENY: &[&str] = &[
+    "edit",
+    "write",
+    "ast_edit",
+    "eval",
+    "browser",
+    "task",
+    "vibe_spawn",
+    "vibe_send",
+];
 
 /// The policy half of the profile, mapped from cedian settings by the caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +144,10 @@ pub struct SpawnPolicy {
     /// sets to `allow`. The overlay cannot delete those keys, so the default
     /// profile pins each one it does not already name (ADR-0039 decision 2).
     pub config_allows: BTreeSet<String>,
+    /// `--model` for this child; `None` leaves OMP's own routing.
+    pub model: Option<String>,
+    /// A Seatbelt profile file: the child runs under `sandbox-exec -f` it.
+    pub sandbox_profile: Option<PathBuf>,
 }
 
 impl Default for SpawnPolicy {
@@ -128,6 +158,8 @@ impl Default for SpawnPolicy {
             bash_patterns: Vec::new(),
             host_tools: BTreeSet::new(),
             config_allows: BTreeSet::new(),
+            model: None,
+            sandbox_profile: None,
         }
     }
 }
@@ -138,10 +170,19 @@ impl SpawnPolicy {
     /// a cedian Deny still wins, ADR-0012).
     fn approval_record(&self) -> Result<Map<String, Value>, OmpError> {
         let mut record = Map::new();
-        if let Approvals::Cedian(_) = self.approvals {
-            for tool in EXEC_TOOLS {
-                record.insert((*tool).to_string(), json!(ToolPolicy::Prompt.as_str()));
+        match self.approvals {
+            Approvals::Cedian(_) => {
+                for tool in EXEC_TOOLS {
+                    record.insert((*tool).to_string(), json!(ToolPolicy::Prompt.as_str()));
+                }
             }
+            Approvals::Reviewer => {
+                for tool in REVIEWER_DENY {
+                    record.insert((*tool).to_string(), json!(ToolPolicy::Deny.as_str()));
+                }
+                record.insert("bash".to_string(), json!(ToolPolicy::Prompt.as_str()));
+            }
+            Approvals::Omp => {}
         }
         for tool in &self.host_tools {
             check_tool_name(tool)?;
@@ -152,13 +193,18 @@ impl SpawnPolicy {
             }
             record.insert(tool.clone(), json!(ToolPolicy::Allow.as_str()));
         }
-        if let Approvals::Cedian(_) = self.approvals {
+        let pin = match self.approvals {
+            Approvals::Cedian(_) => Some(ToolPolicy::Prompt),
+            Approvals::Reviewer => Some(ToolPolicy::Deny),
+            Approvals::Omp => None,
+        };
+        if let Some(pin) = pin {
             // Any key OMP accepted is safe as a JSON key; MCP names may carry
             // `-` or `:`, which `check_tool_name` would refuse.
             for tool in &self.config_allows {
                 record
                     .entry(tool.clone())
-                    .or_insert_with(|| json!(ToolPolicy::Prompt.as_str()));
+                    .or_insert_with(|| json!(pin.as_str()));
             }
         }
         for (tool, policy) in &self.tool_policies {
@@ -197,10 +243,13 @@ impl SpawnPolicy {
         let approval = Value::Object(self.approval_record()?);
         let bash = json!({"patterns": patterns, "allowCompoundCommands": false});
         Ok(match self.approvals {
-            Approvals::Cedian(mode) => json!({
+            Approvals::Cedian(_) | Approvals::Reviewer => json!({
                 // Until ADR-0008's atomic landing (driver + Seatbelt + bypass test).
                 "computer": {"enabled": false},
-                "tools": {"approvalMode": mode.as_str(), "approval": approval},
+                "tools": {
+                    "approvalMode": self.approvals.mode().map(ApprovalMode::as_str),
+                    "approval": approval,
+                },
                 "bash": bash,
             }),
             Approvals::Omp if patterns.is_empty() => json!({"tools": {"approval": approval}}),
@@ -309,19 +358,40 @@ impl SpawnProfile {
         self.policy.overlay()?;
         let overlay_path = self.session_dir.join(OVERLAY_FILE);
         let overlay = check_path("overlay", &overlay_path)?;
-        let mut argv: Vec<String> = [
-            binary.as_str(),
-            "--mode",
-            "rpc-ui",
-            "--session-dir",
-            session_dir.as_str(),
-            "--cwd",
-            cwd.as_str(),
-        ]
-        .map(str::to_string)
-        .into();
-        if let Approvals::Cedian(mode) = self.policy.approvals {
+        let mut argv: Vec<String> = Vec::new();
+        if let Some(sbpl) = &self.policy.sandbox_profile {
+            let sbpl = check_path("sandbox_profile", sbpl)?;
+            argv.extend([
+                crate::sandbox::SANDBOX_EXEC.to_string(),
+                "-f".to_string(),
+                sbpl,
+            ]);
+        }
+        argv.extend(
+            [
+                binary.as_str(),
+                "--mode",
+                "rpc-ui",
+                "--session-dir",
+                session_dir.as_str(),
+                "--cwd",
+                cwd.as_str(),
+            ]
+            .map(str::to_string),
+        );
+        if let Some(mode) = self.policy.approvals.mode() {
             argv.extend(["--approval-mode".to_string(), mode.as_str().to_string()]);
+        }
+        if let Some(model) = &self.policy.model {
+            if model.is_empty()
+                || model.len() > MAX_ARG_BYTES
+                || model.chars().any(|c| c.is_control() || c.is_whitespace())
+            {
+                return Err(OmpError::InvalidSpawnProfile(format!(
+                    "bad model {model:?}"
+                )));
+            }
+            argv.extend(["--model".to_string(), model.clone()]);
         }
         argv.extend(["--config".to_string(), overlay]);
         if argv.len() > MAX_ARGS {
@@ -601,6 +671,84 @@ mod tests {
         policy.config_allows.insert("some_mcp_tool".to_string());
         let overlay = policy.overlay().unwrap();
         assert!(overlay["tools"]["approval"].get("some_mcp_tool").is_none());
+    }
+
+    fn reviewer() -> SpawnPolicy {
+        let mut policy = SpawnPolicy {
+            approvals: Approvals::Reviewer,
+            ..SpawnPolicy::default()
+        };
+        policy
+            .host_tools
+            .insert("cedian_review_finding".to_string());
+        policy.config_allows.insert("some_mcp_tool".to_string());
+        policy.bash_patterns.push(BashRule {
+            pattern: "git diff*".to_string(),
+            approval: ToolPolicy::Allow,
+        });
+        policy
+    }
+
+    #[test]
+    fn reviewer_overlay_is_read_only_and_asks_for_the_rest() {
+        let overlay = reviewer().overlay().unwrap();
+        assert_eq!(overlay["tools"]["approvalMode"], "always-ask");
+        assert_eq!(overlay["computer"]["enabled"], false);
+        let approval = &overlay["tools"]["approval"];
+        for tool in [
+            "edit",
+            "write",
+            "ast_edit",
+            "eval",
+            "browser",
+            "task",
+            "vibe_spawn",
+            "vibe_send",
+        ] {
+            assert_eq!(approval[tool], "deny", "{tool} is denied to a reviewer");
+        }
+        assert_eq!(
+            approval["bash"], "prompt",
+            "bash runs only by an allow pattern"
+        );
+        assert_eq!(approval["cedian_review_finding"], "allow");
+        assert_eq!(
+            approval["some_mcp_tool"], "deny",
+            "unnamed config allow pinned to deny"
+        );
+        assert_eq!(overlay["bash"]["patterns"][0]["match"], "git diff*");
+    }
+
+    #[test]
+    fn reviewer_argv_runs_under_sandbox_exec_on_its_model() {
+        let mut p = profile();
+        p.policy = reviewer();
+        p.policy.model = Some("opencode-go/glm-5.3".to_string());
+        p.policy.sandbox_profile = Some(PathBuf::from("/tmp/t1/reviewer.sbpl"));
+        let plan = p.plan(Vec::new()).unwrap();
+        assert_eq!(
+            plan.argv[..4],
+            [
+                "/usr/bin/sandbox-exec",
+                "-f",
+                "/tmp/t1/reviewer.sbpl",
+                "/Applications/cedian.app/Contents/Resources/omp"
+            ]
+        );
+        let after = |flag: &str| {
+            let i = plan.argv.iter().position(|a| a == flag).unwrap();
+            plan.argv[i + 1].clone()
+        };
+        assert_eq!(after("--approval-mode"), "always-ask");
+        assert_eq!(after("--model"), "opencode-go/glm-5.3");
+        assert!(plan.dedupe_key.ends_with(":reviewer"));
+    }
+
+    #[test]
+    fn model_with_control_chars_is_refused() {
+        let mut p = profile();
+        p.policy.model = Some("x\ny".to_string());
+        assert!(p.plan(Vec::new()).is_err());
     }
 
     #[test]

@@ -9,6 +9,7 @@ pub mod errors;
 pub mod event_router;
 pub mod headless_ui;
 pub mod runtime;
+pub mod sandbox;
 pub mod session;
 pub mod spawn_profile;
 
