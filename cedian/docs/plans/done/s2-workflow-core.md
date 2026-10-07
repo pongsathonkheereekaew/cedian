@@ -77,6 +77,36 @@ Proven 2026-10-07 by hermetic replay of recorded OMP turns.
 
 - ~~Verification profile through an OMP turn.~~ Done 2026-10-07 with P8: `replay_s2_verification_profile` (fixture `s2_verification_profile.jsonl`). The first recording stayed a draft because the test app's `doctor.sh` failed on a fresh instance (`app.sh list` exited 1 with no notes file); OMP reported `ok: false` and cedian refused the run, as it should. The app was fixed and the turn re-recorded.
 - ~~Gate floor from `cedian.toml` (row E).~~ Done 2026-10-07: `replay_row_e_floor_from_cedian_toml` replays the recorded S2 turn with a floor rule; OMP's `op=start` workflow carries the floor gate.
-- Benchmark run: B1–B10 approved 2026-10-07; not yet run (owner: accept ADR-0037, run later). Harness: `script/bench/run.sh` (`check` proves each predicate without a model; `BENCH_GO=1 … run` needs the owner's go). Per-turn timing: `CEDIAN_TIMING` (ADR-0037).
+- ~~Benchmark run.~~ Done 2026-10-07; results below. Harness: `script/bench/run.sh` (`check` proves each predicate without a model; `BENCH_GO=1 … run` needs the owner's go). Per-turn timing: `CEDIAN_TIMING` (ADR-0037).
   - `check all`, 2026-10-07: every predicate passes at its reference commit and fails at its start commit (B8 has no reference; it fails at its start, `ef2f8b7`). The first pass caught three harness bugs (no `tests/` dir for B3's hidden test, no `timeout` on macOS for B4, B10 checked through a CLI verb that never loads the store) and two unfair statements (B2's hidden tests call `tool_card::host_device` and exact card titles; B7's call `Registry::open` as a `Result`). The statements now name those APIs.
   - B10's approved predicate also said "README mentions the versioned store". The reference commit `09e88b6` doesn't, so that clause is dropped; the predicate checks the error names `cedian browser open`. B6 copies the reference commit's `replay_cli.rs` as hidden tests.
+
+## Benchmark results (2026-10-07, ADR-0037)
+
+First run, the baseline for S9. One run per task, as ADR-0037 sets for the first run; B6 failed and was rerun once. `script/bench/run.sh run all` at `2b2292b`, cedian release build, OMP 18.6.1 (`~/.local/bin/omp`, the pin), model `opencode-go/muse-spark-1.3-contributor`, `policy = "omp"` per task. Raw results: `script/bench/results/2026-10-07/`.
+
+| Task | Verdict | Wall | Claimed done |
+|---|---|---|---|
+| B1 | pass | 256 s | yes |
+| B2 | pass | 307 s | yes |
+| B3 | pass | 120 s | yes |
+| B4 | pass | 291 s | yes |
+| B5 | pass | 69 s | yes |
+| B6 | fail, twice | 601 s, 602 s (cut at the 600 s prompt timeout) | no |
+| B7 | pass | 203 s | yes |
+| B8 | pass | 231 s | yes |
+| B9 | pass | 440 s | yes |
+| B10 | hidden_tests_broken | 101 s | yes |
+
+Against the ADR-0037 budgets:
+- **False-done: 0 of 10** (budget 0). B6 never claimed done. B10 claimed done and, on review, did the task: with one line added to the reference test's `BrowserHead` initializer (the agent stored `snapshot_version` as a struct field; the reference did not), the reference tests and the purpose-written reset test pass (3 passed). The owner rules on B10.
+- **cedian overhead per turn: median 28 ms, range 14–36 ms, 9 turns** (budget: median under 1 s, any turn under 3 s). Overhead = turn total minus OMP's time, from the CLI timing rows; context assembly 3–8 ms, post-turn 11–28 ms. Spawn is separate, since the harness uses one-shot `cedian prompt`, not a warm shell: median 966 ms, range 912–1130 ms.
+- **Time-to-usable-result** (no budget on the first run): median 244 s over the 8 passes, range 69–440 s. S9 compares against this per task; more than 25% slower is a regression.
+
+Checklist notes:
+- **Limiter.** OMP's model time is over 99% of every turn; cedian's share is milliseconds.
+- **Machine.** Load average 2.3–6 on 8 cores during the runs, with a system StorageManagement process near 94% CPU that could not be stopped. Wall times carry that noise; the overhead numbers are too small to be moved by it.
+- **Work happened.** Each verdict comes from the predicate run on the agent's own tree after the turn: hidden tests spliced in, plus `cargo test --workspace`.
+- **One run per task.** A single run per task can flip on model variance, so the per-task wall times are a baseline, not a distribution.
+- **B6.** Both runs hit cedian's 600 s one-shot prompt timeout. In the second run the result compiled and 2 of 3 hidden tests passed. The timeout error printed "after 0ns" (ROADMAP Follow-ups).
+
