@@ -14,7 +14,7 @@ Exit (ROADMAP S9 is the contract): `cargo run -p cedian -- …` → onboard → 
 |---|---|---|---|
 | **A. Foundation** | | | |
 | U1 | Move all code into the fork (ADR-0042): crates, `vendor/`, bench, `OMP_PARITY.md`; workspace members; dependency and lint fixes; fork-side check script | in the fork, every cedian crate's tests pass (`script/cedian-check`), the replays included; this repo builds nothing and AGENTS.md points at the fork | 1 |
-| U2 | Fork hygiene: rebase `cedian/s9` onto current upstream `main`; record cadence and conflict owner; GPL audit note for a redistributed binary | the app builds after the rebase; docs name the cadence and the owner | 1 |
+| U2 | Fork hygiene: bring current upstream `main` into `cedian/s9` (merge, owner 2026-10-07: the branch is published, so no rebase); record cadence and conflict owner; GPL audit note for a redistributed binary | the app builds after the rebase; docs name the cadence and the owner | 1 |
 | U3 | App shell: `cargo run -p cedian` starts OMP through the spawn profile with no terminal; settings from the user's `cedian.toml`; crash isolation (OMP dies → panel shows it, IDE lives) | gpui test with fake OMP: launch → ready; kill OMP → panel error, app alive; restart restores the session | 1.5 |
 | U3a | OMP settings page ([ADR-0040](../decisions/0040-omp-settings-mirror-omp-config.md)): read and write OMP's own settings through OMP, live on `config_update`, the layer of each value shown, the spawn overlay shown as "set by cedian"; a "Model roles" section ([ADR-0039](../decisions/0039-model-roles-and-independent-review.md) decision 2); sessions shared with the OMP CLI through `open_session` | gpui test with fake OMP: a `config_update` re-reads the page; a shadowed write says by what; `omp config set` accepts one `modelRoles` entry, or the section is read-only (finding recorded) | 1.5 |
 | **B. Agent loop native** | | | |
@@ -40,7 +40,16 @@ Exit (ROADMAP S9 is the contract): `cargo run -p cedian -- …` → onboard → 
 - **History.** Files are copied in one commit that names the source commit here (`git filter-repo` is not installed). This repo's history keeps everything before the move.
 - **Checks.** `script/cedian-check` in the fork runs `cargo fmt --check`, `clippy` and `test` for the cedian crates only, so a check does not build all of Zed. This repo's pre-commit hook stops running cargo.
 
+## Upstream sync (U2)
+
+- **How:** merge upstream `main` into `cedian/s9`; never rebase a published branch (owner, 2026-10-07).
+- **Cadence:** weekly, and before any release build (owner, 2026-10-07).
+- **Conflict owner:** the agent doing the sync resolves conflicts. A sync is done when `script/cedian-check` passes and the app builds (`cargo build -j4 -p zed --bin cedian --features gpui_platform/runtime_shaders`). A change to cedian's patches in Zed core goes to the owner.
+- **Zed core footprint at the first sync:** `Cargo.toml`, `Cargo.lock`, `crates/paths/src/paths.rs`, `crates/zed/{Cargo.toml,src/main.rs,src/zed.rs}`.
+- **GPL note:** cedian is for the owner's personal use and is not redistributed (owner, 2026-10-07), so licensing is deferred. Before any redistribution: the cedian crates declare a license (only `cedian_panel` does, GPL-3.0-or-later), Zed's `script/check-licenses` must pass (it fails today on every cedian crate and on MIT `vendor/omp-rpc`), and the bundled OMP's license ships with it. ROADMAP Follow-ups tracks it.
+
 ## Progress
 
+- **U2 done (2026-10-07).** Upstream `main` (35 commits, to 2026-10-07) merged without conflicts in fork `52a2e8fe0f`; the app builds (4 min 5 s warm, 2.7 GB peak) and `script/cedian-check` passes on the merged tree; the first fork CI run passed.
 - **U1 done (2026-10-07).** Fork commits `00ab4c66d7` (the move), `3f446e30b6` (CI, guardrails, build-omp), `26814bc04c` (ADR renumbering), `a7e8478977` (S3 conformance to ADR-0039, done while the code was moving). `script/cedian-check` passes 258 tests and 14 replays with no real OMP on PATH; `cedian_panel` checks. This repo is docs only (`fa03403`).
 
