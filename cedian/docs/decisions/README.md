@@ -48,3 +48,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0042](0042-all-code-moves-into-the-fork.md) | All cedian code moves into the fork; this repo keeps the docs |
 | [0043](0043-reviewer-sandbox-private-state-no-credentials.md) | The reviewer writes only its own run directory, cannot read credentials, and gets a fixed tool set |
 | [0044](0044-cedian-state-outside-the-workspace.md) | cedian's per-workspace state lives outside the workspace |
+| [0045](0045-omp-settings-live-by-watching-config-sources.md) | The OMP settings page stays live by watching OMP's config files; sources are derived through OMP |
