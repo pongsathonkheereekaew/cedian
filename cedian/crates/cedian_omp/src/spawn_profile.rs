@@ -385,7 +385,7 @@ pub fn omp_config_get(
             let _ = child.wait();
             return Err(OmpError::Timeout {
                 command: format!("config get {key}"),
-                after: timeout,
+                after: Some(timeout),
             });
         }
         std::thread::sleep(std::time::Duration::from_millis(25));

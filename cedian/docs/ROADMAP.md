@@ -88,7 +88,6 @@ Known gaps that no slice exit names yet. Each row has the slice it must be settl
 |---|---|---|
 | cedian spawns the first `omp` on PATH (or `CEDIAN_OMP_BINARY`) and never checks its version against the pin (ADR-0003). This machine has the pinned 18.6.1 in `~/.local/bin` and Homebrew's 18.7.0; on 18.7.0 the live smoke test fails at P3, because `read` adds a `1:` line prefix to host-URI content | `crates/cedian_cli/src/main.rs` `resolve_on_path`, `crates/cedian_omp/tests/smoke_real_omp.rs:89` | S9 (bundled pinned OMP); the 18.7 prefix with the next pin bump |
 | The one-shot prompt timeout is a fixed 600 s; both B6 runs were cut there mid-task | `crates/cedian_cli/src/main.rs` (`prompt_timeout`), S2 benchmark | S9 (long turns in the app) |
-| An OMP command timeout prints "timed out after 0ns": the conversion from the vendored client error drops the duration | `crates/cedian_omp/src/errors.rs:86` | S3 |
 | A call headless denied still makes earlier evidence born stale, though it changed nothing | [S2 plan](plans/done/s2-workflow-core.md) findings | S9 (row H) |
 | The S0 row names no remaining gap: recheck its exit, then flip it or name the gap | README S0 row | S3 |
 | `worker steer` sets status and appends a note; it does not start a turn in the worker's session | [S5 plan](plans/done/s5-parallel-workers.md) | S9 (S5 exit) |

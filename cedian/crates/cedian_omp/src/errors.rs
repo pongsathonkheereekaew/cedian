@@ -22,7 +22,11 @@ pub enum OmpError {
         code: Option<String>,
     },
     /// No response within the deadline.
-    Timeout { command: String, after: Duration },
+    /// `after` is `None` when the wait is the client's own, unknown here.
+    Timeout {
+        command: String,
+        after: Option<Duration>,
+    },
     /// Stream ended before the prompt's `prompt_result`.
     StreamEnded { prompt_id: String },
     /// Spawn profile failed validation or its overlay could not be written
@@ -56,13 +60,31 @@ impl fmt::Display for OmpError {
             } => {
                 write!(f, "OMP command {command} failed: {error}")
             }
-            Self::Timeout { command, after } => {
-                write!(f, "OMP command {command} timed out after {after:?}")
-            }
+            Self::Timeout {
+                command,
+                after: Some(after),
+            } => write!(f, "OMP command {command} timed out after {after:?}"),
+            Self::Timeout {
+                command,
+                after: None,
+            } => write!(f, "OMP command {command} timed out"),
             Self::StreamEnded { prompt_id } => {
                 write!(f, "OMP stream ended before prompt {prompt_id} completed")
             }
             Self::InvalidSpawnProfile(e) => write!(f, "invalid OMP spawn profile: {e}"),
+        }
+    }
+}
+
+impl OmpError {
+    /// Name the wait on a timeout from a call whose deadline the caller set.
+    pub fn with_timeout(self, after: Duration) -> Self {
+        match self {
+            Self::Timeout { command, .. } => Self::Timeout {
+                command,
+                after: Some(after),
+            },
+            other => other,
         }
     }
 }
@@ -85,11 +107,33 @@ impl From<omp_rpc::client::Error> for OmpError {
             },
             omp_rpc::client::Error::Timeout { command } => Self::Timeout {
                 command,
-                after: Duration::from_secs(0),
+                after: None,
             },
             omp_rpc::client::Error::Closed => Self::Transport("server closed".to_string()),
             omp_rpc::client::Error::Protocol(msg) => Self::Transport(msg),
             omp_rpc::client::Error::InvalidArgument(msg) => Self::Transport(msg),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn client_timeout() -> OmpError {
+        OmpError::from(omp_rpc::client::Error::Timeout {
+            command: "prompt".to_string(),
+        })
+    }
+
+    #[test]
+    fn client_timeout_never_claims_a_zero_wait() {
+        assert_eq!(client_timeout().to_string(), "OMP command prompt timed out");
+    }
+
+    #[test]
+    fn timeout_names_the_wait_when_the_caller_knows_it() {
+        let e = client_timeout().with_timeout(Duration::from_secs(600));
+        assert_eq!(e.to_string(), "OMP command prompt timed out after 600s");
     }
 }
