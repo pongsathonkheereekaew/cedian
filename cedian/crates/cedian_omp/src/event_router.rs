@@ -98,6 +98,14 @@ pub struct LogEntry {
     pub event: RouterEvent,
 }
 
+/// A tool call the log saw start and end; see [`EventRouter::finished_tool_call`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinishedToolCall {
+    pub tool_name: String,
+    pub args_preview: String,
+    pub is_error: bool,
+}
+
 /// Single fan-out point: classifies session events, appends to the log, and
 /// broadcasts to subscribers. Reader-thread safe (`parking_lot::Mutex`, no await).
 pub struct EventRouter {
@@ -169,6 +177,43 @@ impl EventRouter {
             .into_iter()
             .filter(|id| !ended.contains(id))
             .collect()
+    }
+
+    /// The finished call `tool_call_id` as the log saw it: name and args
+    /// preview from its `ToolStart`, `is_error` from its `ToolEnd`. `None`
+    /// while the call is unknown or still running. Host-tool evidence checks
+    /// read this (P5, ADR-0022) — the log is the only witness, never the agent.
+    pub fn finished_tool_call(&self, tool_call_id: &str) -> Option<FinishedToolCall> {
+        let inner = self.inner.lock();
+        let mut start: Option<(String, String)> = None;
+        for entry in &inner.log {
+            match &entry.event {
+                RouterEvent::ToolStart {
+                    tool_call_id: id,
+                    tool_name,
+                    args_preview,
+                } if id == tool_call_id => {
+                    start = Some((tool_name.clone(), args_preview.clone()));
+                }
+                RouterEvent::ToolEnd {
+                    tool_call_id: id,
+                    tool_name,
+                    is_error,
+                    ..
+                } if id == tool_call_id => {
+                    let (name, preview) = start
+                        .take()
+                        .unwrap_or_else(|| (tool_name.clone(), String::new()));
+                    return Some(FinishedToolCall {
+                        tool_name: name,
+                        args_preview: preview,
+                        is_error: *is_error,
+                    });
+                }
+                _ => {}
+            }
+        }
+        None
     }
 
     fn push(&self, event: RouterEvent) {
@@ -392,6 +437,38 @@ mod tests {
 
     fn agent_event(json: serde_json::Value) -> RpcAgentEvent {
         RpcAgentEvent::from_value(json).expect("valid agent event")
+    }
+
+    #[test]
+    fn finished_tool_call_needs_a_tool_end() {
+        let router = EventRouter::new();
+        let start = |id: &str, name: &str| RouterEvent::ToolStart {
+            tool_call_id: id.into(),
+            tool_name: name.into(),
+            args_preview: format!("{name} args"),
+        };
+        let end = |id: &str, name: &str, is_error| RouterEvent::ToolEnd {
+            tool_call_id: id.into(),
+            tool_name: name.into(),
+            result_summary: String::new(),
+            is_error,
+        };
+        router.push(start("ok", "bash"));
+        router.push(start("bad", "bash"));
+        router.push(start("open", "bash"));
+        router.push(end("ok", "bash", false));
+        router.push(end("bad", "bash", true));
+        assert_eq!(
+            router.finished_tool_call("ok"),
+            Some(FinishedToolCall {
+                tool_name: "bash".into(),
+                args_preview: "bash args".into(),
+                is_error: false,
+            })
+        );
+        assert!(router.finished_tool_call("bad").unwrap().is_error);
+        assert_eq!(router.finished_tool_call("open"), None);
+        assert_eq!(router.finished_tool_call("nope"), None);
     }
 
     #[test]
