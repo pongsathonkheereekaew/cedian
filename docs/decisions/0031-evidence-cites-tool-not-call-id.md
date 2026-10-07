@@ -1,9 +1,9 @@
 # ADR-0031: Evidence names the tool; cedian resolves the call id from the router log
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-10-07)
 - **Date:** 2026-10-07
 - **Supersedes in part:** [ADR-0022](0022-host-tool-first.md) decision 2 (how evidence references a call; the invariant stays)
-- **Rule text:** [ARCHITECTURE.md](../ARCHITECTURE.md) §53, §55
+- **Rule text:** [ARCHITECTURE.md](../ARCHITECTURE.md) chapter on the workflow split ("OMP reports … through host tools"), §53, §55
 - **Evidence:** P5 live recording, OMP 18.7.0 (`crates/cedian_cli/tests/replay_cli.rs` channel scenario)
 
 ## Context

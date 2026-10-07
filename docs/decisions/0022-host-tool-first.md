@@ -36,3 +36,4 @@ The spike proved that the model discovers cedian host tools (mounted under `xd:/
 - Host tool descriptions plus the ambient context must tell the model when to call them (e.g. "a cedian workflow is active: call `cedian_complete` before declaring the task done"). Behavior is verified by the fake-omp replay harness (hermetic) and the live lane, never assumed.
 - `set_host_tools` replaces the whole set (ADR-0004), so the runtime always registers the complete cedian tool list in one call.
 - **Superseded in part by ADR-0027:** decision 4's OMP-side TypeScript items are dropped; native edits are imported from disk, Plan runs as a separate runtime.
+- **Superseded in part by ADR-0031:** decision 2's reference mechanism — the model never sees `tool_call_id`s, so the agent names the tool and cedian resolves the id from the router log; the invariant (attributed only through a log entry) is unchanged.
