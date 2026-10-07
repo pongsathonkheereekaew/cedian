@@ -597,7 +597,7 @@ Speed is measured, not claimed ([ADR-0026](decisions/0026-fast-lane.md)): UI fra
 
 ### Headless process shape (pre-S9)
 
-All headless work that needs live state (an open OMP session, a browser tab, a warm language server, a scheduler) runs inside ONE foreground `cedian shell` process per workspace; one-shot CLI commands are limited to store-backed or stateless operations and refuse to mutate while a live shell holds `.cedian/shell.lock`. Not a daemon — it dies with its terminal ([ADR-0021](decisions/0021-headless-host-process.md)).
+All headless work that needs live state (an open OMP session, a browser tab, a warm language server, a scheduler) runs inside ONE foreground `cedian shell` process per workspace; one-shot CLI commands are limited to store-backed or stateless operations and refuse to mutate while a live shell holds `shell.lock` in the workspace's state dir ([ADR-0044](decisions/0044-cedian-state-outside-the-workspace.md)). Not a daemon — it dies with its terminal ([ADR-0021](decisions/0021-headless-host-process.md)).
 
 ---
 

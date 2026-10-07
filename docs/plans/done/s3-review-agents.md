@@ -50,8 +50,8 @@ Every gate item and exit clause, and the test that shows it (`cargo test --works
 | Item | Evidence |
 |---|---|
 | G1 spawn profile strict; ADR-0028 gap closed | unit `config_allow_for_an_unnamed_tool_is_pinned_to_prompt`; replay `replay_cli_user_edit_over_agent_hunk_is_stale` finds a project `allow` for `some_mcp_tool` pinned to `prompt` in the generated overlay (fails without the wiring); live `live_spawn_profile` passes on OMP 18.6.1 |
-| G2 reviewer Seatbelt profile, bypass-proof | `reviewer_sandbox`: a real `sandbox-exec` refuses workspace writes and a non-allow-listed exec with EPERM, while allow-listed commands and session writes work; fails with the workspace deny removed; live case completes an OMP turn under the profile |
-| G3 allow-list in the user's `cedian.toml` | `reviewer_allow_list` becomes the reviewer's `bash.patterns` allows and its `process-exec` rules (`allow_list_becomes_allow_patterns`, sandbox golden test) |
+| G2 reviewer Seatbelt profile, bypass-proof | `reviewer_sandbox`: a real `sandbox-exec` refuses workspace writes, a non-allow-listed exec, writes outside the reviewer's run dir (a temp root, its own profile and overlay) and reads of a credential file, while allow-listed commands and run-dir writes work; the last two cases failed on the ADR-0041 profile; live case completes an OMP turn under the ADR-0043 profile with OMP's state in the run dir |
+| G3 allow-list in the user's `cedian.toml` | `reviewer_allow_list` becomes the reviewer's exact `bash.patterns` allows and its `process-exec` rules (`allow_list_becomes_exact_allow_patterns`, `profile_writes_only_the_run_dir_and_denies_the_workspace_last`); an executable the agents can write is refused |
 | G4 audit tuple for every cedian-gate decision, `abstain` included | `replay_p5_worktree_request_and_headless_deny` reads the file back: ordinals in order, `deny` for the refused `bash`, `allow` for the served host tool; unit cases for `abstain` and two open logs |
 | An OMP turn spawns a reviewer under the reviewer profile, fresh context, different model | `replay_s3_review_agent_blocker` (recorded live): reviewer overlay `always-ask` with `edit` denied, `sandbox-exec` profile ending in the workspace deny, model glm-5.3 (implementer muse-spark-1.3) |
 | Findings arrive through `cedian_review_finding` and attach to the hunk they name | same replay: the blocker is bound to `    return a - b` in `/add.py`; unit cases refuse a finding outside every hunk |
@@ -69,6 +69,25 @@ Every gate item and exit clause, and the test that shows it (`cargo test --works
 - **Seatbelt prototype passed vacuously once:** the workspace sat under `/private/tmp`, which the profile allows. The generated profile denies the workspace last.
 
 Since the move (ADR-0042) these tests run in the fork with `script/cedian-check`.
+
+## Security review (2026-10-07)
+
+An independent review of S3 by three models (opus, fable, sonnet) through `pstack:interrogate`. Each claim was checked against the code before it was acted on. Owner rulings, in chat: fix the Act On and Consider items; deny credential reads and keep the network open (ADR-0043); move cedian's state out of the workspace (ADR-0044).
+
+| Finding (models) | Fixed by | Test ("red" = run and seen failing on the old code) |
+|---|---|---|
+| The reviewer could write `/private/tmp`, `/private/var/folders` and `~/.omp/run/daemons`; under the default session dir that included `roles/` (it could pick its own review model), its overlay and the implementer's session (all three) | ADR-0043 decisions 1–2, fork `2590629559` | `writes_outside_the_run_dir_are_denied_by_the_kernel` (red) |
+| Credential files readable, network open (all three) | ADR-0043 decisions 3–4 (network stays open, accepted) | `credential_reads_are_denied_by_the_kernel` (red) |
+| The approval pin covered only the allows read before spawn; project MCP servers, extensions and unpinned built-ins still loaded (all three) | ADR-0043 decision 5; live: the reviewer lists only `read`, `grep`, `glob`, `bash` | `reviewer_argv_runs_under_sandbox_exec_on_its_model`, `reviewer_overlay_is_read_only_and_asks_for_the_rest` (new assertions) |
+| Reviewer messages unbounded; `count` overflowed `usize` (all three) | ADR-0043 decision 7 | `reviewer_text_is_bounded_to_one_line` (red: panicked on the overflow), `a_review_records_at_most_its_limit` (red) |
+| The implementer could rewrite `.cedian/` findings, evidence, audit and ledger (fable, sonnet) | ADR-0044, fork `8be3169fd1` | `replay_s3_review_agent_blocker` asserts no `.cedian/` in the workspace |
+| `git diff*`-style prefix patterns (all three) | ADR-0043 decision 6 | `allow_list_becomes_exact_allow_patterns` |
+| Non-canonical session dir; symlink into the workspace (all three) | `reviewer_dir` and `ReviewerSandbox::profile` canonicalize | `reviewer_dir_must_resolve_outside_the_workspace`, `quotes_relative_and_non_canonical_paths_are_refused` |
+| Audit log opened after the turn; an audit error left the reviewer running; reviewer rows had no arguments (fable, sonnet) | open before spawn, shut down before `?`, `args` on reviewer rows | `two_logs_on_one_file_share_the_ordinal_sequence` (new assertions) |
+| Ledger ids raced; an unreadable class store was wiped; an enforced class could be downgraded; dismissals never formed a class (fable, sonnet) | file lock, NotFound-only, enforced-only replacement, dismissal records its turn | `concurrent_records_get_distinct_ids` (red: corrupted the ledger), `an_unreadable_class_store_is_never_overwritten` (red), `an_enforced_class_is_not_replaced_by_a_weaker_one` (red) |
+| `omp config get` blocked on a full pipe (opus) | stdout drained on a thread | none (no record that large to replay) |
+
+Dismissed: "the sandbox tests only compare strings" (opus, sonnet). `reviewer_sandbox.rs` already ran four kernel tests. Open, in ROADMAP Follow-ups: reviewer network egress, `mach-lookup` narrowing, and ADR-0012's other protected paths.
 
 ## Open after S3
 

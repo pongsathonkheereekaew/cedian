@@ -46,3 +46,5 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0040](0040-omp-settings-mirror-omp-config.md) | The OMP settings page mirrors OMP's config; OMP's CLI and cedian edit the same state |
 | [0041](0041-reviewer-is-a-host-spawned-omp-process.md) | A reviewer is a separate OMP process that cedian spawns at OMP's request |
 | [0042](0042-all-code-moves-into-the-fork.md) | All cedian code moves into the fork; this repo keeps the docs |
+| [0043](0043-reviewer-sandbox-private-state-no-credentials.md) | The reviewer writes only its own run directory, cannot read credentials, and gets a fixed tool set |
+| [0044](0044-cedian-state-outside-the-workspace.md) | cedian's per-workspace state lives outside the workspace |
