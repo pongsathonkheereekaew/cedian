@@ -19,7 +19,7 @@ use crate::{resolve_on_path, EventRouter, OmpError, SessionBinding, SpawnPolicy,
 use omp_rpc::{
     AbortCommand, Client, ClientOptions, Event, GetStateCommand, HostTool, HostUri, ImageContent,
     NewSessionCommand, OpenSessionCommand, OpenSessionResult, PromptCommand, PromptTurn,
-    RpcNotification, SessionState, SetAskDialogCommand, SetModelCommand, SteerCommand,
+    RpcInbound, RpcNotification, SessionState, SetAskDialogCommand, SetModelCommand, SteerCommand,
 };
 use std::{
     path::PathBuf,
@@ -84,6 +84,15 @@ pub struct OmpRuntime {
     stop: Arc<AtomicBool>,
     pump: Option<JoinHandle<()>>,
     config: RuntimeConfig,
+    headless: Arc<HeadlessUi>,
+}
+
+/// `deny_ui_requests` state shared with the pump thread.
+#[derive(Default)]
+struct HeadlessUi {
+    enabled: AtomicBool,
+    /// Labels of the dialogs answered fail-closed, oldest first.
+    refused: parking_lot::Mutex<Vec<String>>,
 }
 
 impl OmpRuntime {
@@ -121,12 +130,26 @@ impl OmpRuntime {
         // responses are consumed inside the vendored client, never here.
         let pump_router = Arc::clone(&router);
         let pump_stop = Arc::clone(&stop);
+        let headless = Arc::new(HeadlessUi::default());
+        let pump_headless = Arc::clone(&headless);
+        // Weak: `shutdown` needs the only strong ref to take the client.
+        let pump_client = Arc::downgrade(&client);
         let pump = std::thread::spawn(move || {
             for event in events {
                 if pump_stop.load(Ordering::Relaxed) {
                     break;
                 }
                 if let Event::Notification(frame) = event {
+                    if let RpcNotification::ExtensionUiRequest(request) = &frame {
+                        if pump_headless.enabled.load(Ordering::Relaxed) {
+                            if let (Some((reply, label)), Some(client)) =
+                                (crate::headless_answer(request), pump_client.upgrade())
+                            {
+                                let _ = client.send(&RpcInbound::ExtensionUiResponse(reply));
+                                pump_headless.refused.lock().push(label);
+                            }
+                        }
+                    }
                     pump_router.dispatch_notification(&frame);
                 }
             }
@@ -140,6 +163,7 @@ impl OmpRuntime {
             stop,
             pump: Some(pump),
             config,
+            headless,
         };
         if runtime.config.ask_dialog {
             runtime
@@ -148,6 +172,19 @@ impl OmpRuntime {
                 .map_err(OmpError::from)?;
         }
         Ok(runtime)
+    }
+
+    /// No UI will ever answer: from now on every OMP dialog that expects a
+    /// reply is answered fail-closed by the pump (approvals denied, confirms
+    /// declined, the rest dismissed) instead of stalling the turn until
+    /// `prompt_timeout`. Headless callers only — the app answers with real UI.
+    pub fn deny_ui_requests(&self) {
+        self.headless.enabled.store(true, Ordering::Relaxed);
+    }
+
+    /// Drain the labels of dialogs answered by [`Self::deny_ui_requests`].
+    pub fn take_refused_ui_requests(&self) -> Vec<String> {
+        std::mem::take(&mut *self.headless.refused.lock())
     }
 
     /// A cheap, cloneable handle for `steer`/`abort` from another thread while

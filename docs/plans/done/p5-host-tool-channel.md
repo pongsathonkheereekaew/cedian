@@ -1,6 +1,6 @@
 # P5 — Host-tool channel plan
 
-Exit (ROADMAP P5, ADR-0022): OMP reports to cedian through three host tools — `cedian_workflow_update`, `cedian_complete`, `cedian_worktree_request` — and evidence submitted through them is `attributed` only when cedian binds it to a router-log call with a successful `ToolEnd` that is not itself a channel call (the agent names the tool, cedian resolves the id — [ADR-0031](../decisions/0031-evidence-cites-tool-not-call-id.md)). Proven by a hermetic fake-omp replay of a recorded OMP turn (§86). No OMP change.
+Exit (ROADMAP P5, ADR-0022): OMP reports to cedian through three host tools — `cedian_workflow_update`, `cedian_complete`, `cedian_worktree_request` — and evidence submitted through them is `attributed` only when cedian binds it to a router-log call with a successful `ToolEnd` that is not itself a channel call (the agent names the tool, cedian resolves the id — [ADR-0031](../../decisions/0031-evidence-cites-tool-not-call-id.md)). Proven by a hermetic fake-omp replay of a recorded OMP turn (§86). No OMP change.
 
 **Timebox:** 2 working sessions. **Partial exit:** commit what is green (unit-level channel + router check first, replay second); anything unproven goes to README as the named gap.
 
@@ -48,4 +48,8 @@ The live model has refused `xd://` host tools as untrusted (seen recording P4). 
 
 - The model never sees `tool_call_id`s → ADR-0031 (agent names the tool, cedian resolves the id).
 - Asked to cite its own report as evidence, the model refuses to self-certify, so the self-cite path is unit-tested, not replayed.
-- Gap, outside P5: nothing answers OMP's approval `extension_ui_request` in headless mode, so an exec tool hangs the turn until `prompt_timeout` (600 s) instead of failing closed. Needs a policy decision (auto-deny headless vs. a shell prompt; ADR-0012, §63).
+- Nothing answered OMP's approval `extension_ui_request` in headless mode, so an exec tool hung the turn until `prompt_timeout` (600 s). Owner decision: headless fails closed. `OmpRuntime::deny_ui_requests` (CLI + shell) answers approvals Deny, confirms false, dismisses the rest, and the CLI prints each refusal; replayed in `replay_p5_worktree_request_and_headless_deny`.
+
+## Outcome
+
+All tasks green. T5 is two replays: `p5_channel.jsonl` (workflow + attribution + complete refusal) and `p5_worktree.jsonl` (worktree request + headless deny).
