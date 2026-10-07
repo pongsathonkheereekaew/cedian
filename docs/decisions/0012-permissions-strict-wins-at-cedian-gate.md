@@ -20,6 +20,7 @@ OMP approvals default to YOLO; OMP's own resolver order is not "strict-wins" and
 Linux replication is out of scope (macOS-only). Open item: the runtime does not set `approvalMode` yet — S3 gate 1.
 
 - **Amended by ADR-0020 (how):** RPC cannot set approval policy; strictness is applied through the spawn profile (`--approval-mode` + generated `--config` overlay).
+- **Superseded in part by ADR-0035:** configuring OMP strict at spawn is the default, not the only mode; strict-wins at the cedian gate is unchanged in every mode.
 
 ## Original research notes (verbatim from the 2026-10-06 plan)
 

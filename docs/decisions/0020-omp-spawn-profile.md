@@ -42,3 +42,4 @@ ADR-0012 and §63 say the runtime "MUST set `approvalMode` + `approval.*` + `bas
 - Fixes the two active violations with a small, local change in `cedian_omp` + the CLI.
 - `--no-lsp` is NOT used now: it would remove OMP's `lsp` tool, which the model expects (§21). Revisit at S9 when Zed's LSP backs `cedian://` (stand-in row B).
 - Every new strictness knob goes into the overlay generator, never into ad-hoc spawn flags.
+- **Superseded in part by ADR-0035:** decisions 2–3 describe the default profile. A project can opt in to OMP's own approval mode (`approval = "omp"`) and to OMP's `computer` (`computer = "omp"`) in `cedian.toml`.

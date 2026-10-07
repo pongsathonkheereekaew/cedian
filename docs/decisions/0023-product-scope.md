@@ -30,3 +30,5 @@ A review on 2026-10-06 asked the owner to pin down what cedian is before impleme
 - "Better than Cursor" is claimed only on verification, review rigor, control and safety — not on breadth, extensions or completion quality.
 - **Refined by ADR-0026:** "better AND faster" — rigor is proportional to risk, inline edit and revert turn are core, and speed claims are benchmarked against Cursor.
 - **Superseded in part by ADR-0027:** the "OMP fork: minimal" row is now "no OMP fork"; only Zed is forked.
+- **Refined by ADR-0034:** the identity line is now "a Cursor-style agentic IDE built for OMP, with full OMP feature parity"; Cursor-style means workflow and product features, mapped in ROADMAP.
+- **Refined by ADR-0035:** the "Default autonomy" row is the default profile; a project can opt in to OMP's own approval mode and `computer` in `cedian.toml`.
