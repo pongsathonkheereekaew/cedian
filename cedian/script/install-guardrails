@@ -1,7 +1,7 @@
 #!/bin/sh
 # git-guardrails: block destructive git commands from agents.
-# Installs .git/hooks/pre-push (blocks force-push) + .git/hooks/pre-commit
-# (symlink to script/pre-commit: fmt + clippy + hermetic tests).
+# Installs .git/hooks/pre-push (blocks force-push). This repo holds docs only
+# (ADR-0042); the code's checks live in the fork (script/cedian-install-guardrails).
 # Human override: run the git command yourself — hooks only bind agents.
 set -eu
 
@@ -23,8 +23,7 @@ done
 exit 0
 EOF
 chmod +x "$HOOK_DIR/pre-push"
-ln -sf ../../script/pre-commit "$HOOK_DIR/pre-commit"
-echo "git-guardrails: pre-push non-ff guard + pre-commit gate installed in $HOOK_DIR"
+echo "git-guardrails: pre-push non-ff guard installed in $HOOK_DIR"
 echo "Policy (enforced via AGENTS.md prefs, deterministic where possible):"
 echo "  - NEVER agent-runnable: git push --force/-f, git reset --hard, git clean -fd/-f, git branch -D, git checkout . / git restore ."
 echo "  - Destructive ops need explicit human approval per session."

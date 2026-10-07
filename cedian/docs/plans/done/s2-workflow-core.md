@@ -77,13 +77,13 @@ Proven 2026-10-07 by hermetic replay of recorded OMP turns.
 
 - ~~Verification profile through an OMP turn.~~ Done 2026-10-07 with P8: `replay_s2_verification_profile` (fixture `s2_verification_profile.jsonl`). The first recording stayed a draft because the test app's `doctor.sh` failed on a fresh instance (`app.sh list` exited 1 with no notes file); OMP reported `ok: false` and cedian refused the run, as it should. The app was fixed and the turn re-recorded.
 - ~~Gate floor from `cedian.toml` (row E).~~ Done 2026-10-07: `replay_row_e_floor_from_cedian_toml` replays the recorded S2 turn with a floor rule; OMP's `op=start` workflow carries the floor gate.
-- ~~Benchmark run.~~ Done 2026-10-07; results below. Harness: `script/bench/run.sh` (`check` proves each predicate without a model; `BENCH_GO=1 … run` needs the owner's go). Per-turn timing: `CEDIAN_TIMING` (ADR-0037).
+- ~~Benchmark run.~~ Done 2026-10-07; results below. Harness: `script/cedian-bench/run.sh` (in the fork; was `script/bench/run.sh`` (`check` proves each predicate without a model; `BENCH_GO=1 … run` needs the owner's go). Per-turn timing: `CEDIAN_TIMING` (ADR-0037).
   - `check all`, 2026-10-07: every predicate passes at its reference commit and fails at its start commit (B8 has no reference; it fails at its start, `ef2f8b7`). The first pass caught three harness bugs (no `tests/` dir for B3's hidden test, no `timeout` on macOS for B4, B10 checked through a CLI verb that never loads the store) and two unfair statements (B2's hidden tests call `tool_card::host_device` and exact card titles; B7's call `Registry::open` as a `Result`). The statements now name those APIs.
   - B10's approved predicate also said "README mentions the versioned store". The reference commit `09e88b6` doesn't, so that clause is dropped; the predicate checks the error names `cedian browser open`. B6 copies the reference commit's `replay_cli.rs` as hidden tests.
 
 ## Benchmark results (2026-10-07, ADR-0037)
 
-First run, the baseline for S9. One run per task, as ADR-0037 sets for the first run; B6 failed and was rerun once. `script/bench/run.sh run all` at `2b2292b`, cedian release build, OMP 18.6.1 (`~/.local/bin/omp`, the pin), model `opencode-go/muse-spark-1.3-contributor`, `policy = "omp"` per task. Raw results: `script/bench/results/2026-10-07/`.
+First run, the baseline for S9. One run per task, as ADR-0037 sets for the first run; B6 failed and was rerun once. `script/cedian-bench/run.sh` (in the fork; was `script/bench/run.sh` run all` at `2b2292b`, cedian release build, OMP 18.6.1 (`~/.local/bin/omp`, the pin), model `opencode-go/muse-spark-1.3-contributor`, `policy = "omp"` per task. Raw results: `docs/benchmarks/2026-10-07/`.
 
 | Task | Verdict | Wall | Claimed done |
 |---|---|---|---|

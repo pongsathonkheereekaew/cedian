@@ -4,7 +4,7 @@
 
 Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisions/0034-identity-and-omp-parity.md).
 
-> Docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (rules) · [`docs/decisions/`](docs/decisions/) (why) · [`docs/ROADMAP.md`](docs/ROADMAP.md) (slices, exits, stand-ins, Cursor workflow coverage) · [`docs/OMP_PARITY.md`](docs/OMP_PARITY.md) (per-feature OMP coverage). This table is the only status source.
+> Docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (rules) · [`docs/decisions/`](docs/decisions/) (why) · [`docs/ROADMAP.md`](docs/ROADMAP.md) (slices, exits, stand-ins, Cursor workflow coverage) · [`cedian/OMP_PARITY.md`](https://github.com/pongsathonkheereekaew/zed/blob/cedian/s9/cedian/OMP_PARITY.md) in the fork (per-feature OMP coverage). This table is the only status source.
 > Stack lock: Rust + GPUI only in the cedian process. No TypeScript/Electron/WebView/Tauri.
 
 ## Status (slices; execution order in ROADMAP)
@@ -28,38 +28,26 @@ Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisio
 | S8 iOS track | 🔜 extension track, after v0.1 |
 | S9 Real app | 🔜 fork + GPUI binding (the only slice that yields `cedian.app`) |
 
-## Layout
+## Code, build and test
+
+All code lives in the Zed fork, [`pongsathonkheereekaew/zed`](https://github.com/pongsathonkheereekaew/zed) branch `cedian/s9` ([ADR-0042](docs/decisions/0042-all-code-moves-into-the-fork.md)); this repo holds the docs. In the fork:
 
 ```text
-crates/cedian_omp/       process + protocol boundary (runtime, event_router, session)
-crates/cedian_agent/     task / thread / state (one task = one OMP session)
-crates/cedian_agent_ui/  panel / composer / message / tool_card / ask (headless models)
-crates/cedian_workspace/ host tools + cedian:// + buffer txns + ambient context
-crates/cedian_review/    baseline + provenance + hunk accept/reject
-crates/cedian_shell/     settings + palette + session manager (headless)
-crates/cedian_cli/       throwaway harness — full loop without GPUI (dies at S9)
-crates/cedian_fake_omp/  P2 test harness: fake `omp --mode rpc-ui` (record proxy + fixture replay)
-vendor/omp-rpc/          vendored upstream Rust RPC client (pin: vendor/omp-revision.json)
-spike/                   Phase 0.5 throwaway probe (do not grow)
-script/build-omp         build pinned OMP into cedian.app (records commit/tree-hash/builder)
+crates/cedian_*        cedian's crates (headless models, OMP boundary, review, workflow, CLI harness until S9 ends)
+crates/cedian_panel    the GPUI binding (S9)
+vendor/omp-rpc         vendored upstream OMP RPC client (pin: vendor/omp-revision.json)
+cedian/OMP_PARITY.md   the OMP parity ledger, tested against the vendored wire.rs
+script/cedian-check    fmt + clippy + hermetic tests for the cedian crates only
+script/cedian-bench    the S2 benchmark harness (tasks from this repo's history)
 ```
 
-## Build / test
-
 ```sh
-cargo build --workspace
-cargo run -p cedian_cli -- state            # OMP session snapshot
-cargo run -p cedian_cli -- prompt "fix it"      # full turn (needs CEDIAN_WORKDIR)
-cargo run -p cedian_cli -- review              # pending hunks (task state: .cedian/review.json)
-cargo run -p cedian_cli -- review reset        # start a new review task
-cargo run -p cedian_cli -- shell               # P4: long-lived session (prompt/steer/abort + any verb); holds .cedian/shell.lock
-cargo test --workspace            # unit + fake-omp replay (fast, hermetic)
-cargo test -p cedian_omp -- --ignored --nocapture          # live smoke vs real omp
-cargo test -p cedian_omp --test live_spawn_profile -- --ignored --nocapture  # P1 precedence + auth
-cargo test -p cedian_fake_omp -- --ignored record_       # re-record runtime fixture (live)
-CEDIAN_P2_RECORD=cli cargo test -p cedian_cli --test replay_cli    # re-record CLI fixture (live; or =shell|channel)
-cargo test -p cedian_agent_ui -- --ignored --nocapture     # live panel + tool cards
-cargo clippy --workspace --all-targets && cargo fmt --all
+script/cedian-install-guardrails                          # pre-commit cedian-check, pre-push force guard
+script/cedian-check                                       # fmt, clippy, unit + fake-omp replays (hermetic)
+cargo run -p cedian_cli -- prompt "fix it"                # headless turn (needs CEDIAN_WORKDIR)
+cargo run -p cedian_cli -- shell                          # long-lived session
+cargo test -p cedian_omp --test live_spawn_profile -- --ignored   # live lanes need real omp
+CEDIAN_P2_RECORD=cli cargo test -p cedian_cli --test replay_cli    # re-record a fixture (live)
 ```
 
 Settings: the user's `cedian.toml` only — `$CEDIAN_CONFIG`, else
