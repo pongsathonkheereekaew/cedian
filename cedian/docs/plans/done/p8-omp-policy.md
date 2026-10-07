@@ -63,3 +63,9 @@ All units landed 2026-10-07: U1 `f3dd28e` + `6f32e26` (fail closed on doubt), U2
 - **Badge, live.** `cedian state` in an opted-in temp project against real OMP printed `approvalMode: yolo; computer: on`. Both values equal the global config on this machine, so the badge does not name the project layer there; the replay covers the case where they differ.
 - **The `ask` tier note prints in every opted-in workspace** with default permissions, because `dangerous = "ask"` is the default. It is true and short; it stays.
 - **Order changed:** U4 (badge) landed after U6, as the partial exit allowed.
+
+## Exit evidence
+
+README status row as of 2026-10-07, moved here so README keeps only the status:
+
+✅ 2026-10-07 (live recording + hermetic replay, `replay_p8_omp_policy`): a project opted in with `[projects."<path>"] policy = "omp"` in the user's `cedian.toml`, whose `.omp/config.yml` says yolo, runs `bash` with no approval dialog; the card says `approved by OMP`, `.cedian/audit.jsonl` has its rows with `decision_source: omp`, and the badge names the project layer. `replay_p8deny_omp_policy`: under the same opt-in, `project_write = "deny"` still blocks OMP's `write` (strict-wins). Keys fail closed (canonical only, conflicts, file inside the workspace); unattended runs always get the default profile (unit test; no reviewer or automation exists yet). Badge, label and audit are headless here; GPUI at S9

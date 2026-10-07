@@ -34,3 +34,9 @@ Exit (ROADMAP S9a, verbatim intent): the Zed fork builds as `cedian`; one GPUI p
 ## Findings that must become ADRs before S2
 
 Repo layout for the fork ↔ cedian crates; edit attribution mechanism (map vs `ReplicaId::AGENT` vs `action_log`); `Version` → `clock::Global` replacement plan for `cedian_workspace`; build constraints if `runtime_shaders` or memory forced changes.
+
+## Exit evidence
+
+README status row as of 2026-10-07, moved here so README keeps only the status:
+
+✅ 2026-10-07 — fork `~/src/zed` branch `cedian/s9a-spike` builds as `cedian` (runtime shaders, no Xcode); live gpui test drives the real `CedianPanel`: OMP turn through the spawn profile streams into `Thread`, OMP's own `edit` is imported as ONE transaction keyed by `tool_call_id`, one buffer undo reverts it (`cargo test -p cedian_panel -- --ignored live_` in the fork); findings → ADR-0029/0030 (layout choice pending)

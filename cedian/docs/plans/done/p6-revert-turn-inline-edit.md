@@ -35,3 +35,9 @@ Exit (ROADMAP P6, ADR-0026 decisions 2–3, made observable):
 ## Outcome
 
 All tasks green; `p6_revert.jsonl` replays the whole exit in one shell session.
+
+## Exit evidence
+
+README status row as of 2026-10-07, moved here so README keeps only the status:
+
+✅ 2026-10-07 (hermetic replay of a recorded `cedian shell` session): `edit notes.txt 2-2 …` changes only its target line; `revert-turn 2` puts a prompt turn back but keeps the line the user rewrote since (STALE, listed); reverting the revert redoes it; `turns` lists them — finding: OMP has no RPC model-role switch, so inline edit uses the session model unless `--model provider/id` (ADR-0026 asked for `smol`)
