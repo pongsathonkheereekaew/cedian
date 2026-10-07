@@ -7,6 +7,7 @@ edition = "2021"
 # Blocking/sync API like cedian_browser; CLI binds in cedian_cli, S9 later.
 
 [dependencies]
+omp-rpc = { path = "../../vendor/omp-rpc" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

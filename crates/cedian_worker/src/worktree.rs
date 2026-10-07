@@ -211,7 +211,7 @@ pub fn merge_back(repo: &Path, head: &WorkerHead, base: &str) -> Result<(), Work
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::{merge_back, merge_preview, remove, spawn};
     use crate::registry::WorkerError;
     use std::path::{Path, PathBuf};
@@ -234,7 +234,8 @@ mod tests {
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
     }
 
-    fn fixture() -> PathBuf {
+    /// Fresh repo on `main` with one commit (shared with `host_tool` tests).
+    pub(crate) fn fixture() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("cedian-wt-test-{}", super::unique_tag()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
