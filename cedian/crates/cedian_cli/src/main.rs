@@ -1288,6 +1288,22 @@ fn render_workflow(
             r.status, r.reason
         );
     }
+    // Completion view (§55, ADR-0024): the last claim and every claim in it.
+    if let Some(last) = &state.last_completion {
+        println!();
+        if last.accepted {
+            println!("last completion: accepted");
+        } else {
+            println!("last completion: REFUSED");
+            for m in &last.missing {
+                println!("  - {m}");
+            }
+        }
+        println!(
+            "{}",
+            cedian_workflow::ledger_lines(&last.claims).trim_start()
+        );
+    }
 }
 
 fn status_glyph(s: cedian_review::HunkStatus) -> &'static str {

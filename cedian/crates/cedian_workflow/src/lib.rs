@@ -27,8 +27,8 @@ pub mod profile;
 pub mod state;
 
 pub use channel::{
-    is_channel_call, may_mutate, named_paths, BoundCall, WorkflowChannel, WorkflowStore,
-    CHANNEL_TOOLS, COMPLETE_TOOL, READ_ONLY_TOOLS, WORKFLOW_UPDATE_TOOL,
+    is_channel_call, ledger_lines, may_mutate, named_paths, BoundCall, WorkflowChannel,
+    WorkflowStore, CHANNEL_TOOLS, COMPLETE_TOOL, READ_ONLY_TOOLS, WORKFLOW_UPDATE_TOOL,
 };
 pub use code_state::{content_hash, CodeState, CurrentState};
 pub use evidence::{Evidence, EvidenceKind, Measurement, Outcome, Provenance};
@@ -38,5 +38,6 @@ pub use gate::{
 pub use playbook::{Phase, PhaseId, Playbook, BUILTINS};
 pub use profile::{AcceptanceCriterion, Complexity, Risk, Surface, TaskKind, TaskProfile};
 pub use state::{
-    ContinueOutcome, PhaseState, PhaseStatus, WorkflowError, WorkflowState, WorkflowStatus,
+    CheckedClaim, Claim, ClaimLabel, CompletionAttempt, ContinueOutcome, PhaseState, PhaseStatus,
+    WorkflowError, WorkflowState, WorkflowStatus,
 };
