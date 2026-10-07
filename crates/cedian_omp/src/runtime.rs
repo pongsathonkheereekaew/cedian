@@ -92,7 +92,7 @@ pub struct OmpRuntime {
 struct HeadlessUi {
     enabled: AtomicBool,
     /// Labels of the dialogs answered fail-closed, oldest first.
-    refused: parking_lot::Mutex<Vec<String>>,
+    refused: parking_lot::Mutex<Vec<crate::headless_ui::Refusal>>,
 }
 
 impl OmpRuntime {
@@ -142,11 +142,15 @@ impl OmpRuntime {
                 if let Event::Notification(frame) = event {
                     if let RpcNotification::ExtensionUiRequest(request) = &frame {
                         if pump_headless.enabled.load(Ordering::Relaxed) {
-                            if let (Some((reply, label)), Some(client)) =
+                            if let (Some((reply, mut refusal)), Some(client)) =
                                 (crate::headless_answer(request), pump_client.upgrade())
                             {
                                 let _ = client.send(&RpcInbound::ExtensionUiResponse(reply));
-                                pump_headless.refused.lock().push(label);
+                                refusal.at_ms = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_millis() as u64)
+                                    .unwrap_or(0);
+                                pump_headless.refused.lock().push(refusal);
                             }
                         }
                     }
@@ -182,8 +186,8 @@ impl OmpRuntime {
         self.headless.enabled.store(true, Ordering::Relaxed);
     }
 
-    /// Drain the labels of dialogs answered by [`Self::deny_ui_requests`].
-    pub fn take_refused_ui_requests(&self) -> Vec<String> {
+    /// Drain the dialogs answered by [`Self::deny_ui_requests`].
+    pub fn take_refused_ui_requests(&self) -> Vec<crate::headless_ui::Refusal> {
         std::mem::take(&mut *self.headless.refused.lock())
     }
 

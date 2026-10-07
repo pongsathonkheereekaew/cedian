@@ -591,7 +591,7 @@ pub(crate) fn run_turn(
                 break;
             }
         }
-        (panel, audit_error)
+        (panel, audit, audit_error)
     });
 
     // Ambient context travels with the prompt (§39).
@@ -618,7 +618,14 @@ pub(crate) fn run_turn(
     }
     router.unsubscribe(sub);
     drop(router);
-    let (panel, audit_error) = pump.join().map_err(|_| "pump thread died".to_string())?;
+    let (panel, mut audit, mut audit_error) =
+        pump.join().map_err(|_| "pump thread died".to_string())?;
+    let refused = rt.take_refused_ui_requests();
+    for r in &refused {
+        if let Err(e) = audit.refusal(r) {
+            audit_error.get_or_insert(e);
+        }
+    }
     turn.map_err(|e| e.to_string())?;
     if let Some(e) = audit_error {
         return Err(format!(
@@ -654,8 +661,8 @@ pub(crate) fn run_turn(
         };
         println!("[{}] {}{label}", card.status_glyph(), card.display_line());
     }
-    for refused in rt.take_refused_ui_requests() {
-        println!("[✗] refused (no UI to approve): {refused}");
+    for r in &refused {
+        println!("[✗] refused (no UI to approve): {}", r.label);
     }
     end_workflow_turn(workdir)?;
 

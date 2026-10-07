@@ -11,9 +11,37 @@ use omp_rpc::wire::{
     ValueUiResponse,
 };
 
-/// The fail-closed reply to `request` plus a one-line label for it, or
-/// `None` when the request expects no reply.
-pub fn headless_answer(request: &ExtensionUiRequest) -> Option<(ExtensionUiResponse, String)> {
+/// What cedian's gate did with a dialog it could not show (§64 audit).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GateDecision {
+    /// Headless chose the dialog's deny answer or declined a confirm.
+    Deny,
+    /// Headless only dismissed it: nobody could answer, nothing was chosen.
+    Abstain,
+}
+
+impl GateDecision {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Deny => "deny",
+            Self::Abstain => "abstain",
+        }
+    }
+}
+
+/// One dialog headless answered. `tool` is read from an OMP approval title
+/// (`Allow tool: <name>`); `at_ms` is stamped by the runtime when it replied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refusal {
+    pub label: String,
+    pub tool: Option<String>,
+    pub decision: GateDecision,
+    pub at_ms: u64,
+}
+
+/// The fail-closed reply to `request` plus what it refused, or `None` when
+/// the request expects no reply.
+pub fn headless_answer(request: &ExtensionUiRequest) -> Option<(ExtensionUiResponse, Refusal)> {
     let cancel = |id: &str| {
         ExtensionUiResponse::CancelUiResponse(CancelUiResponse {
             id: id.to_string(),
@@ -21,28 +49,43 @@ pub fn headless_answer(request: &ExtensionUiRequest) -> Option<(ExtensionUiRespo
             timed_out: None,
         })
     };
-    let label = |title: &str| title.lines().collect::<Vec<_>>().join(" — ");
+    let refusal = |title: &str, decision| Refusal {
+        label: title.lines().collect::<Vec<_>>().join(" — "),
+        tool: title
+            .lines()
+            .next()
+            .and_then(|l| l.strip_prefix("Allow tool: "))
+            .map(|t| t.trim().to_string()),
+        decision,
+        at_ms: 0,
+    };
     match request {
-        ExtensionUiRequest::Select(r) => {
-            let reply = match r.options.iter().find(|o| o.eq_ignore_ascii_case("deny")) {
-                Some(deny) => ExtensionUiResponse::ValueUiResponse(ValueUiResponse {
-                    id: r.id.clone(),
-                    value: deny.clone(),
-                }),
-                None => cancel(&r.id),
-            };
-            Some((reply, label(&r.title)))
-        }
+        ExtensionUiRequest::Select(r) => Some(
+            match r.options.iter().find(|o| o.eq_ignore_ascii_case("deny")) {
+                Some(deny) => (
+                    ExtensionUiResponse::ValueUiResponse(ValueUiResponse {
+                        id: r.id.clone(),
+                        value: deny.clone(),
+                    }),
+                    refusal(&r.title, GateDecision::Deny),
+                ),
+                None => (cancel(&r.id), refusal(&r.title, GateDecision::Abstain)),
+            },
+        ),
         ExtensionUiRequest::Confirm(r) => Some((
             ExtensionUiResponse::ConfirmUiResponse(ConfirmUiResponse {
                 id: r.id.clone(),
                 confirmed: false,
             }),
-            label(&r.title),
+            refusal(&r.title, GateDecision::Deny),
         )),
-        ExtensionUiRequest::Input(r) => Some((cancel(&r.id), label(&r.title))),
-        ExtensionUiRequest::Editor(r) => Some((cancel(&r.id), label(&r.title))),
-        ExtensionUiRequest::Ask(r) => Some((cancel(&r.id), "ask".to_string())),
+        ExtensionUiRequest::Input(r) => {
+            Some((cancel(&r.id), refusal(&r.title, GateDecision::Abstain)))
+        }
+        ExtensionUiRequest::Editor(r) => {
+            Some((cancel(&r.id), refusal(&r.title, GateDecision::Abstain)))
+        }
+        ExtensionUiRequest::Ask(r) => Some((cancel(&r.id), refusal("ask", GateDecision::Abstain))),
         _ => None,
     }
 }
@@ -62,7 +105,7 @@ mod tests {
             "type": "extension_ui_request", "method": "select", "id": "u1",
             "title": "Allow tool: bash\nCommand: ls", "options": ["Approve", "Deny"]
         }));
-        let (reply, label) = headless_answer(&r).unwrap();
+        let (reply, refusal) = headless_answer(&r).unwrap();
         assert_eq!(
             reply,
             ExtensionUiResponse::ValueUiResponse(ValueUiResponse {
@@ -70,7 +113,9 @@ mod tests {
                 value: "Deny".into()
             })
         );
-        assert_eq!(label, "Allow tool: bash — Command: ls");
+        assert_eq!(refusal.label, "Allow tool: bash — Command: ls");
+        assert_eq!(refusal.tool.as_deref(), Some("bash"));
+        assert_eq!(refusal.decision, GateDecision::Deny, "headless chose Deny");
     }
 
     #[test]
@@ -101,9 +146,32 @@ mod tests {
             "type": "extension_ui_request", "method": "select", "id": "u4",
             "title": "Pick", "options": ["a", "b"]
         }));
-        assert!(matches!(
-            headless_answer(&r),
-            Some((ExtensionUiResponse::CancelUiResponse(_), _))
-        ));
+        let (reply, refusal) = headless_answer(&r).unwrap();
+        assert!(matches!(reply, ExtensionUiResponse::CancelUiResponse(_)));
+        assert_eq!(
+            refusal.decision,
+            GateDecision::Abstain,
+            "no one could answer, nothing was denied"
+        );
+        assert_eq!(refusal.tool, None);
+    }
+
+    #[test]
+    fn declined_confirm_is_a_deny_and_cancelled_input_an_abstain() {
+        let confirm = request(json!({
+            "type": "extension_ui_request", "method": "confirm", "id": "u5",
+            "title": "Allow tool: eval", "message": "run python"
+        }));
+        assert_eq!(
+            headless_answer(&confirm).unwrap().1.decision,
+            GateDecision::Deny
+        );
+        let input = request(json!({
+            "type": "extension_ui_request", "method": "input", "id": "u6", "title": "Name?"
+        }));
+        assert_eq!(
+            headless_answer(&input).unwrap().1.decision,
+            GateDecision::Abstain
+        );
     }
 }
