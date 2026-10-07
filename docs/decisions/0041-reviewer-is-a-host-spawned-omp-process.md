@@ -1,4 +1,4 @@
-# ADR-0039: A reviewer is a separate OMP process that cedian spawns at OMP's request
+# ADR-0041: A reviewer is a separate OMP process that cedian spawns at OMP's request
 
 - **Status:** Accepted (owner, 2026-10-07, in chat: decision 1). Decision 2 takes the first option ADR-0028 already lists, so it needs no new owner call.
 - **Date:** 2026-10-07
@@ -32,3 +32,4 @@ Two prototypes on 2026-10-07 (OMP 18.6.1):
 - Each review costs one more OMP spawn, about 1 s (S2 benchmark, median 966 ms).
 - The reviewer profile is generated per run. Its allow-list comes only from the user's `cedian.toml` (ADR-0018), so a workspace cannot widen it.
 - If OMP later gives subagents their own process and profile, this ADR is revisited.
+- **The model follows ADR-0039** (accepted earlier the same day): the reviewer's model is the `review` role from OMP's `modelRoles`, read from a cedian-owned directory, never a model id in `cedian.toml`. A same-model review is `inconclusive`. Decision 1's "model named in the user's `cedian.toml`" is read that way.

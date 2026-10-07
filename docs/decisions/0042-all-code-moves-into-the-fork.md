@@ -1,4 +1,4 @@
-# ADR-0040: All cedian code moves into the fork; this repo keeps the docs
+# ADR-0042: All cedian code moves into the fork; this repo keeps the docs
 
 - **Status:** Accepted (owner, 2026-10-07, in chat)
 - **Date:** 2026-10-07
