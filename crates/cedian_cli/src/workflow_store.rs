@@ -26,6 +26,11 @@ fn workflow_path(workdir: &Path) -> PathBuf {
     workdir.join(".cedian").join("workflow.json")
 }
 
+/// Whether a workflow was ever started here.
+pub fn exists(workdir: &Path) -> bool {
+    workflow_path(workdir).exists()
+}
+
 /// Load the workflow, or fail with usage hint when none is running.
 pub fn load(workdir: &Path) -> Result<WorkflowState, String> {
     let raw = std::fs::read_to_string(workflow_path(workdir))
