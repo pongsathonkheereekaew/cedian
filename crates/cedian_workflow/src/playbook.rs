@@ -77,11 +77,16 @@ impl Playbook {
                 Self::phase("review", false, Some("risk == low")),
             ],
             gates: vec![
+                // Reading the wrong output reproduces a bug too.
                 Self::gate(
                     "reproduce",
                     GateKind::Reproduction,
                     true,
-                    vec![EvidenceKind::Command, EvidenceKind::Test],
+                    vec![
+                        EvidenceKind::Command,
+                        EvidenceKind::Test,
+                        EvidenceKind::File,
+                    ],
                     1,
                     false,
                 ),
