@@ -105,7 +105,7 @@ Frames OMP sends besides the agent events above.
 | `todo` | Workflow UI | planned S2 |
 | `ask` | native dialog | headless |
 | `browser` | shared Chromium + browser pane | headless stand-in (row D); native S4/S9 |
-| `computer` (`eval` prelude) | OMP prelude by opt-in; CUA driver later | gated [ADR-0035](decisions/0035-omp-native-approval-opt-in.md) (`computer = "omp"`) |
+| `computer` (`eval` prelude) | OMP prelude by opt-in; CUA driver later | gated [ADR-0035](decisions/0035-omp-native-approval-opt-in.md) (`policy = "omp"`) |
 | `gh` | PR workspace | planned S6 |
 | MCP and extension tools | generic tool card ([§68](ARCHITECTURE.md)) | headless |
 
@@ -113,7 +113,7 @@ Frames OMP sends besides the agent events above.
 
 | Feature | cedian surface | Status |
 |---|---|---|
-| approval modes (`always-ask`, `write`, `yolo`) | default `write`; OMP's own mode by opt-in | gated [ADR-0035](decisions/0035-omp-native-approval-opt-in.md) (`approval = "omp"`) |
+| approval modes (`always-ask`, `write`, `yolo`) | default `write`; OMP's own mode by opt-in | gated [ADR-0035](decisions/0035-omp-native-approval-opt-in.md) (`policy = "omp"`) |
 | Plan mode (launch-time) | separate plan runtime ([ADR-0014](decisions/0014-agent-modes.md)) | planned S9 |
 | `--profile` | per-workspace OMP profile in settings | planned S9 |
 | skills, rules, `AGENTS.md`, agents (`.omp/`) | used as-is; listed read-only in settings ([§77](ARCHITECTURE.md)) | headless (used); listing planned S9 |

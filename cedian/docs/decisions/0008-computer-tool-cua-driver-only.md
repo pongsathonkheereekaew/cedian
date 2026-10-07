@@ -20,4 +20,4 @@ Desktop automation is the most dangerous capability: raw OS input outside a type
 Resumed turns and automation runs need a fresh `Ask` for actuation (grants don't survive restart).
 
 - **Amended by ADR-0020 (how):** `computer` is an `eval` prelude in OMP; it is disabled via `computer.enabled: false` in the cedian spawn overlay, not via a tool allow-list.
-- **Superseded in part by ADR-0035:** "hard-disabled" is the default. A project can opt in to OMP's own `computer` prelude (`computer = "omp"`); the CUA driver stays the default target once it lands.
+- **Superseded in part by ADR-0035:** "hard-disabled" is the default. A project with `policy = "omp"` lets the user's OMP config decide whether OMP's own prelude runs; the CUA driver stays the default target once it lands.

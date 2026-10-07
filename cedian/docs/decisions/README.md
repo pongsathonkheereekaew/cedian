@@ -35,7 +35,7 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0029](0029-agent-edit-import-via-reload.md) | Agent-edit import via `Buffer::reload`; attribution is a cedian map, not `ReplicaId::AGENT` |
 | [0030](0030-fork-layout-and-build-profile.md) | Zed fork layout (crates move into the fork at S9) and build profile |
 | [0031](0031-evidence-cites-tool-not-call-id.md) | Evidence names the tool; cedian resolves the call id from the router log |
-| [0032](0032-correction-ledger.md) | *(proposed)* Correction ledger: recorded corrections become enforced rules |
-| [0033](0033-worker-brief-contract.md) | *(proposed)* A worktree request carries a checked brief; worker liveness is side effects |
+| [0032](0032-correction-ledger.md) | Correction ledger: recorded corrections become enforced rules |
+| [0033](0033-worker-brief-contract.md) | A worktree request carries a checked brief; worker liveness is side effects |
 | [0034](0034-identity-and-omp-parity.md) | Identity: a Cursor-style IDE for OMP, with full OMP feature parity |
-| [0035](0035-omp-native-approval-opt-in.md) | Per-project opt-in to OMP's own approval mode and `computer` |
+| [0035](0035-omp-native-approval-opt-in.md) | Per-project opt-in to OMP's own policy (approval mode and `computer`) |

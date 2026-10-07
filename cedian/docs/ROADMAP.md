@@ -19,7 +19,7 @@ P1 spawn profile → P2 fake-omp → P3 snapshot_version
   → S9a app spike
   → P4 cedian shell → P5 host-tool channel → P6 revert turn + inline edit
   → P7 OMP parity ledger + test
-  → S2 workflow core → P8 approval opt-in (with row E) → S3 review agents → S4 browser evidence → S5 parallel workers
+  → S2 workflow core → P8 OMP policy opt-in (with row E) → S3 review agents → S4 browser evidence → S5 parallel workers
   → S9 real app  (= v0.1)
   → S6 PR workspace → S7 local automations  (= v0.2)
   → S8 iOS (extension)
@@ -59,7 +59,7 @@ OMP-only multi-provider note: cedian speaks to ONE harness. Multi-model choice l
 | Parallel agents in worktrees, best-of-N | OMP subagents + cedian worktrees; arena preset | S5 |
 | Agents window (every running agent) | subagent tree + session manager | S5, S9 |
 | Built-in browser the agent drives | one shared Chromium, agent and user on the same tab | S4, S9 |
-| Point at a page element to give the agent context (Design Mode) | element pick in the browser pane → prompt context | S4 (new; add to the S4 plan) |
+| Point at a page element to give the agent context (Design Mode) | element pick in the browser pane → prompt context | S4 |
 | PR review bot | review agents + PR workspace | S3, S6 |
 | Background agents | local only: `cedian shell` + scheduled runs; no cloud ([ADR-0019](decisions/0019-scope-cuts.md)) | P4, S7 |
 | Usage and cost | `get_session_stats` meter | S9 |
@@ -91,7 +91,7 @@ Shared foundations that several slice exits depend on. Each is small; build it b
 | P4 | **`cedian shell`.** One long-lived headless process + `.cedian/shell.lock` | [ADR-0021](decisions/0021-headless-host-process.md) | S4 exit (frame seq), S5 exit (steer), S7 (scheduler), S3 (reviewer sessions) |
 | P6 | **Revert turn + headless inline edit.** Turn-grouped provenance → one-action revert (skips `STALE`); `cedian shell` `edit <path> <range> <instruction>` | [ADR-0026](decisions/0026-fast-lane.md) | S2 exit (benchmark), S9 (⌘K + revert UI) |
 | P7 | **OMP parity ledger + test.** `docs/OMP_PARITY.md` has a row for every RPC command, server notification (agent events included) and UI request in the vendored `wire.rs` (by wire name) plus hand-reviewed tool and config rows; `cargo test -p cedian_omp --test omp_parity` fails on any missing row. Runs in pre-commit and on every pin bump | [ADR-0034](decisions/0034-identity-and-omp-parity.md) | every OMP pin bump; S9 (v0.1 gate) |
-| P8 | **Approval opt-in.** `[projects."<path>"] approval = "omp" \| computer = "omp"` in `cedian.toml` → spawn profile variant; badge, `approved by OMP` tool-card label, `decision_source: omp` audit rows; reviewers and automations always get the default profile. Live test: opted-in project + project yolo config → exec-tier call runs without a prompt and is audited | [ADR-0035](decisions/0035-omp-native-approval-opt-in.md) | S3 (audit log shape, reviewer profile), S7, S9 settings UI; needs row E |
+| P8 | **OMP policy opt-in.** `[projects."<path>"] policy = "omp"` in `cedian.toml` → spawn profile variant without approval or `computer` keys; badge, `approved by OMP` tool-card label, `decision_source: omp` audit rows; reviewers and automations always get the default profile. Live test: opted-in project + project yolo config → exec-tier call runs without a prompt and is audited | [ADR-0035](decisions/0035-omp-native-approval-opt-in.md) | S3 (audit log shape, reviewer profile), S7, S9 settings UI; needs row E |
 | P5 | **Host-tool channel.** `cedian_workflow_update`, `cedian_complete`, `cedian_worktree_request`; evidence checked against the router log | [ADR-0022](decisions/0022-host-tool-first.md) | S2 exit, S5 exit, S3 findings (`cedian_review_finding`) |
 
 ## Slice dependencies
@@ -334,7 +334,7 @@ Retire the biggest unknown early: does the headless core bind to the Zed fork an
 
 Split per [ADR-0010](decisions/0010-gate-checker-a1-narrow.md) (A1-narrow), stand-in row A.
 
-**Exit:** a bugfix playbook (an OMP skill, [ADR-0025](decisions/0025-playbooks-are-omp-skills.md)) runs reproduce → verify; OMP drives profile/playbook/phases through host tools (P5), cedian stores evidence and evaluates gates (pure, `max_continue: 3`), and an OMP turn that claims completion while a required gate is unmet is blocked (status `blocked`, missing gates surfaced). Evidence is attributed only when it carries a real `tool_call_id` from the router log — CLI-typed evidence is `unattributed` by default. Evidence captured before a later edit to a bound file is `stale` and does not count; `inconclusive` never counts as pass; completion shows the claims ledger ([ADR-0024](decisions/0024-evidence-bound-to-code-state.md)). Fast lane holds: a trivial/small task with no floor gate completes with no workflow at all. **Benchmark** ([ADR-0026](decisions/0026-fast-lane.md)): 10 real tasks vs Cursor with the same model — time-to-usable-result, false-done count, owner review time — recorded in the slice notes.
+**Exit:** a bugfix playbook (an OMP skill, [ADR-0025](decisions/0025-playbooks-are-omp-skills.md)) runs reproduce → verify; OMP drives profile/playbook/phases through host tools (P5), cedian stores evidence and evaluates gates (pure, `max_continue: 3`), and an OMP turn that claims completion while a required gate is unmet is blocked (status `blocked`, missing gates surfaced). Evidence is attributed only when it carries a real `tool_call_id` from the router log — CLI-typed evidence is `unattributed` by default. Evidence captured before a later edit to a bound file is `stale` and does not count; `inconclusive` never counts as pass; completion shows the claims ledger ([ADR-0024](decisions/0024-evidence-bound-to-code-state.md)). **Verification profile** ([ADR-0025](decisions/0025-playbooks-are-omp-skills.md)): a gate can require evidence for a feature-map id (`feature <id> proven`); evidence captured from an instance that has not passed the profile's Doctor check since its last failed or surprising drive is `inconclusive`; a profile its generator never ran end to end (launch → doctor → drive → evidence → cleanup) is a draft and cannot satisfy a gate. Fast lane holds: a trivial/small task with no floor gate completes with no workflow at all. **Benchmark** ([ADR-0026](decisions/0026-fast-lane.md)): 10 real tasks (proposed by the agent from this repo's own commits and issues, approved by the owner before any run) vs Cursor with the same model — time-to-usable-result, false-done count, owner review time — recorded in the slice notes.
 
 #### Scope from Phase 10 — Workflow Engine
 
@@ -368,7 +368,7 @@ Bug Fix
 3. Reviewer `bash` allow-list lives in `cedian.toml` (row E) beside `[permissions]` — one file, one CI gate.
 4. Audit tuple `{timestamp, ordinal, tool, command/prefix, decision, scope}` appended as JSONL to `.cedian/audit.jsonl` for every cedian-gate decision, including `Abstain`; a test replays the file.
 
-**Exit:** an OMP turn spawns at least one reviewer subagent under the reviewer profile (fresh context, a different model from the implementer where OMP routing allows — [ADR-0011](decisions/0011-reviewers-read-only-sandbox.md)); each finding arrives through the `cedian_review_finding` host tool and attaches to the hunk it names; a `blocker` finding keeps the review gate unmet until it is fixed or dismissed with a recorded reason (audit log); triggered from `cedian shell` with `review --agent`.
+**Exit:** an OMP turn spawns at least one reviewer subagent under the reviewer profile (fresh context, a different model from the implementer where OMP routing allows — [ADR-0011](decisions/0011-reviewers-read-only-sandbox.md)); each finding arrives through the `cedian_review_finding` host tool and attaches to the hunk it names; a `blocker` finding keeps the review gate unmet until it is fixed or dismissed with a recorded reason (audit log); triggered from `cedian shell` with `review --agent`. **Correction ledger** ([ADR-0032](decisions/0032-correction-ledger.md)): each rejected hunk, reverted turn, user edit of an agent hunk, refused completion and dismissed finding appends a row to `.cedian/corrections.jsonl`; `cedian_correction_class` refuses a class with fewer than two events from two turns; a class shows `enforced` only with evidence that its check fails on the recorded mistake and passes at head.
 
 #### Scope from Phase 12 — Review Agents
 
@@ -405,6 +405,7 @@ screencast
 mouse/keyboard forwarding
 browser pane
 console/network integration
+element pick → prompt context (Cursor Design Mode, ADR-0034 workflow map)
 ```
 
 Acceptance:
@@ -425,7 +426,7 @@ Acceptance:
 
 Stand-in row C. Swarm/arena are presets — no new engine.
 
-**Exit:** an OMP turn requests a worktree through a host tool and cedian creates it; parallel workers on worktrees are visible (from subagent events) and steerable (a steer reaches the worker's OMP session); merge-back merges into the stated base only, and removing an unmerged worker is refused. Cleanup reads `git worktree list` (never only the registry), classifies each tree as merged / wip (tracked uncommitted edits) / scratch (untracked only), and never deletes wip without an explicit per-tree decision.
+**Exit:** an OMP turn requests a worktree through a host tool and cedian creates it; parallel workers on worktrees are visible (from subagent events) and steerable (a steer reaches the worker's OMP session); merge-back merges into the stated base only, and removing an unmerged worker is refused. Cleanup reads `git worktree list` (never only the registry), classifies each tree as merged / wip (tracked uncommitted edits) / scratch (untracked only), and never deletes wip without an explicit per-tree decision. **Brief contract** ([ADR-0033](decisions/0033-worker-brief-contract.md)): a `cedian_worktree_request` without goal, `scope.write`, acceptance, verify and timebox is refused with no tree created (fake-omp replay); an edit outside `scope.write` is `OutOfScope` and blocks merge-back; a worker past its timebox with no side effect shows `stuck`.
 
 #### Scope from Phase 16 — Subagent / Worktree UI
 

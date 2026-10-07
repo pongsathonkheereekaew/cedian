@@ -1,8 +1,8 @@
 # ADR-0033: A worktree request carries a checked brief; worker liveness is side effects
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-10-07)
 - **Date:** 2026-10-07
-- **Rule text:** none yet (proposed). On acceptance: [ARCHITECTURE.md](../ARCHITECTURE.md) §42, §43; [ROADMAP.md](../ROADMAP.md) S5
+- **Rule text:** [ROADMAP.md](../ROADMAP.md) S5 exit; ARCHITECTURE §42, §43 when S5 lands
 - **Builds on:** ADR-0009 (mechanism vs policy), ADR-0022 (host tools), ADR-0024 (evidence), ADR-0025 (verification profiles), ADR-0027 (edits imported from disk)
 
 ## Context
