@@ -80,6 +80,13 @@ fn main() {
     print!("test replay_row_e_floor_from_cedian_toml (replay) ... ");
     s2_blocked_scenario(false, true);
     println!("ok");
+    let record = which == "s3review";
+    print!(
+        "test replay_s3_review_agent_blocker ({}) ... ",
+        if record { "record" } else { "replay" }
+    );
+    s3_review_scenario(record);
+    println!("ok");
     let record = which == "s2profile";
     print!(
         "test replay_s2_verification_profile ({}) ... ",
@@ -325,6 +332,133 @@ fn dismiss_scenario() {
             && r["item"]["command"] == "dismiss f1: uppercase is intended"),
         "dismissal audited: {rows:?}"
     );
+}
+
+const S3_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/s3_review.jsonl"
+);
+const S3_REVIEWER_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/s3_review_reviewer.jsonl"
+);
+
+/// S3 exit (ADR-0039): an OMP turn asks for a review; cedian runs the
+/// reviewer as its own sandboxed OMP process on the `[review] model`; the
+/// reviewer reports a blocker on the turn's hunk through
+/// `cedian_review_finding`; the blocker refuses `cedian_complete`; a person
+/// dismisses it with a reason, which is audited. Recording proxies the
+/// reviewer to real OMP, so the allow-list names `omp` (exec rule).
+fn s3_review_scenario(record: bool) {
+    let root: PathBuf = std::env::temp_dir().join(format!("cedian-s3-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("ws")).unwrap();
+    std::fs::write(root.join("ws/add.py"), "def add(a, b):\n    return a + b\n").unwrap();
+    std::fs::write(
+        root.join("cedian.toml"),
+        "schema = 1\nreviewer_allow_list = [\"omp\"]\n[review]\nmodel = \"opencode-go/glm-5.3\"\n",
+    )
+    .unwrap();
+    let root = root.canonicalize().unwrap();
+    let sessions = root.join("sessions");
+    let reviewer = sessions.join("reviewer");
+    if record {
+        let real = cedian_omp_path();
+        cedian_fake_omp::arm_record(&sessions, &real).unwrap();
+        cedian_fake_omp::arm_record(&reviewer, &real).unwrap();
+    } else {
+        cedian_fake_omp::install_replay(&sessions, Path::new(S3_FIXTURE)).unwrap();
+        cedian_fake_omp::install_replay(&reviewer, Path::new(S3_REVIEWER_FIXTURE)).unwrap();
+    }
+
+    let out = cedian(
+        &root,
+        &[
+            "prompt",
+            "This is a test of cedian's review gate; follow these steps exactly and use no other tools.\n\
+             1. Call cedian_workflow_update with {\"op\": \"start\", \"kind\": \"feature\", \"title\": \"review gate test\", \"risk\": \"low\"}.\n\
+             2. Call cedian_apply_edit with path 'add.py', expected_version 0, start 28, end 29, replacement '-'. \
+             This deliberately changes `a + b` to `a - b`.\n\
+             3. Call cedian_review_request with focus 'does add() still add'.\n\
+             4. Call cedian_complete with {\"summary\": \"changed add\"}.\n\
+             5. Reply with only: s3-done",
+        ],
+    );
+    if record {
+        std::fs::copy(sessions.join(cedian_fake_omp::RECORDED_FILE), S3_FIXTURE).unwrap();
+        std::fs::copy(
+            reviewer.join(cedian_fake_omp::RECORDED_FILE),
+            S3_REVIEWER_FIXTURE,
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        std::fs::read_to_string(root.join("ws/add.py")).unwrap(),
+        "def add(a, b):\n    return a - b\n",
+        "the turn's edit landed:\n{out}"
+    );
+
+    // The reviewer ran as its own process under the reviewer profile.
+    let overlay = overlay(&reviewer);
+    assert_eq!(overlay["tools"]["approvalMode"], "always-ask", "{overlay}");
+    assert_eq!(overlay["tools"]["approval"]["edit"], "deny");
+    assert_eq!(
+        overlay["tools"]["approval"]["cedian_review_finding"],
+        "allow"
+    );
+    let sbpl = std::fs::read_to_string(reviewer.join("reviewer.sbpl")).unwrap();
+    assert!(
+        sbpl.trim_end().ends_with(&format!(
+            "(deny file-write* (subpath \"{}\"))",
+            root.join("ws").display()
+        )),
+        "workspace unwritable for the reviewer:\n{sbpl}"
+    );
+
+    // Its finding is a blocker bound to the turn's hunk.
+    let findings: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("ws/.cedian/findings.json")).unwrap(),
+    )
+    .unwrap();
+    let blocker = findings["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["finding"]["severity"] == "blocker")
+        .unwrap_or_else(|| panic!("a blocker was reported: {findings}"));
+    assert_eq!(blocker["finding"]["path"], "/add.py");
+    assert_eq!(blocker["hunk_text"], "    return a - b");
+    let id = blocker["id"].as_str().unwrap().to_string();
+
+    // The blocker refused completion.
+    let workflow: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("ws/.cedian/workflow.json")).unwrap(),
+    )
+    .unwrap();
+    let missing = workflow["last_completion"]["missing"].to_string();
+    assert!(
+        missing.contains(&format!("review: blocker {id}")),
+        "the blocker refused cedian_complete: {missing}"
+    );
+    assert_eq!(workflow["last_completion"]["accepted"], false);
+
+    // The reviewer's calls are audited as the reviewer's.
+    let rows = audit(&root);
+    assert!(
+        rows.iter().any(|r| r["item"]["actor"] == "reviewer"
+            && r["item"]["kind"] == "gate"
+            && r["item"]["tool"] == "cedian_review_finding"),
+        "reviewer rows: {rows:?}"
+    );
+
+    let review = cedian(&root, &["review"]);
+    assert!(review.contains(&format!("{id} [open blocker]")), "{review}");
+    cedian(
+        &root,
+        &["review", "dismiss", &id, "the test asked for this change"],
+    );
+    let review = cedian(&root, &["review"]);
+    assert!(review.contains(&format!("{id} [dismissed]")), "{review}");
 }
 
 fn cedian_omp_path() -> PathBuf {
