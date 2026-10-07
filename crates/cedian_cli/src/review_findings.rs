@@ -98,6 +98,65 @@ pub fn record(
     Ok(reply)
 }
 
+/// Each finding with its state against the current review diff, for
+/// `cedian review` and the review gate.
+pub fn states(workdir: &Path) -> Result<Vec<(AttachedFinding, &'static str)>, String> {
+    let store = load(workdir)?;
+    if store.findings.is_empty() {
+        return Ok(Vec::new());
+    }
+    let host = cedian_workspace::HostTools::new(workdir);
+    let (_review, tracker) = crate::load_tracker(workdir, &host)?;
+    Ok(store
+        .findings
+        .into_iter()
+        .map(|f| {
+            let state = match tracker.diff(Path::new(&f.finding.path)) {
+                _ if f.dismissed.is_some() => "dismissed",
+                Ok(diff) if f.blocks(diff) => "open blocker",
+                Ok(diff) if f.is_stale(diff) => "stale (its hunk changed)",
+                Ok(_) => "open",
+                Err(_) => "stale (its hunk changed)",
+            };
+            (f, state)
+        })
+        .collect())
+}
+
+/// One line per open blocker; any refuses `cedian_complete`. Unreadable
+/// findings fail closed.
+pub fn open_blockers(workdir: &Path) -> Vec<String> {
+    match states(workdir) {
+        Ok(all) => all
+            .into_iter()
+            .filter(|(_, state)| *state == "open blocker")
+            .map(|(f, _)| {
+                format!(
+                    "review: blocker {} on {} hunk {} is open: {} (fix the hunk, or a person runs                      `cedian review dismiss {} <reason>`)",
+                    f.id, f.finding.path, f.hunk, f.finding.message, f.id
+                )
+            })
+            .collect(),
+        Err(e) => vec![format!("review: findings unreadable, so blockers cannot be checked ({e})")],
+    }
+}
+
+/// A person closes a finding with a reason; the audit log records it.
+pub fn dismiss(workdir: &Path, id: &str, reason: &str) -> Result<String, String> {
+    let mut store = load(workdir)?;
+    let finding = store
+        .findings
+        .iter_mut()
+        .find(|f| f.id == id)
+        .ok_or_else(|| format!("no finding {id}"))?;
+    finding.dismiss(reason)?;
+    let path = finding.finding.path.clone();
+    save(workdir, &mut store)?;
+    crate::audit::AuditLog::open(workdir, cedian_omp::Approvals::Cedian(Default::default()))?
+        .dismissal(id, reason.trim())?;
+    Ok(format!("dismissed {id} on {path}: {}", reason.trim()))
+}
+
 /// The reviewer's host tool over `workdir`'s review diff.
 pub fn review_finding_tool(workdir: PathBuf) -> HostTool {
     let params = json!({
