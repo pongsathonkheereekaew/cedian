@@ -128,6 +128,12 @@ impl HostTools {
         self.store.lock().open(&key, text);
     }
 
+    /// Re-read a buffer from disk text; see [`BufferStore::reload`].
+    pub fn reload(&self, path: &Path, text: &str) -> bool {
+        let key = normalize_key(path);
+        self.store.lock().reload(&key, text)
+    }
+
     /// Resolve any workspace path spelling to its canonical buffer key:
     /// absolute-under-workdir, `/`-prefixed key, or bare relative. Rejects
     /// escapes (`..` past root, absolute outside workdir) with a visible error.

@@ -10,7 +10,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub(crate) fn run(real: &Path, args: &[String], out: &Path, placeholders: &Placeholders) -> i32 {
+pub(crate) fn run(
+    real: &Path,
+    args: &[String],
+    out: &Path,
+    cwd: &Path,
+    placeholders: &Placeholders,
+) -> i32 {
     let file = match File::create(out) {
         Ok(f) => Arc::new(Mutex::new(f)),
         Err(e) => {
@@ -75,10 +81,27 @@ pub(crate) fn run(real: &Path, args: &[String], out: &Path, placeholders: &Place
         });
     }
 
-    // OMP → host, until OMP closes stdout.
+    // OMP → host, until OMP closes stdout. Around each tool call, the
+    // files that tool wrote are recorded as `fs` frames just before its
+    // `tool_execution_end` (see `fs_effects`).
     let mut stdout = std::io::stdout().lock();
+    let mut files = crate::fs_effects::snapshot(cwd);
     for line in BufReader::new(child_out).lines() {
         let Ok(line) = line else { break };
+        let kind = serde_json::from_str::<Value>(&line)
+            .ok()
+            .and_then(|v| v.get("type").and_then(Value::as_str).map(str::to_string));
+        match kind.as_deref() {
+            Some("tool_execution_start") => files = crate::fs_effects::snapshot(cwd),
+            Some("tool_execution_end") => {
+                let now = crate::fs_effects::snapshot(cwd);
+                for frame in crate::fs_effects::diff(&files, &now) {
+                    tee(&file, Dir::Fs, &frame.to_string());
+                }
+                files = now;
+            }
+            _ => {}
+        }
         tee(&file, Dir::Out, &line);
         if writeln!(stdout, "{line}")
             .and_then(|()| stdout.flush())

@@ -23,10 +23,16 @@ pub const MAX_SELECTION_CHARS: usize = 500;
 /// Max diagnostics lines in the snapshot (full list via `cedian://diagnostics`).
 pub const MAX_DIAGNOSTICS_LINES: usize = 20;
 
+/// Buffer key (`/rel`) as the agent should name it: workspace-relative.
+/// OMP runs with the workspace as cwd and reads `/rel` as an absolute path.
+fn rel(path: &std::path::Path) -> String {
+    path.to_string_lossy().trim_start_matches('/').to_string()
+}
+
 /// Capture the ambient snapshot from the host. Cheap, bounded, infallible
 /// (empty when no editor state — never an error).
 pub fn capture_ambient(host: &dyn WorkspaceHost) -> AmbientSnapshot {
-    let active_file = host.active_file().map(|p| p.to_string_lossy().into_owned());
+    let active_file = host.active_file().map(|p| rel(&p));
     let selection = host.selection().and_then(|(path, start, end)| {
         let text = host.read_buffer(&path)?;
         let end = end.min(text.len());
@@ -35,7 +41,7 @@ pub fn capture_ambient(host: &dyn WorkspaceHost) -> AmbientSnapshot {
         if text[start..end].chars().count() > MAX_SELECTION_CHARS {
             snippet.push('…');
         }
-        Some(format!("{}:{start}-{end}\n{snippet}", path.display()))
+        Some(format!("{} bytes {start}-{end}\n{snippet}", rel(&path)))
     });
     // Diagnostics for the active file first, then others, bounded.
     let mut diagnostics = Vec::new();
@@ -60,7 +66,7 @@ fn render_diagnostic(d: &Diagnostic) -> String {
         crate::DiagnosticSeverity::Warning => "warning",
         crate::DiagnosticSeverity::Info => "info",
     };
-    format!("{sev} {}:{} {}", d.path.display(), d.line, d.message)
+    format!("{sev} {}:{} {}", rel(&d.path), d.line, d.message)
 }
 
 /// Render the snapshot as a compact pre-prompt block. Empty sections omitted.
@@ -114,11 +120,12 @@ mod tests {
             }],
         );
         let snap = capture_ambient(&host);
-        assert_eq!(snap.active_file.as_deref(), Some("/a.rs"));
+        assert_eq!(snap.active_file.as_deref(), Some("a.rs"));
         assert!(snap.selection.as_deref().unwrap_or("").contains("fn"));
         assert_eq!(snap.diagnostics.len(), 1);
         let rendered = render_snapshot(&snap);
-        assert!(rendered.contains("active-file: /a.rs"));
-        assert!(rendered.contains("error /a.rs:0 boom"));
+        assert!(rendered.contains("active-file: a.rs"));
+        assert!(rendered.contains("selection:\na.rs bytes 0-2\nfn"));
+        assert!(rendered.contains("error a.rs:0 boom"));
     }
 }

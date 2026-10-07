@@ -239,7 +239,8 @@ impl InlineEdit {
             "Inline edit from the cedian editor. Change ONLY lines {s}-{e} of {p}; leave every \
              other line and every other file untouched. Instruction: {i}\n\
              Current lines {s}-{e} of {p}:\n```\n{t}```\n\
-             Make the change with your edit tool, then reply with only: done",
+             Make the change with your own edit tool (not cedian_apply_edit), then reply \
+             with only: done",
             s = self.start,
             e = self.end,
             p = self.rel(),
@@ -338,11 +339,12 @@ fn out_of_range(turn: &crate::session::TurnRecord, edit: &InlineEdit) -> Vec<Str
                 || hunk.before_count == 0 && lo >= edit.start && lo <= edit.end + 1;
             if !inside {
                 out.push(format!(
-                    "edit changed {} lines {lo}-{} outside {}-{}",
+                    "edit changed {} lines {lo}-{} outside {}-{} — `revert-turn {}` undoes the edit",
                     edit.rel(),
                     hi.max(lo),
                     edit.start,
-                    edit.end
+                    edit.end,
+                    turn.n
                 ));
             }
         }

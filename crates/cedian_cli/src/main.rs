@@ -297,13 +297,21 @@ fn spawn(
 }
 
 /// Load every text file under workdir into the host buffers (headless scan).
+/// Re-reads buffers that disk moved past: in `cedian shell` the host lives
+/// across turns, and OMP's own writes land on disk (row G). A buffer with
+/// unsaved host edits is kept and reported.
 fn load_workspace(host: &HostTools, workdir: &Path) -> Vec<PathBuf> {
     workspace_files::scan_text_files(workdir)
         .into_iter()
         .filter_map(|path| {
             let key = workspace_files::buffer_key(workdir, &path)?;
             let text = std::fs::read_to_string(&path).ok()?;
-            host.open(&key, &text);
+            if !host.reload(&key, &text) {
+                eprintln!(
+                    "{}: unsaved buffer edits kept over a newer disk text",
+                    key.display()
+                );
+            }
             Some(key)
         })
         .collect()
