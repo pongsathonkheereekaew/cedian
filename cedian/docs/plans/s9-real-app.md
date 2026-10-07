@@ -2,7 +2,7 @@
 
 Exit (ROADMAP S9 is the contract): `cargo run -p cedian -- …` → onboard → prompt → answer with zero terminal; every non-extension item of the "fully native" checklist holds; ⌘K inline edit and revert turn work in the editor; the ADR-0026 benchmark is re-run on the app (frame time while streaming, per-turn overhead against ADR-0037, the 10 tasks against the S2 baseline). S9 also closes S4 and S5 (ADR-0038) and deletes stand-ins B, D, G, H and I.
 
-**Where the work happens.** From U1 on, all code lives in the fork (`~/src/zed`, `pongsathonkheereekaew/zed`, branch `cedian/s9`), per [ADR-0040](../decisions/0040-all-code-moves-into-the-fork.md). This repo keeps the docs; status still lives only in README here.
+**Where the work happens.** From U1 on, all code lives in the fork (`~/src/zed`, `pongsathonkheereekaew/zed`, branch `cedian/s9`), per [ADR-0042](../decisions/0042-all-code-moves-into-the-fork.md). This repo keeps the docs; status still lives only in README here.
 
 **Machine (2026-10-07).** 8 cores, 8 GB RAM, Command Line Tools only (no Metal compiler, so `runtime_shaders`), 31 GB free disk after clearing the benchmark worktrees; the fork's `target/` is 20 GB warm. A cold app build needed about 39 GB in S9a, so builds stay warm and `-j4` (ADR-0030).
 
@@ -13,7 +13,7 @@ Exit (ROADMAP S9 is the contract): `cargo run -p cedian -- …` → onboard → 
 | # | Unit | Check (done when) | Box |
 |---|---|---|---|
 | **A. Foundation** | | | |
-| U1 | Move all code into the fork (ADR-0040): crates, `vendor/`, bench, `OMP_PARITY.md`; workspace members; dependency and lint fixes; fork-side check script | in the fork, every cedian crate's tests pass (`script/cedian-check`), the replays included; this repo builds nothing and AGENTS.md points at the fork | 1 |
+| U1 | Move all code into the fork (ADR-0042): crates, `vendor/`, bench, `OMP_PARITY.md`; workspace members; dependency and lint fixes; fork-side check script | in the fork, every cedian crate's tests pass (`script/cedian-check`), the replays included; this repo builds nothing and AGENTS.md points at the fork | 1 |
 | U2 | Fork hygiene: rebase `cedian/s9` onto current upstream `main`; record cadence and conflict owner; GPL audit note for a redistributed binary | the app builds after the rebase; docs name the cadence and the owner | 1 |
 | U3 | App shell: `cargo run -p cedian` starts OMP through the spawn profile with no terminal; settings from the user's `cedian.toml`; crash isolation (OMP dies → panel shows it, IDE lives) | gpui test with fake OMP: launch → ready; kill OMP → panel error, app alive; restart restores the session | 1.5 |
 | **B. Agent loop native** | | | |
@@ -24,7 +24,7 @@ Exit (ROADMAP S9 is the contract): `cargo run -p cedian -- …` → onboard → 
 | U7 | Browser: one long-lived Chromium shared with OMP, same tab for agent and user, inline screenshot, console and network; delete stand-in D | S4 exit through the app: frame seq across captures, `stale-frame` real | 2 |
 | U8 | Subagents and worktrees visible, cancel and steer through the live session | S5 exit through the app: subagent events render, a steer reaches the worker | 1.5 |
 | **D. Rigor visible** | | | |
-| U9 | Workflow, verification evidence and review findings visible; findings annotate code; reviewers shown from cedian's records (ADR-0039) | gpui tests over the S2/S3 replays | 1.5 |
+| U9 | Workflow, verification evidence and review findings visible; findings annotate code; reviewers shown from cedian's records (ADR-0041) | gpui tests over the S2/S3 replays | 1.5 |
 | U10 | ⌘K inline edit and revert turn in the editor | gpui test ports the P6 replay | 1 |
 | **E. Close** | | | |
 | U11 | Parity: every `OMP_PARITY.md` row native, gated with a working opt-in, or upstream-blocked; parity test green on the pin | parity test + row review | 1 |

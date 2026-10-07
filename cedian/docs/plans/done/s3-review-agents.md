@@ -2,14 +2,14 @@
 
 Exit (ROADMAP S3 is the contract; restated as observable checks). The four gate items come first, because S3 work may not start before they hold.
 
-- **G1. Spawn profile strict, gap closed.** The default profile already passes the live precedence test (`live_spawn_profile.rs`). The ADR-0028 gap closes per ADR-0039 decision 2: a project `tools.approval.<x>: allow` for a tool the overlay does not name is pinned to `prompt` (default) or `deny` (reviewer).
+- **G1. Spawn profile strict, gap closed.** The default profile already passes the live precedence test (`live_spawn_profile.rs`). The ADR-0028 gap closes per ADR-0041 decision 2: a project `tools.approval.<x>: allow` for a tool the overlay does not name is pinned to `prompt` (default) or `deny` (reviewer).
 - **G2. Reviewer Seatbelt profile + bypass-proof test.** `policy/reviewer.sbpl` is generated per run (§64 mechanism 2). A reviewer process that writes inside the workspace, or runs a command that is not on the allow-list, gets "Operation not permitted" from the kernel. The test runs real `sandbox-exec`, not a policy check.
 - **G3. Allow-list in `cedian.toml`.** Holds since row E (`reviewer_allow_list`). S3 adds the use: the list becomes the reviewer's `bash.patterns` and its `process-exec` rules.
 - **G4. Audit tuple.** Every cedian-gate decision appends `{timestamp, ordinal, tool, command/prefix, decision, scope}` to `.cedian/audit.jsonl`, `Abstain` included. A test replays the file.
-- **Exit.** An OMP turn asks for a review; cedian spawns the reviewer under the reviewer profile (fresh session, the `[review] model` from `cedian.toml`, ADR-0039). Each finding arrives through `cedian_review_finding` and attaches to the hunk it names. A `blocker` keeps the `review` gate unmet until the hunk changes or the finding is dismissed with a reason (audit row). `cedian shell` runs it with `review --agent`.
+- **Exit.** An OMP turn asks for a review; cedian spawns the reviewer under the reviewer profile (fresh session, the `[review] model` from `cedian.toml`, ADR-0041). Each finding arrives through `cedian_review_finding` and attaches to the hunk it names. A `blocker` keeps the `review` gate unmet until the hunk changes or the finding is dismissed with a reason (audit row). `cedian shell` runs it with `review --agent`.
 - **Exit, correction ledger (ADR-0032).** Each rejected hunk, reverted turn, user edit of an agent hunk, refused completion and dismissed finding appends a row to `.cedian/corrections.jsonl`. `cedian_correction_class` refuses a class with fewer than two events from two turns. A class shows `enforced` only with evidence that its check fails on the recorded mistake and passes at head.
 
-**Owner-accepted 2026-10-07:** [ADR-0039](../decisions/0039-reviewer-is-a-host-spawned-omp-process.md): the reviewer is a separate OMP process cedian spawns at OMP's request.
+**Owner-accepted 2026-10-07:** [ADR-0041](../decisions/0041-reviewer-is-a-host-spawned-omp-process.md): the reviewer is a separate OMP process cedian spawns at OMP's request.
 
 **Timebox:** 5 working sessions for U1–U10.
 **Partial exit:** the gate first (U1–U4), then the reviewer and findings (U5–U8), then the correction ledger (U9). Commit each green unit. If time runs out, README marks S3 `◐` and names the gap. Live recording of two OMP processes (implementer + reviewer) is the riskiest step; if it cannot be recorded, U8 stays open and S3 stays `◐`. Never hand-write a fixture.
