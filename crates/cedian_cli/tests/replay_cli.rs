@@ -115,6 +115,13 @@ fn scenario(record: bool) {
     }
     assert!(out.contains("edited-ok"), "assistant text rendered:\n{out}");
     assert!(out.contains("[✓]"), "a done tool card rendered:\n{out}");
+    // S2 fast lane (ADR-0026): a trivial edit with no floor gate lands with
+    // no workflow at all — nothing started, nothing blocked.
+    assert!(
+        !root.join("ws/.cedian/workflow.json").exists(),
+        "fast lane: no workflow"
+    );
+    assert!(!out.contains("workflow"), "no workflow noise:\n{out}");
     assert_eq!(
         std::fs::read_to_string(&notes).unwrap(),
         "alpha\nBETA\ngamma\n"
