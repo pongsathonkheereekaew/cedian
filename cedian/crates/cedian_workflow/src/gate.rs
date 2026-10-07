@@ -100,6 +100,46 @@ pub enum GateError {
     StaleOnlyForReproduction(String),
 }
 
+/// A required gate as OMP's `op=gate` and the `cedian.toml` floor declare it.
+/// The one way to build such a gate: `require_ok` and `fresh` follow from
+/// the kind, so neither caller can switch them off.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GateSpec {
+    pub id: GateId,
+    pub gate_kind: GateKind,
+    #[serde(default)]
+    pub evidence_kinds: Vec<EvidenceKind>,
+    #[serde(default = "one")]
+    pub min_items: usize,
+    /// Set by `op=gate` after it checks the profile; never from a file.
+    #[serde(skip)]
+    pub feature: Option<crate::verification::FeatureRef>,
+}
+
+fn one() -> usize {
+    1
+}
+
+impl GateSpec {
+    pub fn build(self) -> Result<Gate, GateError> {
+        let repro = self.gate_kind == GateKind::Reproduction;
+        Gate::register(
+            self.id,
+            self.gate_kind,
+            true,
+            GatePredicate {
+                kinds: self.evidence_kinds,
+                min_items: self.min_items.max(1),
+                require_ok: !repro,
+                fresh: !repro,
+                feature: self.feature,
+            },
+            false,
+        )
+    }
+}
+
 impl Gate {
     /// Register a gate. `needs_io: true` rejects with `GateError::NeedsIo`
     /// — the plan forbids scheduling fetches inside the engine.

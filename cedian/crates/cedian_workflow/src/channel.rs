@@ -17,8 +17,8 @@
 
 use crate::{
     feature_map, state::ContinueOutcome, Claim, CompletionAttempt, CurrentState, Evidence,
-    EvidenceKind, FeatureRef, Gate, GateFloor, GateKind, GatePredicate, GateStatus, Outcome,
-    ProfileLedger, Risk, Stage, TaskKind, TaskProfile, WorkflowState, WorkflowStatus,
+    EvidenceKind, FeatureRef, GateFloor, GateKind, GateSpec, GateStatus, Outcome, ProfileLedger,
+    Risk, Stage, TaskKind, TaskProfile, WorkflowState, WorkflowStatus,
 };
 use omp_rpc::HostTool;
 use serde_json::{json, Map, Value};
@@ -294,23 +294,15 @@ impl WorkflowChannel {
                 let kind: GateKind = enum_arg(args, "gate_kind")?.ok_or(
                     "missing `gate_kind` (build|test|lint|behavior|visual|performance|review)",
                 )?;
-                let kinds: Vec<EvidenceKind> =
-                    enum_arg(args, "evidence_kinds")?.unwrap_or_default();
                 let min_items = args.get("min_items").and_then(Value::as_u64).unwrap_or(1);
-                let feature = self.feature_arg(args)?;
-                let gate = Gate::register(
-                    id,
-                    kind.clone(),
-                    true,
-                    GatePredicate {
-                        kinds,
-                        min_items: usize::try_from(min_items.max(1)).unwrap_or(1),
-                        require_ok: kind != GateKind::Reproduction,
-                        fresh: kind != GateKind::Reproduction,
-                        feature,
-                    },
-                    false,
-                )
+                let gate = GateSpec {
+                    id: id.to_string(),
+                    gate_kind: kind,
+                    evidence_kinds: enum_arg(args, "evidence_kinds")?.unwrap_or_default(),
+                    min_items: usize::try_from(min_items).unwrap_or(1),
+                    feature: self.feature_arg(args)?,
+                }
+                .build()
                 .map_err(|e| format!("{e:?}"))?;
                 state.add_gate(gate)?;
                 self.store.save(&state)?;
@@ -670,7 +662,7 @@ fn object(properties: Value, required: &[&str]) -> Map<String, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MAX_CONTINUE;
+    use crate::{Gate, GatePredicate, MAX_CONTINUE};
 
     #[derive(Default)]
     struct MemStore(Mutex<Option<WorkflowState>>);

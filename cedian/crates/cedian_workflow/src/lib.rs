@@ -35,9 +35,10 @@ pub use channel::{
 };
 pub use code_state::{content_hash, CodeState, CurrentState};
 pub use evidence::{Evidence, EvidenceKind, Measurement, Outcome, Provenance};
-pub use floor::{FloorRule, GateFloor};
+pub use floor::{FloorRule, FloorRuleSpec, GateFloor};
 pub use gate::{
-    Gate, GateError, GateId, GateKind, GatePredicate, GateResult, GateStatus, MAX_CONTINUE,
+    Gate, GateError, GateId, GateKind, GatePredicate, GateResult, GateSpec, GateStatus,
+    MAX_CONTINUE,
 };
 pub use playbook::{Phase, PhaseId, Playbook, BUILTINS};
 pub use profile::{AcceptanceCriterion, Complexity, Risk, Surface, TaskKind, TaskProfile};
