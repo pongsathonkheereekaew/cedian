@@ -12,7 +12,7 @@ The owner restated what cedian is (2026-10-07):
 - **cedian must support every OMP feature.** OMP is the harness the owner already uses; nothing it can do should be lost by using it through cedian.
 - **Only Zed is forked, and only to fit OMP.** OMP stays upstream (ADR-0027).
 
-The plan already had the pieces (ADR-0001, ADR-0023, ADR-0027) but not the parity commitment. Coverage was tracked only by the Phase 0.5 spike table (`spike/CAPABILITY_TABLE.md`, OMP 18.6.1), which is not maintained. The pinned OMP exposes 65 RPC commands, 31 agent events and 12 UI requests (`vendor/omp-rpc/src/wire.rs`). The headless crates use a handful of them, and nothing says where the rest will surface or whether they will at all.
+The plan already had the pieces (ADR-0001, ADR-0023, ADR-0027) but not the parity commitment. Coverage was tracked only by the Phase 0.5 spike table (`spike/CAPABILITY_TABLE.md`, OMP 18.6.1), which is not maintained. The pinned OMP exposes 65 RPC commands, 50 server notifications (31 of them agent events) and 12 UI requests (`vendor/omp-rpc/src/wire.rs`). The headless crates use a handful of them, and nothing says where the rest will surface or whether they will at all.
 
 ## Decision
 
@@ -24,7 +24,7 @@ The plan already had the pieces (ADR-0001, ADR-0023, ADR-0027) but not the parit
    - Each row has exactly one status: `native` (GPUI surface), `headless` (wired in cedian crates; GPUI surface at S9), `planned Sx`, `gated ADR-xxxx` (off by default for safety, with a named opt-in), or `upstream-blocked` (an upstream PR link).
    - No permanent cuts. A `gated` row must name its opt-in. An OMP feature can be cut only by a new ADR that says why.
    - Transports (`--mode text|json|acp`) are not features. cedian speaks `rpc-ui` only (§88 "ACP for OMP" stands).
-4. **The ledger is enforced, not remembered.** A test (ROADMAP P7) fails when a command, agent event or UI request in the vendored `wire.rs` has no row. Every OMP pin bump regenerates `wire.rs`, so new OMP features cannot arrive unnoticed. Tool and config rows are reviewed by hand in the same change as the pin bump.
+4. **The ledger is enforced, not remembered.** A test (ROADMAP P7, `crates/cedian_omp/tests/omp_parity.rs`) fails when a command, server notification or UI request in the vendored `wire.rs` has no row. Every OMP pin bump regenerates `wire.rs`, so new OMP features cannot arrive unnoticed. Tool and config rows are reviewed by hand in the same change as the pin bump.
 5. **Zed is forked only as far as OMP needs.** A Zed core patch exists only to give an OMP capability a native surface or to bind a cedian crate (registration points, ADR-0030). Every other Zed feature behaves as upstream ships it. The fork rebases on upstream Zed on a fixed cadence (S9 fork hygiene).
 
 ## Consequences
