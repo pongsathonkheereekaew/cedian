@@ -47,11 +47,12 @@ cargo run -p cedian_cli -- state            # OMP session snapshot
 cargo run -p cedian_cli -- prompt "fix it"      # full turn (needs CEDIAN_WORKDIR)
 cargo run -p cedian_cli -- review              # pending hunks (task state: .cedian/review.json)
 cargo run -p cedian_cli -- review reset        # start a new review task
+cargo run -p cedian_cli -- shell               # P4: long-lived session (prompt/steer/abort + any verb); holds .cedian/shell.lock
 cargo test --workspace            # unit + fake-omp replay (fast, hermetic)
 cargo test -p cedian_omp -- --ignored --nocapture          # live smoke vs real omp
 cargo test -p cedian_omp --test live_spawn_profile -- --ignored --nocapture  # P1 precedence + auth
 cargo test -p cedian_fake_omp -- --ignored record_       # re-record runtime fixture (live)
-CEDIAN_P2_RECORD=1 cargo test -p cedian_cli --test replay_cli  # re-record CLI fixture (live)
+CEDIAN_P2_RECORD=cli cargo test -p cedian_cli --test replay_cli    # re-record CLI fixture (live; or =shell)
 cargo test -p cedian_agent_ui -- --ignored --nocapture     # live panel + tool cards
 cargo clippy --workspace --all-targets && cargo fmt --all
 ```

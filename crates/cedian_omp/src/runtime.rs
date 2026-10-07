@@ -19,7 +19,7 @@ use crate::{resolve_on_path, EventRouter, OmpError, SessionBinding, SpawnPolicy,
 use omp_rpc::{
     AbortCommand, Client, ClientOptions, Event, GetStateCommand, HostTool, HostUri, ImageContent,
     NewSessionCommand, OpenSessionCommand, OpenSessionResult, PromptCommand, PromptTurn,
-    RpcNotification, SessionState, SetAskDialogCommand, SetModelCommand,
+    RpcNotification, SessionState, SetAskDialogCommand, SetModelCommand, SteerCommand,
 };
 use std::{
     path::PathBuf,
@@ -148,6 +148,14 @@ impl OmpRuntime {
                 .map_err(OmpError::from)?;
         }
         Ok(runtime)
+    }
+
+    /// A cheap, cloneable handle for `steer`/`abort` from another thread while
+    /// this runtime is blocked inside [`Self::prompt`] (`cedian shell`, P4).
+    pub fn control(&self) -> RuntimeControl {
+        RuntimeControl {
+            client: Arc::clone(self.client()),
+        }
     }
 
     /// Borrow the client (shutdown takes it; all ops require it present).
@@ -299,6 +307,32 @@ impl OmpRuntime {
             let _ = pump.join();
         }
         result
+    }
+}
+
+/// Mid-turn control over a live session; see [`OmpRuntime::control`].
+#[derive(Clone)]
+pub struct RuntimeControl {
+    client: Arc<Client>,
+}
+
+impl RuntimeControl {
+    /// Inject a steering message into the running turn.
+    pub fn steer(&self, message: &str) -> Result<(), OmpError> {
+        self.client
+            .call(&SteerCommand {
+                message: message.to_string(),
+                images: None,
+            })
+            .map_err(OmpError::from)
+    }
+
+    /// Abort the running turn; the blocked `prompt` returns.
+    pub fn abort(&self) -> Result<(), OmpError> {
+        self.client
+            .call(&AbortCommand {})
+            .map(|_| ())
+            .map_err(OmpError::from)
     }
 }
 
