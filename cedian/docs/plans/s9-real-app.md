@@ -40,6 +40,13 @@ Exit (ROADMAP S9 is the contract): `cargo run -p cedian -- …` → onboard → 
 - **History.** Files are copied in one commit that names the source commit here (`git filter-repo` is not installed). This repo's history keeps everything before the move.
 - **Checks.** `script/cedian-check` in the fork runs `cargo fmt --check`, `clippy` and `test` for the cedian crates only, so a check does not build all of Zed. This repo's pre-commit hook stops running cargo.
 
+## U3 design
+
+- **Crash signal at the boundary.** The runtime's pump thread sees OMP's stdout end. When cedian did not ask for it (no `shutdown`), the router emits `RouterEvent::Disconnected`. Every consumer gets it the same way it gets OMP's own events; the thread shows it. `OmpRuntime::pid()` exposes the child for tests and diagnostics.
+- **One launch path for the CLI and the app.** The settings → spawn-policy mapping, the ADR-0041 `tools.approval` pin and the ADR-0044 state dir move from `cedian_cli` into `cedian_shell` (the CLI dies at S9; the app needs the same rules). Both call it.
+- **The panel supervises OMP.** It starts OMP when it loads with a folder open (else on the first prompt), from the user's `cedian.toml` (`RunKind::Interactive`), through the spawn profile, with `--session-dir` = the workspace's state dir `session/`, then `open_session`. OMP runs on its own thread; when it dies the panel shows the reason and a Restart button, prompts are refused with that reason, and the IDE keeps running. Restart spawns again and calls `open_session`, which adopts the same session (`resumed: true`).
+- **Test.** `crates/cedian_panel/tests/app_shell.rs` (harness off, so the test binary doubles as fake OMP, as `replay_cli` does) drives the real panel in a GPUI test context: launch → ready with a session id; SIGKILL the OMP pid → the panel shows the error, the app still updates; Restart → ready again on the same session, `resumed`. Fixture frames come from a real recording (`shell_session.jsonl`); the restart run's `open_session` answers `resumed: true`, so what is proven is the panel's handling. OMP's own adopt-newest is proven by a live case (`--ignored`). Finding: OMP writes a session only once it has a message, so a Restart before the first prompt starts a new session; after one, it resumes.
+
 ## Upstream sync (U2)
 
 - **How:** merge upstream `main` into `cedian/s9`; never rebase a published branch (owner, 2026-10-07).
@@ -50,6 +57,7 @@ Exit (ROADMAP S9 is the contract): `cargo run -p cedian -- …` → onboard → 
 
 ## Progress
 
+- **U3 done (2026-10-07).** Fork `ccefcde1c2` (`RouterEvent::Disconnected`, `cedian_shell::launch` and `state`) and `7b54b5eb53` (the panel's `omp_link`, Restart, `app_shell` test). Evidence: `cargo test -p cedian_panel --test app_shell` (in `script/cedian-check`, which now covers `cedian_panel`): launch → ready; SIGKILL OMP → stopped, input works, prompt refused with the reason; Restart → same session, `resumed`, new pid. It fails (timeout) with the runtime's `Disconnected` removed. Live: `live_restart_adopts_the_same_omp_session` passes on OMP 18.6.1 (one model call). The app builds with it.
 - **U2 done (2026-10-07).** Upstream `main` (35 commits, to 2026-10-07) merged without conflicts in fork `52a2e8fe0f`; the app builds (4 min 5 s warm, 2.7 GB peak) and `script/cedian-check` passes on the merged tree; the first fork CI run passed.
 - **U1 done (2026-10-07).** Fork commits `00ab4c66d7` (the move), `3f446e30b6` (CI, guardrails, build-omp), `26814bc04c` (ADR renumbering), `a7e8478977` (S3 conformance to ADR-0039, done while the code was moving). `script/cedian-check` passes 258 tests and 14 replays with no real OMP on PATH; `cedian_panel` checks. This repo is docs only (`fa03403`).
 

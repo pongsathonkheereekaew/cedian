@@ -26,7 +26,7 @@ Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisio
 | S6 PR workspace | 🔜 `gh`, PR baselines, merge Deny-by-default |
 | S7 Local automations | 🔜 cron + history, no cloud ever |
 | S8 iOS track | 🔜 extension track, after v0.1 |
-| S9 Real app | ◐ 2026-10-07: U1–U2 done, all cedian code lives in the fork, upstream Zed is merged in and the app builds; U3 onward (the native app surfaces, `cedian.app`) is open; [progress](docs/plans/s9-real-app.md#progress) |
+| S9 Real app | ◐ 2026-10-07: U1–U3 done, the app starts OMP itself from `cedian.toml` and survives it dying (Restart resumes the session); U3a onward (settings page, native agent loop, `cedian.app`) is open; [progress](docs/plans/s9-real-app.md#progress) |
 
 ## Code, build and test
 
