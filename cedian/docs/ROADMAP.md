@@ -86,7 +86,6 @@ Known gaps that no slice exit names yet. Each row has the slice it must be settl
 
 | Follow-up | Found in | Settle before |
 |---|---|---|
-| The freshness scan skips `*.lock` and files over 1 MiB, so a `Cargo.lock` bump does not make test evidence stale (ADR-0024) | `crates/cedian_cli/src/workspace_files.rs` | S2 benchmark run |
 | The benchmark harness counts a hidden test that fails to compile as a failed predicate, so a correct fix with different private names scores as a fail | `script/bench/run.sh`, `splice_tests.py` | S2 benchmark run |
 | A call headless denied still makes earlier evidence born stale, though it changed nothing | [S2 plan](plans/s2-workflow-core.md) findings | S9 (row H) |
 | The S0 row names no remaining gap: recheck its exit, then flip it or name the gap | README S0 row | S3 |

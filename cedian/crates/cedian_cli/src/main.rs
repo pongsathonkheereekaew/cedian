@@ -237,9 +237,10 @@ fn end_workflow_turn(workdir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The workspace hashed now (ADR-0024; headless code state, row H).
+/// The workspace hashed now (ADR-0024; headless code state, row H). Files
+/// over the buffer cap are hashed by size and mtime, not read.
 fn current_state(workdir: &Path) -> cedian_workflow::CurrentState {
-    let files: Vec<(String, Vec<u8>)> = workspace_files::scan_text_files(workdir)
+    let files: Vec<(String, Vec<u8>)> = workspace_files::scan_code_state_files(workdir)
         .into_iter()
         .filter_map(|path| {
             let rel = path
@@ -247,7 +248,19 @@ fn current_state(workdir: &Path) -> cedian_workflow::CurrentState {
                 .ok()?
                 .to_string_lossy()
                 .into_owned();
-            Some((rel, std::fs::read(&path).ok()?))
+            let meta = std::fs::metadata(&path).ok()?;
+            let bytes = if meta.len() > workspace_files::MAX_FILE_BYTES {
+                let mtime = meta
+                    .modified()
+                    .ok()?
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()?
+                    .as_nanos();
+                format!("{}:{mtime}", meta.len()).into_bytes()
+            } else {
+                std::fs::read(&path).ok()?
+            };
+            Some((rel, bytes))
         })
         .collect();
     cedian_workflow::CurrentState::from_files(
@@ -1489,6 +1502,33 @@ fn _keep_version(_: _Version) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evidence_goes_stale_on_lockfile_and_large_file_changes() {
+        let dir = std::env::temp_dir().join(format!("cedian-code-state-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("Cargo.lock"), "serde 1.0.0").unwrap();
+        let big = vec![b'x'; workspace_files::MAX_FILE_BYTES as usize + 1];
+        std::fs::write(dir.join("fixture.dat"), &big).unwrap();
+
+        let bound = current_state(&dir).bind(&[]);
+        std::fs::write(dir.join("Cargo.lock"), "serde 1.0.1").unwrap();
+        assert!(
+            current_state(&dir).stale_reason(&bound).is_some(),
+            "a lockfile bump makes tree-bound evidence stale"
+        );
+
+        let bound = current_state(&dir).bind(&[]);
+        let mut bigger = big;
+        bigger.push(b'y');
+        std::fs::write(dir.join("fixture.dat"), &bigger).unwrap();
+        assert!(
+            current_state(&dir).stale_reason(&bound).is_some(),
+            "a change to a file over the buffer size cap makes tree-bound evidence stale"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn opt_in_hands_approvals_to_omp_but_keeps_denies() {
