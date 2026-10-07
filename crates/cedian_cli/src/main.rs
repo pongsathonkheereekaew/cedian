@@ -218,24 +218,37 @@ impl cedian_workflow::WorkflowStore for DiskWorkflowStore {
     }
 }
 
-/// Every host tool, with the P5 evidence verifier over this runtime's
-/// router log: a cited call counts only if it finished without error and
-/// is not itself a channel report (ADR-0022).
+/// Every host tool, with the P5 evidence resolver over this runtime's router
+/// log: evidence binds to the most recent call of the named tool (args
+/// containing `needle`) that finished without error and is not itself a
+/// channel report (ADR-0022, ADR-0031).
 fn host_tools(
     rt: &OmpRuntime,
     workdir: &Path,
     host: &std::sync::Arc<HostTools>,
 ) -> Vec<omp_rpc::HostTool> {
     let router = rt.router();
-    let verify = move |id: &str| {
-        router.finished_tool_call(id).is_some_and(|call| {
-            !call.is_error && !cedian_workflow::is_channel_call(&call.tool_name, &call.args_preview)
-        })
+    let resolve = move |tool: &str, needle: &str| {
+        router
+            .finished_tool_calls()
+            .into_iter()
+            .rev()
+            .find(|call| {
+                !call.is_error
+                    && call.tool_name == tool
+                    && call.args_preview.contains(needle)
+                    && !cedian_workflow::is_channel_call(&call.tool_name, &call.args_preview)
+            })
+            .map(|call| cedian_workflow::BoundCall {
+                tool_call_id: call.tool_call_id,
+                tool_name: call.tool_name,
+                args_preview: call.args_preview,
+            })
     };
     let channel = cedian_workflow::WorkflowChannel::new(
         "cli",
         Box::new(DiskWorkflowStore(workdir.to_path_buf())),
-        verify,
+        resolve,
     );
     let names = host_tool_names(&load_workdir_settings(workdir));
     let mut tools = vec![host.apply_edit_tool()];
@@ -304,7 +317,7 @@ fn workflow_ambient(workdir: &Path) -> Option<String> {
     }
     Some(format!(
         "cedian workflow active: {:?} ({:?}, {:?}, phase {}). Report evidence with {} \
-         (cite the tool_call_id of the call that produced it) and call {} before saying it is done.",
+         (from_tool = the tool whose call produced it) and call {} before saying it is done.",
         state.task.title,
         state.task.kind,
         state.status,

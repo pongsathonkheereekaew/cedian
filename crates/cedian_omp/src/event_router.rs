@@ -98,9 +98,10 @@ pub struct LogEntry {
     pub event: RouterEvent,
 }
 
-/// A tool call the log saw start and end; see [`EventRouter::finished_tool_call`].
+/// A tool call the log saw start and end; see [`EventRouter::finished_tool_calls`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FinishedToolCall {
+    pub tool_call_id: String,
     pub tool_name: String,
     pub args_preview: String,
     pub is_error: bool,
@@ -179,41 +180,43 @@ impl EventRouter {
             .collect()
     }
 
-    /// The finished call `tool_call_id` as the log saw it: name and args
-    /// preview from its `ToolStart`, `is_error` from its `ToolEnd`. `None`
-    /// while the call is unknown or still running. Host-tool evidence checks
-    /// read this (P5, ADR-0022) — the log is the only witness, never the agent.
-    pub fn finished_tool_call(&self, tool_call_id: &str) -> Option<FinishedToolCall> {
+    /// Every call the log saw start and end, in completion order: name and
+    /// args preview from its `ToolStart`, `is_error` from its `ToolEnd`.
+    /// Host-tool evidence binds to these (P5, ADR-0031) — the log is the
+    /// only witness, never the agent.
+    pub fn finished_tool_calls(&self) -> Vec<FinishedToolCall> {
         let inner = self.inner.lock();
-        let mut start: Option<(String, String)> = None;
+        let mut started: HashMap<&str, (&str, &str)> = HashMap::new();
+        let mut done = Vec::new();
         for entry in &inner.log {
             match &entry.event {
                 RouterEvent::ToolStart {
-                    tool_call_id: id,
+                    tool_call_id,
                     tool_name,
                     args_preview,
-                } if id == tool_call_id => {
-                    start = Some((tool_name.clone(), args_preview.clone()));
+                } => {
+                    started.insert(tool_call_id, (tool_name, args_preview));
                 }
                 RouterEvent::ToolEnd {
-                    tool_call_id: id,
+                    tool_call_id,
                     tool_name,
                     is_error,
                     ..
-                } if id == tool_call_id => {
-                    let (name, preview) = start
-                        .take()
-                        .unwrap_or_else(|| (tool_name.clone(), String::new()));
-                    return Some(FinishedToolCall {
-                        tool_name: name,
-                        args_preview: preview,
+                } => {
+                    let (name, preview) = started
+                        .remove(tool_call_id.as_str())
+                        .unwrap_or((tool_name, ""));
+                    done.push(FinishedToolCall {
+                        tool_call_id: tool_call_id.clone(),
+                        tool_name: name.to_string(),
+                        args_preview: preview.to_string(),
                         is_error: *is_error,
                     });
                 }
                 _ => {}
             }
         }
-        None
+        done
     }
 
     fn push(&self, event: RouterEvent) {
@@ -458,17 +461,18 @@ mod tests {
         router.push(start("open", "bash"));
         router.push(end("ok", "bash", false));
         router.push(end("bad", "bash", true));
+        let done = router.finished_tool_calls();
         assert_eq!(
-            router.finished_tool_call("ok"),
-            Some(FinishedToolCall {
+            done[0],
+            FinishedToolCall {
+                tool_call_id: "ok".into(),
                 tool_name: "bash".into(),
                 args_preview: "bash args".into(),
                 is_error: false,
-            })
+            }
         );
-        assert!(router.finished_tool_call("bad").unwrap().is_error);
-        assert_eq!(router.finished_tool_call("open"), None);
-        assert_eq!(router.finished_tool_call("nope"), None);
+        assert!(done[1].is_error);
+        assert_eq!(done.len(), 2, "a started-only call is not finished");
     }
 
     #[test]

@@ -34,3 +34,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0028](0028-spawn-profile-approval-findings.md) | Spawn profile approval findings: exec floor, host-tool allows, precedence test on an exec tool |
 | [0029](0029-agent-edit-import-via-reload.md) | Agent-edit import via `Buffer::reload`; attribution is a cedian map, not `ReplicaId::AGENT` |
 | [0030](0030-fork-layout-and-build-profile.md) | Zed fork layout (crates move into the fork at S9) and build profile |
+| [0031](0031-evidence-cites-tool-not-call-id.md) | Evidence names the tool; cedian resolves the call id from the router log (proposed) |
