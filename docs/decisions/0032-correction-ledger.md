@@ -1,8 +1,8 @@
 # ADR-0032: Correction ledger — recorded corrections become enforced rules
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-10-07)
 - **Date:** 2026-10-07
-- **Rule text:** none yet (proposed). On acceptance: [ARCHITECTURE.md](../ARCHITECTURE.md) §18, §59, §64; [ROADMAP.md](../ROADMAP.md) S3
+- **Rule text:** [ROADMAP.md](../ROADMAP.md) S3 exit; ARCHITECTURE §18, §59, §64 when S3 lands
 - **Builds on:** ADR-0006 (provenance), ADR-0024 (evidence), ADR-0025 (methodology is OMP skills), ADR-0026 (fast lane)
 
 ## Context
