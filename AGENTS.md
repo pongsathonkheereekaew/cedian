@@ -3,7 +3,7 @@
 Stack lock: Rust + GPUI only in this process (no TS/Electron/WebView). No TS anywhere: OMP is used as upstream ships it (ADR-0027). UI accelerators OK: `gpui-kit`, `elygpui.com` for panels/dialogs; editor/buffer/diff stay Zed-native.
 
 Where things live (one home per fact):
-- Status: `README.md` slice table ONLY, one cell = glyph + date + one sentence + link to the plan's "Exit evidence" (the narrative lives there; a run's decisions tsv is a log, never status). Gaps no exit names: ROADMAP "Follow-ups". Per-feature OMP coverage: `docs/OMP_PARITY.md` ONLY (ADR-0034). Build/test: `README.md` "Build / test".
+- Status: `README.md` slice table ONLY, one cell = glyph + date + one sentence + link to the plan's "Exit evidence" (the narrative lives there; a run's decisions tsv is a log, never status). Gaps no exit names: ROADMAP "Follow-ups". Per-feature OMP coverage: the fork's `cedian/OMP_PARITY.md` ONLY (ADR-0034, ADR-0042). Code, build and test: the fork (`~/src/zed`, branch `cedian/s9`), see `README.md` "Code, build and test"; this repo is docs only.
 - Rules: `docs/ARCHITECTURE.md` (§NN numbers kept from the original plan; chapter 2 = must-not-build, chapter 17 = tests).
 - Why: `docs/decisions/` ADRs — never edit an accepted decision, supersede it with a new ADR.
 - Schedule + exit criteria + headless stand-ins: `docs/ROADMAP.md`.
@@ -17,7 +17,7 @@ Compressed index:
 - Review baselines are per-task (`clock::Global`), never git HEAD; accept = keep-buffer, reject = inverse patch, never on STALE — ADR-0006.
 - Permissions strict-wins at the cedian gate (`Deny > Ask > Allow`) — ADR-0012. Gates: OMP gathers evidence, cedian checks (A1-narrow) — ADR-0010.
 - OMP runs only through the spawn profile — never a bare spawn (ADR-0020). Default: `--approval-mode write` + generated `--config` overlay (`computer.enabled: false`, eval gate) + scrubbed env. Per-project opt-in in the user's `cedian.toml` only: `policy = "omp"` hands approvals and `computer` to the user's OMP config; badge + audit always; never for reviewers or automations (ADR-0035).
-- Every OMP feature (RPC command, agent event, UI request, tool, launch/config option) has a row in `docs/OMP_PARITY.md`; an OMP pin bump updates it in the same change; cutting a feature needs an ADR (ADR-0034).
+- Every OMP feature (RPC command, agent event, UI request, tool, launch/config option) has a row in the fork's `cedian/OMP_PARITY.md`; an OMP pin bump updates it in the same change; cutting a feature needs an ADR (ADR-0034).
 - Zed is forked only as far as OMP needs: patch Zed core only to give an OMP capability a native surface or to bind a cedian crate; everything else stays upstream Zed (ADR-0034, ADR-0030).
 - Only Zed is forked; OMP is never forked — cedian adapts to OMP: host tools, OMP skills, spawn profile, and importing OMP's disk writes as agent transactions (ADR-0022, ADR-0025, ADR-0027).
 - Evidence is bound to code state (stale after a later edit), has outcome pass|fail|inconclusive, and completion takes a claims ledger (ADR-0024).
