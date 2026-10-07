@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Bump on any schema change — older files fail closed.
-pub const REVIEW_SNAPSHOT_VERSION: u32 = 1;
+pub const REVIEW_SNAPSHOT_VERSION: u32 = 2;
 
 /// The CLI's single review task id (the app shell owns real task ids).
 pub const CLI_TASK: &str = "cli";
@@ -32,6 +32,45 @@ pub struct ReviewStore {
     pub provenance: Vec<AgentEdit>,
     /// User resolutions keyed by hunk identity.
     pub statuses: Vec<StatusRecord>,
+    /// Every turn that changed files, oldest first (P6: revert turn).
+    pub turns: Vec<TurnRecord>,
+}
+
+/// What produced a turn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum TurnKind {
+    Prompt,
+    /// Inline edit (`edit <path> <range> <instruction>`).
+    Edit,
+    /// `revert-turn <of>` — revert it again to redo `of`.
+    Revert {
+        of: u32,
+    },
+}
+
+/// One file as a turn left it. Pre/post texts come from disk, so files
+/// with no `AgentEdit` (UNATTRIBUTED) are covered too.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnFile {
+    /// Buffer key (`/rel`).
+    pub file: String,
+    pub before: String,
+    pub after: String,
+    /// Did not exist before the turn.
+    pub created: bool,
+}
+
+/// One turn's file changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnRecord {
+    /// 1-based, in the order turns were recorded.
+    pub n: u32,
+    #[serde(flatten)]
+    pub kind: TurnKind,
+    /// First line of the prompt (or the edit / revert description).
+    pub label: String,
+    pub files: Vec<TurnFile>,
 }
 
 impl ReviewStore {
@@ -43,7 +82,35 @@ impl ReviewStore {
             baseline: BTreeMap::new(),
             provenance: Vec::new(),
             statuses: Vec::new(),
+            turns: Vec::new(),
         }
+    }
+
+    /// Append a turn (numbered here); no-op when it changed nothing.
+    pub fn record_turn(
+        &mut self,
+        kind: TurnKind,
+        label: &str,
+        files: Vec<TurnFile>,
+    ) -> Option<u32> {
+        if files.is_empty() {
+            return None;
+        }
+        let n = self.turns.last().map_or(1, |t| t.n + 1);
+        let label: String = label
+            .lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(80)
+            .collect();
+        self.turns.push(TurnRecord {
+            n,
+            kind,
+            label,
+            files,
+        });
+        Some(n)
     }
 
     /// Record the task-start text for a file the first time it is seen.
@@ -161,6 +228,29 @@ mod tests {
         let back = load(&dir).unwrap().unwrap();
         assert_eq!(back.baseline["/a.rs"], "v1", "task baseline kept");
         assert_eq!(back.provenance.len(), 1);
+        let file = TurnFile {
+            file: "/a.rs".into(),
+            before: "v1".into(),
+            after: "v3".into(),
+            created: false,
+        };
+        let mut back = back;
+        assert_eq!(
+            back.record_turn(TurnKind::Prompt, "fix\nmore", vec![]),
+            None
+        );
+        assert_eq!(
+            back.record_turn(TurnKind::Prompt, "fix\nmore", vec![file.clone()]),
+            Some(1)
+        );
+        assert_eq!(
+            back.record_turn(TurnKind::Revert { of: 1 }, "revert", vec![file]),
+            Some(2)
+        );
+        save(&dir, &back).unwrap();
+        let back = load(&dir).unwrap().unwrap();
+        assert_eq!(back.turns[0].label, "fix");
+        assert_eq!(back.turns[1].kind, TurnKind::Revert { of: 1 });
         reset(&dir);
         assert!(load(&dir).unwrap().is_none());
         std::fs::remove_dir_all(&dir).unwrap();

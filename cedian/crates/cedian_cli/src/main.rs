@@ -336,21 +336,32 @@ fn cmd_prompt(session_dir: &Path, workdir: &Path, message: &str) -> Result<(), S
     let host = HostTools::shared(workdir);
     let mut rt = spawn(session_dir, workdir, &host)?;
     rt.open_session("cli").map_err(|e| e.to_string())?;
-    let result = run_turn(&mut rt, &host, workdir, message, false);
+    let result = run_turn(
+        &mut rt,
+        &host,
+        workdir,
+        message,
+        false,
+        session::TurnKind::Prompt,
+        message,
+    );
     let shutdown = rt.shutdown();
     result?;
     shutdown.map_err(|e| e.to_string())
 }
 
 /// One OMP turn on an already-running runtime: prompt → cards → write-back →
-/// provenance → review store. Shared by one-shot `prompt` and `cedian shell`.
-/// `live` streams assistant text to stdout as it arrives (the shell).
+/// provenance → review store + turn log. Shared by one-shot `prompt` and
+/// `cedian shell`. `live` streams assistant text to stdout as it arrives (the
+/// shell). `kind` + `label` describe the turn in `cedian turns`.
 pub(crate) fn run_turn(
     rt: &mut OmpRuntime,
     host: &std::sync::Arc<HostTools>,
     workdir: &Path,
     message: &str,
     live: bool,
+    kind: session::TurnKind,
+    label: &str,
 ) -> Result<(), String> {
     let mut store = session::load(workdir)?.unwrap_or_default();
     let keys = load_workspace(host, workdir);
@@ -486,6 +497,7 @@ pub(crate) fn run_turn(
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     let mut unattributed = 0;
+    let mut turn_files = Vec::new();
     for path in workspace_files::scan_text_files(workdir) {
         let Some(key) = workspace_files::buffer_key(workdir, &path) else {
             continue;
@@ -498,6 +510,12 @@ pub(crate) fn run_turn(
             continue;
         }
         store.baseline_once(&key, &before); // first change in task (new file: empty)
+        turn_files.push(session::TurnFile {
+            file: key.to_string_lossy().into_owned(),
+            before: before.clone(),
+            after: after.clone(),
+            created: !pre.contains_key(&key),
+        });
         let rel = key.to_string_lossy().trim_start_matches('/').to_string();
         let pinned =
             edit_cards
@@ -524,6 +542,9 @@ pub(crate) fn run_turn(
         eprintln!(
             "({unattributed} changed file(s) not pinned to a tool call → UNATTRIBUTED in review)"
         );
+    }
+    if let Some(n) = store.record_turn(kind, label, turn_files) {
+        println!("(turn {n} recorded — `revert-turn {n}` puts it back)");
     }
     session::save(workdir, &store)
 }

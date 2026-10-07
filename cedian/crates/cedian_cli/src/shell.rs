@@ -143,7 +143,15 @@ fn start_turn(
     let control = rt.control();
     let host = Arc::clone(host);
     let turn = std::thread::spawn(move || {
-        let result = crate::run_turn(&mut rt, &host, &workdir, &message, true);
+        let result = crate::run_turn(
+            &mut rt,
+            &host,
+            &workdir,
+            &message,
+            true,
+            crate::session::TurnKind::Prompt,
+            &message,
+        );
         (rt, result)
     });
     Running { turn, control }
