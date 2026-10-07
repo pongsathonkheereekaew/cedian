@@ -20,6 +20,7 @@
 //! `.cedian/review.json` (baseline + AgentEdit records + resolutions, see
 //! `session.rs`). `cedian review reset` starts a new review task.
 
+mod audit;
 mod browser_store;
 mod revert_turn;
 mod session;
@@ -473,11 +474,18 @@ pub(crate) fn run_turn(
     let (sub, rx) = router.subscribe();
     let (settled_tx, settled_rx) = std::sync::mpsc::channel::<()>();
 
+    let approvals = rt.approvals();
+    let mut audit = audit::AuditLog::open(workdir, approvals)?;
+
     // Pump router events into the panel on a thread while the turn runs.
     let pump = std::thread::spawn(move || {
         use std::io::Write as _;
         let mut panel = panel;
+        let mut audit_error = None;
         for event in rx.iter() {
+            if let Err(e) = audit.record(&event) {
+                audit_error.get_or_insert(e);
+            }
             if let cedian_omp::RouterEvent::MessageDelta {
                 kind: cedian_omp::DeltaKind::Text,
                 delta,
@@ -496,7 +504,7 @@ pub(crate) fn run_turn(
                 break;
             }
         }
-        panel
+        (panel, audit_error)
     });
 
     // Ambient context travels with the prompt (§39).
@@ -520,8 +528,13 @@ pub(crate) fn run_turn(
     }
     router.unsubscribe(sub);
     drop(router);
-    let panel = pump.join().map_err(|_| "pump thread died".to_string())?;
+    let (panel, audit_error) = pump.join().map_err(|_| "pump thread died".to_string())?;
     let turn = turn.map_err(|e| e.to_string())?;
+    if let Some(e) = audit_error {
+        return Err(format!(
+            "{e} — the turn is not audited, so it fails (ADR-0035)"
+        ));
+    }
 
     // Render the turn: assistant text + tool cards.
     if live {
@@ -532,7 +545,16 @@ pub(crate) fn run_turn(
     let task = panel.get(&task_id).ok_or("task vanished")?;
     let (_messages, cards) = cedian_agent_ui::render_thread(task.thread().events());
     for card in &cards {
-        println!("[{}] {}", card.status_glyph(), card.display_line());
+        // Headless refuses every dialog, so an exec-tier call that ran under
+        // the opt-in was approved by OMP's config, not by a person.
+        let label = if approvals == cedian_omp::Approvals::Omp
+            && cedian_omp::spawn_profile::EXEC_TOOLS.contains(&card.name.as_str())
+        {
+            " · approved by OMP"
+        } else {
+            ""
+        };
+        println!("[{}] {}{label}", card.status_glyph(), card.display_line());
     }
     for refused in rt.take_refused_ui_requests() {
         println!("[✗] refused (no UI to approve): {refused}");
