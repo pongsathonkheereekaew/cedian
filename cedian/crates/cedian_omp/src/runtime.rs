@@ -206,6 +206,11 @@ impl OmpRuntime {
     }
 
     /// Shared router for panel/task subscribers (Phase 2).
+    /// The profile this child was spawned under (ADR-0035 badge and audit).
+    pub fn approvals(&self) -> crate::Approvals {
+        self.config.policy.approvals
+    }
+
     pub fn router(&self) -> Arc<EventRouter> {
         Arc::clone(&self.router)
     }
