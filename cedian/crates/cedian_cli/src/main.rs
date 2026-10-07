@@ -281,6 +281,8 @@ fn spawn(
         policy: spawn_policy(&load_workdir_settings(workdir)),
     })
     .map_err(|e| e.to_string())?;
+    // Nothing in the CLI can answer an OMP dialog: refuse at once (P5 gap).
+    rt.deny_ui_requests();
     rt.set_host_tools(host_tools(&rt, workdir, host))
         .map_err(|e| e.to_string())?;
     rt.set_host_uris(vec![host.cedian_uri_scheme()])
@@ -430,6 +432,9 @@ pub(crate) fn run_turn(
     let (_messages, cards) = cedian_agent_ui::render_thread(task.thread().events());
     for card in &cards {
         println!("[{}] {}", card.status_glyph(), card.display_line());
+    }
+    for refused in rt.take_refused_ui_requests() {
+        println!("[✗] refused (no UI to approve): {refused}");
     }
 
     // Write back ONLY buffers cedian itself changed (host-tool edits), and

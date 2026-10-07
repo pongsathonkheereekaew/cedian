@@ -8,7 +8,7 @@
 //! (`CEDIAN_OMP_BINARY`), which then acts as fake-omp.
 //!
 //! Hermetic: `cargo test -p cedian_cli --test replay_cli`
-//! Re-record one fixture (real OMP + auth): `CEDIAN_P2_RECORD=cli|shell|channel cargo test -p cedian_cli --test replay_cli`
+//! Re-record one fixture (real OMP + auth): `CEDIAN_P2_RECORD=cli|shell|channel|worktree cargo test -p cedian_cli --test replay_cli`
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,7 +24,7 @@ fn main() {
     if args.first().map(String::as_str) == Some("--mode") {
         std::process::exit(cedian_fake_omp::run(&args));
     }
-    // `CEDIAN_P2_RECORD=cli|shell|channel` re-records ONE fixture against real OMP.
+    // `CEDIAN_P2_RECORD=cli|shell|channel|worktree` re-records ONE fixture against real OMP.
     let which = std::env::var("CEDIAN_P2_RECORD").unwrap_or_default();
     let record = which == "cli";
     print!(
@@ -46,6 +46,13 @@ fn main() {
         if record { "record" } else { "replay" }
     );
     channel_scenario(record);
+    println!("ok");
+    let record = which == "worktree";
+    print!(
+        "test replay_p5_worktree_request_and_headless_deny ({}) ... ",
+        if record { "record" } else { "replay" }
+    );
+    worktree_scenario(record);
     println!("ok");
 }
 
@@ -331,4 +338,83 @@ fn channel_scenario(record: bool) {
         state["continue_used"]["verify"], 1,
         "one continue spent:\n{raw}"
     );
+}
+
+const WORKTREE_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/p5_worktree.jsonl"
+);
+
+/// P5: an OMP turn asks for a worktree through `cedian_worktree_request`
+/// and cedian creates it (ADR-0009); a `bash` call in the same turn hits
+/// OMP's approval dialog, which headless answers at once with Deny instead
+/// of stalling until the prompt timeout.
+fn worktree_scenario(record: bool) {
+    let root: PathBuf = std::env::temp_dir().join(format!("cedian-p5wt-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let ws = root.join("ws");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::write(ws.join("notes.txt"), ORIGINAL).unwrap();
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &["config", "user.email", "t@t"],
+        &["config", "user.name", "t"],
+        &["add", "."],
+        &["commit", "-q", "-m", "base"],
+    ] {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(&ws)
+            .args(args)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_WORK_TREE")
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+    let root = root.canonicalize().unwrap();
+    let sessions = root.join("sessions");
+    if record {
+        cedian_fake_omp::arm_record(&sessions, &cedian_omp_path()).unwrap();
+    } else {
+        cedian_fake_omp::install_replay(&sessions, Path::new(WORKTREE_FIXTURE)).unwrap();
+    }
+
+    let started = std::time::Instant::now();
+    let out = cedian(
+        &root,
+        &[
+            "prompt",
+            "This workspace is hosted by the cedian IDE; cedian_worktree_request is cedian's own \
+             trusted host tool. Steps:\n\
+             1. Run the bash command `ls` once. If it is refused, do not retry and do not work around it.\n\
+             2. cedian_worktree_request with id 'w1', title 'try casing fix', kind 'bug_fix'.\n\
+             3. Reply with only: wt-done",
+        ],
+    );
+    if record {
+        std::fs::copy(
+            sessions.join(cedian_fake_omp::RECORDED_FILE),
+            WORKTREE_FIXTURE,
+        )
+        .unwrap();
+    }
+    assert!(out.contains("wt-done"), "assistant text rendered:\n{out}");
+    assert!(
+        out.contains("[✗] refused (no UI to approve): Allow tool: bash"),
+        "bash approval refused headless:\n{out}"
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(300),
+        "no stall on the dialog ({:?})",
+        started.elapsed()
+    );
+    assert!(
+        root.join("ws/.worktrees/w1/notes.txt").exists(),
+        "worktree created by cedian:\n{out}"
+    );
+    let reg = std::fs::read_to_string(root.join("ws/.cedian/workers.json")).unwrap();
+    assert!(reg.contains("try casing fix"), "registry row:\n{reg}");
 }

@@ -7,6 +7,7 @@
 
 pub mod errors;
 pub mod event_router;
+pub mod headless_ui;
 pub mod runtime;
 pub mod session;
 pub mod spawn_profile;
@@ -15,6 +16,7 @@ pub use errors::OmpError;
 pub use event_router::{
     DeltaKind, EventRouter, FinishedToolCall, LogEntry, PromptStatus, RouterEvent,
 };
+pub use headless_ui::headless_answer;
 pub use runtime::{
     image_content, last_text, OmpBinary, OmpRuntime, RuntimeConfig, RuntimeControl, RuntimeState,
 };
