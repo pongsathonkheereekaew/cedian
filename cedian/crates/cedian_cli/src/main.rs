@@ -22,6 +22,8 @@
 
 mod browser_store;
 mod session;
+mod shell;
+mod shell_lock;
 mod workflow_store;
 mod workspace_files;
 
@@ -42,6 +44,26 @@ fn main() {
 }
 
 fn run(args: Vec<String>) -> Result<(), String> {
+    dispatch(args, false)
+}
+
+/// Read-only verbs: allowed while a `cedian shell` holds the workspace.
+/// Everything else mutates a store or a live resource (ADR-0021 §4).
+fn is_read_only(args: &[String]) -> bool {
+    let sub = args.get(1).map(String::as_str);
+    match args.first().map(String::as_str).unwrap_or("help") {
+        "review" => sub.is_none(),
+        "state" | "palette" | "symbols" | "diagnostics" | "help" | "shell" => true,
+        "workflow" => sub == Some("status"),
+        "worker" => matches!(sub, Some("list" | "preview")),
+        "browser" => sub == Some("status"),
+        _ => false,
+    }
+}
+
+/// Run one command. `in_shell` = issued inside `cedian shell`, which holds
+/// the workspace lock itself, so the one-shot lock gate does not apply.
+pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> {
     let session_dir = std::env::var("CEDIAN_SESSION_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("cedian-cli-session"));
@@ -53,6 +75,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let workdir = workdir.canonicalize().unwrap_or(workdir);
 
     let cmd = args.first().map(|s| s.as_str()).unwrap_or("help");
+    if !in_shell && !is_read_only(&args) {
+        shell_lock::refuse_if_shell_live(&workdir, &args.join(" "))?;
+    }
     // Settings gate: dangerous tier Deny refuses prompt (the shell rule —
     // headless reads the same file the future UI will edit).
     let settings = load_workdir_settings(&workdir);
@@ -93,6 +118,8 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         "accept-all" => cmd_accept_all(&workdir),
         "state" => cmd_state(&session_dir, &workdir),
+        "shell" if in_shell => Err("already inside cedian shell".to_string()),
+        "shell" => shell::run(&session_dir, &workdir),
         "palette" => {
             let query = args.get(1).map(|s| s.as_str()).unwrap_or("");
             for action in cedian_shell::Palette::filter(query) {
@@ -110,7 +137,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "worker" => cmd_worker(&workdir, &args[1..]),
         _ => {
             eprintln!(
-                "usage: cedian <prompt|review|accept|reject|accept-all|state|\
+                "usage: cedian <prompt|shell|review|accept|reject|accept-all|state|\
                 palette|symbols|diagnostics|browser|workflow|worker> …"
             );
             eprintln!("env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR, CEDIAN_OMP_BINARY");
@@ -205,9 +232,27 @@ fn load_workspace(host: &HostTools, workdir: &Path) -> Vec<PathBuf> {
 const EDIT_TOOLS: &[&str] = &["edit", "write", "ast_edit", "cedian_apply_edit"];
 
 fn cmd_prompt(session_dir: &Path, workdir: &Path, message: &str) -> Result<(), String> {
-    let mut store = session::load(workdir)?.unwrap_or_default();
     let host = HostTools::shared(workdir);
-    let keys = load_workspace(&host, workdir);
+    let mut rt = spawn(session_dir, workdir, &host)?;
+    rt.open_session("cli").map_err(|e| e.to_string())?;
+    let result = run_turn(&mut rt, &host, workdir, message, false);
+    let shutdown = rt.shutdown();
+    result?;
+    shutdown.map_err(|e| e.to_string())
+}
+
+/// One OMP turn on an already-running runtime: prompt → cards → write-back →
+/// provenance → review store. Shared by one-shot `prompt` and `cedian shell`.
+/// `live` streams assistant text to stdout as it arrives (the shell).
+pub(crate) fn run_turn(
+    rt: &mut OmpRuntime,
+    host: &std::sync::Arc<HostTools>,
+    workdir: &Path,
+    message: &str,
+    live: bool,
+) -> Result<(), String> {
+    let mut store = session::load(workdir)?.unwrap_or_default();
+    let keys = load_workspace(host, workdir);
 
     // Pre-turn texts (disk == buffer right after load). The task baseline for
     // a file is its pre-turn text the FIRST time a turn changes it (§16), so
@@ -220,21 +265,32 @@ fn cmd_prompt(session_dir: &Path, workdir: &Path, message: &str) -> Result<(), S
         }
     }
 
-    let mut rt = spawn(session_dir, workdir, &host)?;
-    rt.open_session("cli").map_err(|e| e.to_string())?;
-
     let mut panel = Panel::new();
     let task_id = panel.new_task("cli", workdir.to_path_buf());
     let router = rt.router();
     let (sub, rx) = router.subscribe();
+    let (settled_tx, settled_rx) = std::sync::mpsc::channel::<()>();
 
     // Pump router events into the panel on a thread while the turn runs.
     let pump = std::thread::spawn(move || {
+        use std::io::Write as _;
         let mut panel = panel;
         for event in rx.iter() {
+            if let cedian_omp::RouterEvent::MessageDelta {
+                kind: cedian_omp::DeltaKind::Text,
+                delta,
+                ..
+            } = &event
+            {
+                if live {
+                    print!("{delta}");
+                    let _ = std::io::stdout().flush();
+                }
+            }
             let done = matches!(event, cedian_omp::RouterEvent::Settled);
             panel.dispatch(&event);
             if done {
+                let _ = settled_tx.send(());
                 break;
             }
         }
@@ -250,17 +306,21 @@ fn cmd_prompt(session_dir: &Path, workdir: &Path, message: &str) -> Result<(), S
         format!("{ambient}\n{message}")
     };
     let turn = rt.prompt(&full, vec![]);
-    // Shutdown stops the reader; unsubscribing drops our sender so the pump
-    // always finishes, even when the turn failed or no `Settled` arrived.
-    let shutdown = rt.shutdown();
+    // `Settled` follows `prompt_result`; give it a moment, then unsubscribe —
+    // dropping our sender always ends the pump, even when the turn failed or
+    // no `Settled` arrived.
+    if turn.is_ok() {
+        let _ = settled_rx.recv_timeout(Duration::from_secs(5));
+    }
     router.unsubscribe(sub);
     drop(router);
     let panel = pump.join().map_err(|_| "pump thread died".to_string())?;
     let turn = turn.map_err(|e| e.to_string())?;
-    shutdown.map_err(|e| e.to_string())?;
 
     // Render the turn: assistant text + tool cards.
-    if let Some(text) = turn.assistant_text.as_deref() {
+    if live {
+        println!();
+    } else if let Some(text) = turn.assistant_text.as_deref() {
         println!("{text}");
     }
     let task = panel.get(&task_id).ok_or("task vanished")?;
