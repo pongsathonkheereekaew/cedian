@@ -374,6 +374,51 @@ impl WorkflowState {
             .collect()
     }
 
+    /// Turn boundary (ADR-0036). When the turn's last `cedian_complete` was
+    /// refused, the claim failed: the workflow is `blocked` until the user
+    /// resumes it. Returns the missing gates when it blocked. Idempotent per
+    /// attempt.
+    pub fn end_turn(&mut self) -> Option<Vec<String>> {
+        let last = self.last_completion.as_mut()?;
+        if last.turn_ended {
+            return None;
+        }
+        last.turn_ended = true;
+        if last.accepted || self.status == WorkflowStatus::Complete {
+            return None;
+        }
+        let missing = last.missing.clone();
+        self.block_current_phase();
+        Some(missing)
+    }
+
+    /// The user's answer to a block (§54 escalation): back to `running`
+    /// with a fresh continue budget.
+    pub fn resume(&mut self) -> Result<(), String> {
+        if self.status != WorkflowStatus::Blocked {
+            return Err(format!("workflow is {:?}, not blocked", self.status));
+        }
+        self.status = WorkflowStatus::Running;
+        self.continue_used.clear();
+        for ps in &mut self.phases {
+            if ps.status == PhaseStatus::Blocked {
+                ps.status = PhaseStatus::Running;
+            }
+        }
+        Ok(())
+    }
+
+    fn block_current_phase(&mut self) {
+        self.status = WorkflowStatus::Blocked;
+        if let Some(ps) = self
+            .phases
+            .iter_mut()
+            .find(|p| Some(&p.id) == self.current_phase.as_ref())
+        {
+            ps.status = PhaseStatus::Blocked;
+        }
+    }
+
     /// Record an OMP continue for a gate (§54 anti-loop). `new_evidence_ids`:
     /// ids attached since the last continue for this gate — empty advances
     /// the counter WITHOUT progress. On exhaustion the workflow blocks and
@@ -390,14 +435,7 @@ impl WorkflowState {
         let used = self.continue_used.get(gate_id).copied().unwrap_or(0) + 1;
         self.continue_used.insert(gate_id.to_string(), used);
         if used >= MAX_CONTINUE {
-            self.status = WorkflowStatus::Blocked;
-            if let Some(ps) = self
-                .phases
-                .iter_mut()
-                .find(|p| Some(&p.id) == self.current_phase.as_ref())
-            {
-                ps.status = PhaseStatus::Blocked;
-            }
+            self.block_current_phase();
             let reason = self
                 .gate_result(gate_id, current)
                 .map(|r| r.reason)
@@ -546,6 +584,28 @@ mod tests {
         assert_eq!(flags[4], None);
         assert_eq!(flags[5], Some("unknown evidence nope"));
         assert_eq!(flags[6], Some("guess"));
+    }
+
+    #[test]
+    fn refused_claim_blocks_at_turn_end_until_resumed() {
+        let mut w = WorkflowState::start(bugfix_task(Risk::Low)).unwrap();
+        assert_eq!(w.end_turn(), None, "no claim, no block");
+        w.record_continue("verify", &[], &ws()).unwrap();
+        w.last_completion = Some(CompletionAttempt {
+            claims: vec![],
+            accepted: false,
+            missing: vec!["required gate \"verify\"".into()],
+            turn_ended: false,
+        });
+        let missing = w.end_turn().expect("blocked");
+        assert_eq!(missing, ["required gate \"verify\""]);
+        assert_eq!(w.status, WorkflowStatus::Blocked);
+        assert_eq!(w.end_turn(), None, "same attempt blocks once");
+        w.resume().unwrap();
+        assert_eq!(w.status, WorkflowStatus::Running);
+        assert!(w.continue_used.is_empty());
+        assert!(w.phases.iter().all(|p| p.status != PhaseStatus::Blocked));
+        assert!(w.resume().is_err(), "only a blocked workflow resumes");
     }
 
     #[test]

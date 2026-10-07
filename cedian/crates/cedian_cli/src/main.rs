@@ -209,6 +209,28 @@ fn host_tool_names(settings: &cedian_shell::Settings) -> Vec<&'static str> {
     names
 }
 
+/// Turn boundary (ADR-0036): a refused `cedian_complete` in this turn
+/// blocks the workflow; say so with the missing gates.
+fn end_workflow_turn(workdir: &Path) -> Result<(), String> {
+    if !workflow_store::exists(workdir) {
+        return Ok(());
+    }
+    let mut state = workflow_store::load(workdir)?;
+    let Some(missing) = state.end_turn() else {
+        if state.last_completion.is_some() {
+            workflow_store::save(workdir, &state)?;
+        }
+        return Ok(());
+    };
+    workflow_store::save(workdir, &state)?;
+    println!("[!] workflow BLOCKED: the agent claimed done with required gates unmet");
+    for m in &missing {
+        println!("    - {m}");
+    }
+    println!("    (`cedian workflow status` for the claims; `cedian workflow resume` to continue)");
+    Ok(())
+}
+
 /// The workspace hashed now (ADR-0024; headless code state, row H).
 fn current_state(workdir: &Path) -> cedian_workflow::CurrentState {
     let files: Vec<(String, Vec<u8>)> = workspace_files::scan_text_files(workdir)
@@ -488,6 +510,7 @@ pub(crate) fn run_turn(
     for refused in rt.take_refused_ui_requests() {
         println!("[✗] refused (no UI to approve): {refused}");
     }
+    end_workflow_turn(workdir)?;
 
     // Write back ONLY buffers cedian itself changed (host-tool edits), and
     // never over a file that changed on disk during the turn: OMP's native
@@ -800,6 +823,7 @@ fn cmd_diagnostics(workdir: &Path) -> Result<(), String> {
 /// cedian workflow status                                       # §51 render + gates
 /// cedian workflow evidence <gate> <summary> [--fail|--inconclusive]  # always unattributed
 /// cedian workflow advance [--fail]                             # pass/fail current phase
+/// cedian workflow resume                                       # unblock (ADR-0036)
 /// cedian workflow complete                                     # §55 completion gate
 /// ```
 fn cmd_workflow(workdir: &Path, args: &[String]) -> Result<(), String> {
@@ -898,6 +922,13 @@ fn cmd_workflow(workdir: &Path, args: &[String]) -> Result<(), String> {
             render_workflow(&state, &current_state(workdir));
             Ok(())
         }
+        Some("resume") => {
+            let mut state = workflow_store::load(workdir)?;
+            state.resume()?;
+            workflow_store::save(workdir, &state)?;
+            render_workflow(&state, &current_state(workdir));
+            Ok(())
+        }
         Some("complete") => {
             let mut state = workflow_store::load(workdir)?;
             match state.complete(&current_state(workdir)) {
@@ -912,7 +943,9 @@ fn cmd_workflow(workdir: &Path, args: &[String]) -> Result<(), String> {
                 }
             }
         }
-        _ => Err("usage: cedian workflow <run|status|evidence|advance|complete> …".to_string()),
+        _ => Err(
+            "usage: cedian workflow <run|status|evidence|advance|resume|complete> …".to_string(),
+        ),
     }
 }
 
@@ -1355,5 +1388,36 @@ mod tests {
         }
         settings.permissions.project_write = cedian_shell::Verdict::Deny;
         assert!(!host_tool_names(&settings).contains(&cedian_worker::WORKTREE_REQUEST_TOOL));
+    }
+
+    #[test]
+    fn refused_claim_blocks_at_turn_end_and_resume_unblocks() {
+        use cedian_workflow::{CompletionAttempt, TaskKind, TaskProfile, WorkflowStatus};
+        let d = std::env::temp_dir().join(format!("cedian-u5-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        end_workflow_turn(&d).unwrap(); // fast lane: no workflow, nothing to do
+        assert!(!workflow_store::exists(&d));
+        let mut state =
+            cedian_workflow::WorkflowState::start(TaskProfile::new("t", TaskKind::BugFix)).unwrap();
+        state.last_completion = Some(CompletionAttempt {
+            claims: vec![],
+            accepted: false,
+            missing: vec!["required gate \"verify\"".into()],
+            turn_ended: false,
+        });
+        workflow_store::save(&d, &state).unwrap();
+        end_workflow_turn(&d).unwrap();
+        assert_eq!(
+            workflow_store::load(&d).unwrap().status,
+            WorkflowStatus::Blocked
+        );
+        cmd_workflow(&d, &["resume".to_string()]).unwrap();
+        assert_eq!(
+            workflow_store::load(&d).unwrap().status,
+            WorkflowStatus::Running
+        );
+        assert!(cmd_workflow(&d, &["resume".to_string()]).is_err());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

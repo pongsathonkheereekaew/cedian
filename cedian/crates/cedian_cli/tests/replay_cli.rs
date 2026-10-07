@@ -284,7 +284,8 @@ const CHANNEL_FIXTURE: &str = concat!(
 /// P5 (ADR-0022): one OMP turn drives the workflow through host tools.
 /// Evidence naming `from_tool: read` binds to the real finished `read` in the
 /// router log (ADR-0031); `cedian_complete` refuses while the required `verify` gate
-/// is unmet and spends one continue. Self-cites and unknown ids stay
+/// is unmet and spends one continue; the turn ends on that refusal, so the
+/// workflow is blocked (ADR-0036). Self-cites and unknown ids stay
 /// unattributed — unit-tested in `cedian_workflow::channel` (the live model
 /// refuses to self-certify when asked, so a turn cannot exercise it).
 fn channel_scenario(record: bool) {
@@ -340,7 +341,12 @@ fn channel_scenario(record: bool) {
             .any(|l| l.contains(read_call) && l.contains("\"toolName\":\"read\"")),
         "e1 cites a logged read call ({read_call})"
     );
-    assert_eq!(state["status"], "running", "complete refused:\n{raw}");
+    // ADR-0036: the turn ended on a refused claim → blocked, gates listed.
+    assert_eq!(state["status"], "blocked", "refused claim blocks:\n{raw}");
+    assert!(
+        out.contains("workflow BLOCKED") && out.contains("required gate \"verify\""),
+        "missing gates printed after the turn:\n{out}"
+    );
     assert_eq!(
         state["continue_used"]["verify"], 1,
         "one continue spent:\n{raw}"
