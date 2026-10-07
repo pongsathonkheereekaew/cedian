@@ -5,7 +5,7 @@ The one home for **per-feature OMP coverage** ([ADR-0034](decisions/0034-identit
 - **Pinned OMP:** `vendor/omp-revision.json` (RPC client generated from it: `vendor/omp-rpc/src/wire.rs`).
 - **Statuses:** `native` (GPUI surface) · `headless` (wired in cedian crates; GPUI surface at S9) · `planned Sx` · `gated ADR-xxxx` (off by default, opt-in named) · `upstream-blocked` (upstream PR link).
 - **No permanent cuts.** Removing a row needs an ADR.
-- **Enforced:** the P7 test fails if a command, agent event or UI request in `wire.rs` is missing here. On every pin bump, regenerate `wire.rs`, add rows, and review the tool and config tables by hand.
+- **Enforced:** the P7 test (`crates/cedian_omp/tests/omp_parity.rs`) fails if a command, server notification or UI request in `wire.rs` is missing here. Names are the wire names, exactly as OMP sends them. On every pin bump, regenerate `wire.rs`, add rows, and review the tool and config tables by hand.
 - Superseded history: `spike/CAPABILITY_TABLE.md` (OMP 18.6.1, frozen).
 
 ## RPC commands (65)
@@ -65,13 +65,31 @@ The one home for **per-feature OMP coverage** ([ADR-0034](decisions/0034-identit
 | `irc_message` | inter-agent message in subagent view | planned S5 |
 | `notice` | toast | planned S9 |
 
+## Other server notifications (19)
+
+Frames OMP sends besides the agent events above.
+
+| Notification(s) | cedian surface | Status |
+|---|---|---|
+| `ready`, `rpc_frame_error` | runtime handshake; protocol error banner (fail safe, §5) | headless |
+| `prompt_result`, `session_settled` | turn completion state | headless |
+| `extension_ui_request` | carries the UI requests below | headless |
+| `extension_error` | extension error toast | planned S9 |
+| `available_commands_update` | slash-command palette refresh | planned S9 |
+| `subagent_lifecycle`, `subagent_progress`, `subagent_event` | subagent tree | planned S5 |
+| `live_phase`, `live_levels`, `live_transcript`, `live_end` | live (voice) session | planned S9 |
+| `btw_delta`, `btw_record` | side-question stream and history | planned S9 |
+| `command_output` | output of user-run `bash` | planned S9 |
+| `session_info_update` | session manager (name, metadata) | planned S9 |
+| `config_update` | settings refresh | planned S9 |
+
 ## UI requests (12)
 
 | Request(s) | cedian surface | Status |
 |---|---|---|
 | `select`, `confirm`, `input`, `editor`, `ask`, `cancel` | native dialogs ([§63](ARCHITECTURE.md)) | headless (fail-closed answers) |
 | `notify` | toast | planned S9 |
-| `set_status`, `set_widget`, `set_title` | status line, panel widget, window title | planned S9 |
+| `setStatus`, `setWidget`, `setTitle` | status line, panel widget, window title | planned S9 |
 | `set_editor_text` | composer text | planned S9 |
 | `open_url` | open in cedian browser or system browser | planned S9 |
 
