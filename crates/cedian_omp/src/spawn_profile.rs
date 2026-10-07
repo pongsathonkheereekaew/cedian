@@ -79,12 +79,35 @@ pub struct BashRule {
 /// mode, so pinning them would prompt on their read-tier calls too.
 pub const EXEC_TOOLS: &[&str] = &["bash", "eval", "browser", "task", "vibe_spawn", "vibe_send"];
 
+/// Who decides OMP's approval mode and `computer`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Approvals {
+    /// The default profile (ADR-0020): `--approval-mode`, the exec-tier
+    /// prompt pins, the eval gate and `computer.enabled: false`.
+    Cedian(ApprovalMode),
+    /// A project opted in to the user's own OMP config (ADR-0035): cedian
+    /// sets no mode, no prompt pins and no `computer` key. Only the
+    /// interactive CLI may build this; reviewers and automations never do.
+    Omp,
+}
+
+impl Approvals {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Cedian(_) => "cedian",
+            Self::Omp => "omp",
+        }
+    }
+}
+
 /// The policy half of the profile, mapped from cedian settings by the caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpawnPolicy {
-    pub approval_mode: ApprovalMode,
+    pub approvals: Approvals,
     /// Per-tool overrides layered over the `EXEC_TOOLS` → `prompt` floor.
+    /// Under [`Approvals::Omp`] only the `deny` entries are written.
     pub tool_policies: BTreeMap<String, ToolPolicy>,
+    /// Under [`Approvals::Omp`] only the `deny` rules are written.
     pub bash_patterns: Vec<BashRule>,
     /// Host tools cedian serves over RPC. OMP gives them no tier (so `exec`,
     /// which `write` mode prompts for); cedian gates them itself at its own
@@ -96,7 +119,7 @@ pub struct SpawnPolicy {
 impl Default for SpawnPolicy {
     fn default() -> Self {
         Self {
-            approval_mode: ApprovalMode::Write,
+            approvals: Approvals::Cedian(ApprovalMode::Write),
             tool_policies: BTreeMap::new(),
             bash_patterns: Vec::new(),
             host_tools: BTreeSet::new(),
@@ -105,12 +128,15 @@ impl Default for SpawnPolicy {
 }
 
 impl SpawnPolicy {
-    /// The `tools.approval` record: exec floor, host-tool allows, then caller
-    /// overrides.
+    /// The `tools.approval` record: exec floor (default profile only),
+    /// host-tool allows, then caller overrides (only denies under the opt-in:
+    /// a cedian Deny still wins, ADR-0012).
     fn approval_record(&self) -> Result<Map<String, Value>, OmpError> {
         let mut record = Map::new();
-        for tool in EXEC_TOOLS {
-            record.insert((*tool).to_string(), json!(ToolPolicy::Prompt.as_str()));
+        if let Approvals::Cedian(_) = self.approvals {
+            for tool in EXEC_TOOLS {
+                record.insert((*tool).to_string(), json!(ToolPolicy::Prompt.as_str()));
+            }
         }
         for tool in &self.host_tools {
             check_tool_name(tool)?;
@@ -130,6 +156,9 @@ impl SpawnPolicy {
                 ));
             }
             check_tool_name(tool)?;
+            if self.approvals == Approvals::Omp && *policy != ToolPolicy::Deny {
+                continue;
+            }
             record.insert(tool.clone(), json!(policy.as_str()));
         }
         Ok(record)
@@ -140,6 +169,7 @@ impl SpawnPolicy {
         let patterns: Vec<Value> = self
             .bash_patterns
             .iter()
+            .filter(|rule| self.approvals != Approvals::Omp || rule.approval == ToolPolicy::Deny)
             .map(|rule| {
                 if rule.pattern.trim().is_empty() || rule.pattern.chars().any(char::is_control) {
                     return Err(OmpError::InvalidSpawnProfile(format!(
@@ -150,18 +180,18 @@ impl SpawnPolicy {
                 Ok(json!({"match": rule.pattern, "approval": rule.approval.as_str()}))
             })
             .collect::<Result<_, _>>()?;
-        Ok(json!({
-            // Until ADR-0008's atomic landing (driver + Seatbelt + bypass test).
-            "computer": {"enabled": false},
-            "tools": {
-                "approvalMode": self.approval_mode.as_str(),
-                "approval": Value::Object(self.approval_record()?),
-            },
-            "bash": {
-                "patterns": patterns,
-                "allowCompoundCommands": false,
-            },
-        }))
+        let approval = Value::Object(self.approval_record()?);
+        let bash = json!({"patterns": patterns, "allowCompoundCommands": false});
+        Ok(match self.approvals {
+            Approvals::Cedian(mode) => json!({
+                // Until ADR-0008's atomic landing (driver + Seatbelt + bypass test).
+                "computer": {"enabled": false},
+                "tools": {"approvalMode": mode.as_str(), "approval": approval},
+                "bash": bash,
+            }),
+            Approvals::Omp if patterns.is_empty() => json!({"tools": {"approval": approval}}),
+            Approvals::Omp => json!({"tools": {"approval": approval}, "bash": bash}),
+        })
     }
 }
 
@@ -174,7 +204,8 @@ fn check_tool_name(tool: &str) -> Result<(), OmpError> {
     Ok(())
 }
 
-/// Inputs for one OMP child. The dedupe key is `{binary_path, session_dir, cwd}`.
+/// Inputs for one OMP child. The dedupe key is `{binary_path, session_dir,
+/// cwd, approvals}`, so a child is never reused under the other profile.
 #[derive(Debug, Clone)]
 pub struct SpawnProfile {
     /// Absolute path to the `omp` binary.
@@ -193,7 +224,7 @@ pub struct SpawnPlan {
     pub argv: Vec<String>,
     /// The complete child environment (the launcher clears the rest).
     pub env: Vec<(String, String)>,
-    /// Dedupe identity: `{binary_path, session_dir, cwd}`.
+    /// Dedupe identity: `{binary_path, session_dir, cwd, approvals}`.
     pub dedupe_key: String,
     /// Where the overlay was written.
     pub overlay_path: PathBuf,
@@ -264,7 +295,7 @@ impl SpawnProfile {
         self.policy.overlay()?;
         let overlay_path = self.session_dir.join(OVERLAY_FILE);
         let overlay = check_path("overlay", &overlay_path)?;
-        let argv: Vec<String> = [
+        let mut argv: Vec<String> = [
             binary.as_str(),
             "--mode",
             "rpc-ui",
@@ -272,19 +303,22 @@ impl SpawnProfile {
             session_dir.as_str(),
             "--cwd",
             cwd.as_str(),
-            "--approval-mode",
-            self.policy.approval_mode.as_str(),
-            "--config",
-            overlay.as_str(),
         ]
         .map(str::to_string)
         .into();
+        if let Approvals::Cedian(mode) = self.policy.approvals {
+            argv.extend(["--approval-mode".to_string(), mode.as_str().to_string()]);
+        }
+        argv.extend(["--config".to_string(), overlay]);
         if argv.len() > MAX_ARGS {
             return Err(OmpError::InvalidSpawnProfile(
                 "argv exceeds MAX_ARGS".to_string(),
             ));
         }
-        let dedupe_key = format!("{binary}:{session_dir}:{cwd}");
+        let dedupe_key = format!(
+            "{binary}:{session_dir}:{cwd}:{}",
+            self.policy.approvals.label()
+        );
         Ok(SpawnPlan {
             argv,
             env: scrub_env(parent_env),
@@ -511,5 +545,76 @@ mod tests {
         assert!(resolve_on_path("./omp", Some(&path_var)).is_err());
         assert!(resolve_on_path("nope-omp", Some(&path_var)).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn opted_in() -> SpawnProfile {
+        let mut p = profile();
+        p.policy.approvals = Approvals::Omp;
+        p.policy.host_tools.insert("cedian_apply_edit".to_string());
+        p.policy
+            .tool_policies
+            .insert("write".to_string(), ToolPolicy::Deny);
+        p.policy
+            .tool_policies
+            .insert("lsp".to_string(), ToolPolicy::Prompt);
+        p.policy.bash_patterns = vec![
+            BashRule {
+                pattern: "rm -rf *".to_string(),
+                approval: ToolPolicy::Deny,
+            },
+            BashRule {
+                pattern: "git push*".to_string(),
+                approval: ToolPolicy::Prompt,
+            },
+        ];
+        p
+    }
+
+    #[test]
+    fn opt_in_argv_names_no_approval_mode() {
+        let argv = opted_in().plan(Vec::new()).unwrap().argv;
+        assert!(!argv.iter().any(|a| a == "--approval-mode"), "{argv:?}");
+        assert!(argv.iter().any(|a| a == "--config"), "overlay still passed");
+    }
+
+    #[test]
+    fn opt_in_overlay_keeps_only_host_allows_and_cedian_denies() {
+        let overlay = opted_in().policy.overlay().unwrap();
+        assert_eq!(
+            overlay,
+            json!({
+                "tools": {"approval": {"cedian_apply_edit": "allow", "write": "deny"}},
+                "bash": {
+                    "patterns": [{"match": "rm -rf *", "approval": "deny"}],
+                    "allowCompoundCommands": false,
+                },
+            })
+        );
+        let mut bare = opted_in();
+        bare.policy.bash_patterns.clear();
+        assert_eq!(
+            bare.policy.overlay().unwrap(),
+            json!({"tools": {"approval": {"cedian_apply_edit": "allow", "write": "deny"}}})
+        );
+    }
+
+    #[test]
+    fn opt_in_still_rejects_eval_allow_and_shadowing() {
+        let mut p = opted_in();
+        p.policy
+            .tool_policies
+            .insert("eval".to_string(), ToolPolicy::Allow);
+        assert!(p.plan(Vec::new()).is_err());
+        let mut p = opted_in();
+        p.policy.host_tools.insert("bash".to_string());
+        assert!(p.plan(Vec::new()).is_err());
+    }
+
+    #[test]
+    fn profiles_never_share_a_dedupe_key() {
+        assert_ne!(
+            profile().plan(Vec::new()).unwrap().dedupe_key,
+            opted_in().plan(Vec::new()).unwrap().dedupe_key
+        );
     }
 }

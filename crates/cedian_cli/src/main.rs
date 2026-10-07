@@ -153,17 +153,27 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
     }
 }
 
-/// Map `[permissions]` onto the OMP spawn policy (ADR-0020). Only tightens:
-/// `dangerous = allow` still leaves the exec floor at `prompt` (strict-wins,
-/// ADR-0012), and yolo is unrepresentable.
-fn spawn_policy(settings: &cedian_shell::Settings) -> SpawnPolicy {
+/// Map `[permissions]` onto the OMP spawn policy (ADR-0020). Under the
+/// default policy it only tightens: `dangerous = allow` still leaves the exec
+/// floor at `prompt` (strict-wins, ADR-0012), and yolo is unrepresentable.
+/// Under `policy = "omp"` (ADR-0035) OMP's own config decides approvals;
+/// cedian's denies still apply.
+fn spawn_policy(
+    settings: &cedian_shell::Settings,
+    policy_source: cedian_shell::Policy,
+) -> SpawnPolicy {
     use cedian_shell::Verdict;
     let mut policy = SpawnPolicy::default();
+    if policy_source == cedian_shell::Policy::Omp {
+        policy.approvals = cedian_omp::Approvals::Omp;
+    }
     for tool in host_tool_names(settings) {
         policy.host_tools.insert(tool.to_string());
     }
-    if settings.permissions.project_write != Verdict::Allow {
-        policy.approval_mode = ApprovalMode::AlwaysAsk;
+    if settings.permissions.project_write != Verdict::Allow
+        && policy.approvals != cedian_omp::Approvals::Omp
+    {
+        policy.approvals = cedian_omp::Approvals::Cedian(ApprovalMode::AlwaysAsk);
     }
     let mut deny = |tools: &[&str]| {
         for tool in tools {
@@ -325,13 +335,27 @@ fn spawn(
         Ok(path) => OmpBinary::Bundled(PathBuf::from(path)),
         Err(_) => OmpBinary::Path("omp".to_string()),
     };
+    // Every spawn here has a person at the terminal; reviewers and
+    // automations will pass `RunKind::Unattended` (ADR-0035 decision 5).
+    let choice = settings.policy_for(workdir, cedian_shell::RunKind::Interactive);
+    for note in &choice.notes {
+        println!("note: {note}");
+    }
+    if choice.policy == cedian_shell::Policy::Omp {
+        let p = &settings.permissions;
+        if [p.safe, p.project_write, p.dangerous].contains(&cedian_shell::Verdict::Ask) {
+            println!(
+                "note: [permissions] ask tiers do not apply under policy = \"omp\" (OMP decides); deny tiers still do"
+            );
+        }
+    }
     let rt = OmpRuntime::spawn(RuntimeConfig {
         binary,
         session_dir: session_dir.to_path_buf(),
         cwd: workdir.to_path_buf(),
         ask_dialog: true,
         prompt_timeout: Duration::from_secs(600),
-        policy: spawn_policy(settings),
+        policy: spawn_policy(settings, choice.policy),
     })
     .map_err(|e| e.to_string())?;
     // Nothing in the CLI can answer an OMP dialog: refuse at once (P5 gap).
@@ -1385,6 +1409,27 @@ fn _keep_version(_: _Version) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opt_in_hands_approvals_to_omp_but_keeps_denies() {
+        use cedian_omp::Approvals;
+        use cedian_shell::{Policy, Verdict};
+        let mut settings = cedian_shell::Settings::default();
+        let default = spawn_policy(&settings, Policy::Cedian);
+        assert_eq!(default.approvals, Approvals::Cedian(ApprovalMode::Write));
+        assert_eq!(
+            spawn_policy(&settings, Policy::Omp).approvals,
+            Approvals::Omp
+        );
+        settings.permissions.project_write = Verdict::Deny;
+        let opted = spawn_policy(&settings, Policy::Omp);
+        assert_eq!(opted.approvals, Approvals::Omp);
+        assert_eq!(opted.tool_policies.get("write"), Some(&ToolPolicy::Deny));
+        assert_eq!(
+            spawn_policy(&settings, Policy::Cedian).approvals,
+            Approvals::Cedian(ApprovalMode::AlwaysAsk)
+        );
+    }
 
     #[test]
     fn every_reporting_host_tool_is_a_channel_call() {
