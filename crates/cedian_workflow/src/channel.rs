@@ -34,6 +34,8 @@ pub const CHANNEL_TOOLS: &[&str] = &[
     WORKFLOW_UPDATE_TOOL,
     COMPLETE_TOOL,
     "cedian_worktree_request",
+    "cedian_review_request",
+    "cedian_review_finding",
 ];
 
 /// True when a logged call is a channel report: called by name, or through

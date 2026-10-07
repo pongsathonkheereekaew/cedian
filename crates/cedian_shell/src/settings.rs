@@ -96,6 +96,9 @@ pub struct Settings {
     pub permissions: Permissions,
     /// Reviewer allow-list: shell commands reviewers may run (S3).
     pub reviewer_allow_list: Vec<String>,
+    /// `[review] model`: the reviewer's model (ADR-0011: a different model
+    /// from the implementer where OMP routing allows). `None` = OMP's own.
+    pub review_model: Option<String>,
     pub update_channel: UpdateChannel,
     /// Gates cedian requires per task kind × risk. Empty = fast lane
     /// (ADR-0026).
@@ -174,6 +177,14 @@ struct RawSettings {
     workflow: RawWorkflow,
     #[serde(default)]
     projects: BTreeMap<String, RawProject>,
+    #[serde(default)]
+    review: RawReview,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawReview {
+    model: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -276,6 +287,7 @@ pub fn parse_settings(toml_src: &str) -> Result<Settings, SettingsError> {
     Ok(Settings {
         permissions: raw.permissions,
         reviewer_allow_list: raw.reviewer_allow_list,
+        review_model: raw.review.model.filter(|m| !m.trim().is_empty()),
         update_channel: raw.update_channel,
         floor: GateFloor::from_specs(raw.workflow.floor).map_err(SettingsError::BadFloor)?,
         projects: raw
@@ -360,6 +372,10 @@ pub fn default_settings_toml() -> String {
          project_write = \"allow\"\n\
          dangerous = \"ask\"\n\
          \n\
+         # The reviewer's model; set one other than your OMP default (S3).\n\
+         # [review]\n\
+         # model = \"provider/model\"\n\
+         \n\
          # Gates cedian requires per task kind and risk. None = fast lane.\n\
          # [[workflow.floor]]\n\
          # kind = \"bug_fix\"\n\
@@ -384,6 +400,14 @@ mod tests {
             parse(&default_settings_toml()).unwrap(),
             Settings::default()
         );
+    }
+
+    #[test]
+    fn review_model_is_read_and_unknown_review_keys_refused() {
+        let s = parse("schema = 1\n[review]\nmodel = \"opencode-go/glm-5.3\"\n").unwrap();
+        assert_eq!(s.review_model.as_deref(), Some("opencode-go/glm-5.3"));
+        assert_eq!(parse("schema = 1").unwrap().review_model, None);
+        assert!(parse("schema = 1\n[review]\nmodle = \"x\"\n").is_err());
     }
 
     #[test]
