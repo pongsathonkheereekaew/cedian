@@ -93,7 +93,6 @@ Known gaps that no slice exit names yet. Each row has the slice it must be settl
 | `worker steer` sets status and appends a note; it does not start a turn in the worker's session | [S5 plan](plans/done/s5-parallel-workers.md) | S9 (S5 exit) |
 | Browser items deferred from S4: user input preempts the agent, screencast, console and network capture, promotion to a required gate | [S4 plan](plans/done/s4-browser-evidence.md) | S9 (S4 exit) |
 | Inline edit runs on the session model: OMP has no RPC model-role switch, so it cannot use `smol` as ADR-0026 asks | README P6 row | next OMP pin bump |
-| The S9a fork reaches cedian crates through relative path deps; the layout decision is open | [S9a plan](plans/done/s9a-app-spike.md), ADR-0030 | S9 |
 
 ## Cross-cutting prerequisites
 
