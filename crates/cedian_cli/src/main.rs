@@ -1424,4 +1424,75 @@ mod tests {
         assert!(cmd_workflow(&d, &["resume".to_string()]).is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
+
+    /// U8: the bug-fix playbook skill (a test fixture copy — cedian never
+    /// writes the user's `.omp/`, §77) only uses tool names, ops, keys and
+    /// enum values the channel actually accepts, and the gates it reports
+    /// are the bug_fix playbook's.
+    #[test]
+    fn bug_fix_skill_matches_the_channel_schema() {
+        use serde_json::Value;
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/skills/bug-fix/SKILL.md"
+        );
+        let skill = std::fs::read_to_string(path).unwrap();
+        let front = skill.split("---").nth(1).expect("frontmatter");
+        assert!(front.contains("name: bug-fix"), "{front}");
+        assert!(front.contains("description: "), "{front}");
+
+        for word in skill.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+            if word.starts_with("cedian_") {
+                assert!(
+                    cedian_workflow::CHANNEL_TOOLS.contains(&word),
+                    "unknown tool {word}"
+                );
+            }
+        }
+        let check = |obj: &serde_json::Map<String, Value>,
+                     schema: &serde_json::Map<String, Value>,
+                     ctx: &str| {
+            let props = schema["properties"].as_object().unwrap();
+            for (key, value) in obj {
+                let prop = props
+                    .get(key)
+                    .unwrap_or_else(|| panic!("{ctx}: unknown key {key:?}"));
+                if let (Some(allowed), Some(v)) = (prop.get("enum"), value.as_str()) {
+                    if !v.starts_with('<') {
+                        assert!(
+                            allowed.as_array().unwrap().iter().any(|a| a == v),
+                            "{ctx}: {key}={v:?} not in {allowed}"
+                        );
+                    }
+                }
+            }
+        };
+        let update = cedian_workflow::update_parameters();
+        let complete = cedian_workflow::complete_parameters();
+        let bug_fix = cedian_workflow::Playbook::bug_fix();
+        let mut ops = Vec::new();
+        for block in skill.split("```json").skip(1) {
+            let body = block.split("```").next().unwrap();
+            let obj: serde_json::Map<String, Value> = serde_json::from_str(body.trim())
+                .unwrap_or_else(|e| panic!("bad JSON {body}: {e}"));
+            if let Some(op) = obj.get("op").and_then(Value::as_str) {
+                check(&obj, &update, op);
+                ops.push(op.to_string());
+                if let Some(gate) = obj.get("gate").and_then(Value::as_str) {
+                    assert!(bug_fix.gates.iter().any(|g| g.id == gate), "no gate {gate}");
+                }
+            } else {
+                check(&obj, &complete, "cedian_complete");
+                let claim_schema = complete["properties"]["claims"]["items"]
+                    .as_object()
+                    .unwrap();
+                for claim in obj["claims"].as_array().unwrap() {
+                    check(claim.as_object().unwrap(), claim_schema, "claim");
+                }
+            }
+        }
+        for op in ["start", "evidence", "advance"] {
+            assert!(ops.iter().any(|o| o == op), "skill never shows op {op}");
+        }
+    }
 }

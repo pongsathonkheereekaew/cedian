@@ -495,32 +495,7 @@ impl WorkflowChannel {
                  \"feature <id> proven\"); op=profile {profile,stage,instance,ok,surprising?,from_tool,match?} \
                  records one verification-profile stage you ran (launch, doctor, drive, evidence, cleanup); \
                  evidence for a profile feature adds profile, feature and instance.",
-                object(json!({
-                    "op": {"type": "string", "enum": ["start", "evidence", "advance", "gate", "profile"]},
-                    "profile": {"type": "string"},
-                    "feature": {"type": "string"},
-                    "instance": {"type": "string"},
-                    "stage": {"type": "string", "enum": ["launch", "doctor", "drive", "evidence", "cleanup"]},
-                    "surprising": {"type": "boolean"},
-                    "gate_kind": {"type": "string", "enum": ["build", "test", "lint", "reproduction", "behavior", "visual", "performance", "review"]},
-                    "evidence_kinds": {"type": "array", "items": {"type": "string"}},
-                    "min_items": {"type": "integer"},
-                    "kind": {"type": "string"},
-                    "title": {"type": "string"},
-                    "risk": {"type": "string", "enum": ["low", "medium", "high"]},
-                    "gate": {"type": "string"},
-                    "summary": {"type": "string"},
-                    "outcome": {"type": "string", "enum": ["pass", "fail", "inconclusive"]},
-                    "ok": {"type": "boolean"},
-                    "from_tool": {"type": "string"},
-                    "match": {"type": "string"},
-                    "passed": {"type": "boolean"},
-                    "measurement": {"type": "object", "properties": {
-                        "runs": {"type": "integer"}, "median": {"type": "number"},
-                        "range": {"type": "array", "items": {"type": "number"}},
-                        "limiter": {"type": "string"}, "build_profile": {"type": "string"}
-                    }}
-                }), &["op"]),
+                update_parameters(),
                 move |args, _ctx| update.update(&args).map(Into::into).map_err(Into::into),
             ),
             HostTool::new(
@@ -530,18 +505,60 @@ impl WorkflowChannel {
                  reported the evidence), inferred (follows from evidence) or guess; evidence = the evidence ids \
                  (e1, e2, ...) cedian returned. Returns an error listing missing gates when it is not done; keep \
                  working on those, or stop and report when it says BLOCKED.",
-                object(json!({
-                    "summary": {"type": "string"},
-                    "claims": {"type": "array", "items": {"type": "object", "properties": {
-                        "text": {"type": "string"},
-                        "label": {"type": "string", "enum": ["measured", "inferred", "guess"]},
-                        "evidence": {"type": "array", "items": {"type": "string"}}
-                    }, "required": ["text", "label"]}}
-                }), &[]),
+                complete_parameters(),
                 move |args, _ctx| complete.complete(&args).map(Into::into).map_err(Into::into),
             ),
         ]
     }
+}
+
+/// JSON Schema of `cedian_workflow_update` arguments (playbook skills are
+/// linted against it).
+pub fn update_parameters() -> Map<String, Value> {
+    object(
+        json!({
+            "op": {"type": "string", "enum": ["start", "evidence", "advance", "gate", "profile"]},
+            "profile": {"type": "string"},
+            "feature": {"type": "string"},
+            "instance": {"type": "string"},
+            "stage": {"type": "string", "enum": ["launch", "doctor", "drive", "evidence", "cleanup"]},
+            "surprising": {"type": "boolean"},
+            "gate_kind": {"type": "string", "enum": ["build", "test", "lint", "reproduction", "behavior", "visual", "performance", "review"]},
+            "evidence_kinds": {"type": "array", "items": {"type": "string"}},
+            "min_items": {"type": "integer"},
+            "kind": {"type": "string"},
+            "title": {"type": "string"},
+            "risk": {"type": "string", "enum": ["low", "medium", "high"]},
+            "gate": {"type": "string"},
+            "summary": {"type": "string"},
+            "outcome": {"type": "string", "enum": ["pass", "fail", "inconclusive"]},
+            "ok": {"type": "boolean"},
+            "from_tool": {"type": "string"},
+            "match": {"type": "string"},
+            "passed": {"type": "boolean"},
+            "measurement": {"type": "object", "properties": {
+                "runs": {"type": "integer"}, "median": {"type": "number"},
+                "range": {"type": "array", "items": {"type": "number"}},
+                "limiter": {"type": "string"}, "build_profile": {"type": "string"}
+            }}
+        }),
+        &["op"],
+    )
+}
+
+/// JSON Schema of `cedian_complete` arguments.
+pub fn complete_parameters() -> Map<String, Value> {
+    object(
+        json!({
+            "summary": {"type": "string"},
+            "claims": {"type": "array", "items": {"type": "object", "properties": {
+                "text": {"type": "string"},
+                "label": {"type": "string", "enum": ["measured", "inferred", "guess"]},
+                "evidence": {"type": "array", "items": {"type": "string"}}
+            }, "required": ["text", "label"]}}
+        }),
+        &[],
+    )
 }
 
 /// The claims ledger as the completion view shows it: every claim with its
