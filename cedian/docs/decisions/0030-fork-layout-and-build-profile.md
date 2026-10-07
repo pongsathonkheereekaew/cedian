@@ -32,4 +32,4 @@ The cedian crates move into the fork at S9 start: one workspace, one lockfile, o
 | A. Sibling path deps (spike today) | fork crates depend on `../cedian/crates/*` | zero setup, both repos stay as they are | builds only with a fixed checkout layout; CI needs both repos; two lockfiles |
 | **B. cedian crates move into the fork** (chosen) | `crates/cedian_*` live in the fork; this repo keeps docs, OMP vendoring and the headless CLI until it dies at S9 | one workspace, one lockfile, one CI; matches §7 "cedian-owned crates" inside the fork | the move is a one-time migration; upstream rebases see more files (they are all new crates, so no conflicts) |
 | C. Fork as a git submodule of this repo | this repo pins the fork commit | one entry point | submodule friction; still two workspaces |
-
+- **Refined by ADR-0040:** all code moves into the fork, the CLI, the OMP vendoring and `OMP_PARITY.md` included; this repo keeps the docs.
