@@ -135,12 +135,17 @@ impl Gate {
     /// `inconclusive` never counts). A required gate whose ONLY support is
     /// unattributed is `Failed` (provenance rejection), never passed.
     pub fn evaluate(&self, items: &[Evidence], current: &CurrentState) -> GateResult {
-        let supporting: Vec<&Evidence> = items
+        let for_gate: Vec<&Evidence> = items
             .iter()
             .filter(|e| e.for_gates.iter().any(|g| g == &self.id))
-            .filter(|e| self.predicate.kinds.is_empty() || self.predicate.kinds.contains(&e.kind))
             .filter(|e| self.predicate.feature.is_none() || e.feature == self.predicate.feature)
             .collect();
+        let supporting: Vec<&Evidence> = for_gate
+            .iter()
+            .filter(|e| self.predicate.kinds.is_empty() || self.predicate.kinds.contains(&e.kind))
+            .copied()
+            .collect();
+        let wrong_kind = for_gate.len() - supporting.len();
         let (mut unattributed, mut stale, mut inconclusive, mut wrong_outcome) = (0, 0, 0, 0);
         let mut relevant: Vec<&Evidence> = Vec::new();
         for e in &supporting {
@@ -171,7 +176,7 @@ impl Gate {
             };
         }
         // Distinguish provenance rejection from plain absence.
-        if self.required && !supporting.is_empty() && unattributed == supporting.len() {
+        if self.required && !supporting.is_empty() && unattributed == for_gate.len() {
             return GateResult {
                 status: GateStatus::Failed,
                 deciding: supporting.iter().map(|e| e.id.clone()).collect(),
@@ -187,6 +192,7 @@ impl Gate {
             (inconclusive, "inconclusive"),
             (unattributed, "unattributed"),
             (wrong_outcome, "failing"),
+            (wrong_kind, "wrong kind"),
         ]
         .iter()
         .filter(|(n, _)| *n > 0)
@@ -455,6 +461,22 @@ mod tests {
         let r = g.evaluate(&[e], &now);
         assert_eq!(r.status, GateStatus::Passed);
         assert!(r.unverified_origin);
+    }
+
+    #[test]
+    fn wrong_kind_is_named_and_not_called_unattributed() {
+        let now = ws("1");
+        let g = gate("verify", true, pred(vec![EvidenceKind::Test], 1, true));
+        let read = item("e1", "verify", EvidenceKind::File, Outcome::Pass, &now);
+        let typed =
+            Evidence::unattributed("e2", EvidenceKind::Test, &["verify"], "s", Outcome::Pass);
+        let r = g.evaluate(&[read, typed], &now);
+        assert_eq!(r.status, GateStatus::Pending);
+        assert!(
+            r.reason.contains("1 unattributed, 1 wrong kind"),
+            "{}",
+            r.reason
+        );
     }
 
     #[test]
