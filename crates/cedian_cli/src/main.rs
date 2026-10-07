@@ -592,21 +592,27 @@ pub(crate) fn run_turn(
     router.unsubscribe(sub);
     drop(router);
     let (panel, audit_error) = pump.join().map_err(|_| "pump thread died".to_string())?;
-    let turn = turn.map_err(|e| e.to_string())?;
+    turn.map_err(|e| e.to_string())?;
     if let Some(e) = audit_error {
         return Err(format!(
             "{e} — the turn is not audited, so it fails (ADR-0035)"
         ));
     }
 
-    // Render the turn: assistant text + tool cards.
+    // Render the turn from the thread the stream built, not from
+    // `prompt_result`'s copy of the text (S0 exit).
+    let task = panel.get(&task_id).ok_or("task vanished")?;
+    let (messages, cards) = cedian_agent_ui::render_thread(task.thread().events());
     if live {
         println!();
-    } else if let Some(text) = turn.assistant_text.as_deref() {
-        println!("{text}");
+    } else {
+        for m in messages
+            .iter()
+            .filter(|m| m.role == cedian_agent_ui::MessageRole::Assistant && !m.text.is_empty())
+        {
+            println!("{}", m.text);
+        }
     }
-    let task = panel.get(&task_id).ok_or("task vanished")?;
-    let (_messages, cards) = cedian_agent_ui::render_thread(task.thread().events());
     for card in &cards {
         // Headless refuses every dialog, so an exec-tier call that completed
         // under the opt-in was approved by OMP's config, not by a person. A

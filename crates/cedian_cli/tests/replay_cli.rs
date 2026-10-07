@@ -36,6 +36,9 @@ fn main() {
     );
     scenario(record);
     println!("ok");
+    print!("test replay_cli_user_edit_over_agent_hunk_is_stale (replay) ... ");
+    stale_scenario();
+    println!("ok");
     let record = which == "shell";
     print!(
         "test replay_shell_one_runtime_two_turns_lock ({}) ... ",
@@ -190,6 +193,65 @@ fn scenario(record: bool) {
     );
     let review = cedian(&root, &["review"]);
     assert!(!review.contains("(1 hunk(s))"), "hunk resolved:\n{review}");
+}
+
+/// S0 exit: a user edit over the agent's hunk shows `stale` in review, and
+/// reject refuses it rather than overwrite the user's line (ARCHITECTURE §18).
+fn stale_scenario() {
+    let root: PathBuf =
+        std::env::temp_dir().join(format!("cedian-s0-stale-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("ws")).unwrap();
+    let notes = root.join("ws/notes.txt");
+    std::fs::write(&notes, ORIGINAL).unwrap();
+    let root = root.canonicalize().unwrap();
+    cedian_fake_omp::install_replay(&root.join("sessions"), Path::new(FIXTURE)).unwrap();
+    cedian(
+        &root,
+        &[
+            "prompt",
+            "Call cedian_apply_edit with path 'notes.txt', expected_version 0, start 6, end 10, \
+             replacement 'BETA'. Do not use any other tool. Then reply with only: edited-ok",
+        ],
+    );
+    assert_eq!(
+        std::fs::read_to_string(&notes).unwrap(),
+        "alpha\nBETA\ngamma\n"
+    );
+
+    std::fs::write(&notes, "alpha\nBETA by user\ngamma\n").unwrap();
+    let review = cedian(&root, &["review"]);
+    assert!(
+        review.contains("stale"),
+        "user edit over the agent hunk is stale:\n{review}"
+    );
+    assert!(
+        !review.contains("pending"),
+        "no hunk still pending:\n{review}"
+    );
+
+    let out = cli(&root)
+        .args(["reject", "/notes.txt", "0"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "reject of a stale hunk is refused");
+    assert_eq!(
+        std::fs::read_to_string(&notes).unwrap(),
+        "alpha\nBETA by user\ngamma\n",
+        "the user's line survives"
+    );
+
+    cedian(&root, &["accept", "/notes.txt", "0"]);
+    let review = cedian(&root, &["review"]);
+    assert!(
+        !review.contains("stale"),
+        "accept persists across invocations:\n{review}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&notes).unwrap(),
+        "alpha\nBETA by user\ngamma\n",
+        "accept keeps the buffer as it is"
+    );
 }
 
 fn cedian_omp_path() -> PathBuf {
