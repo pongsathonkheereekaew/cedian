@@ -49,3 +49,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0043](0043-reviewer-sandbox-private-state-no-credentials.md) | The reviewer writes only its own run directory, cannot read credentials, and gets a fixed tool set |
 | [0044](0044-cedian-state-outside-the-workspace.md) | cedian's per-workspace state lives outside the workspace |
 | [0045](0045-omp-settings-live-by-watching-config-sources.md) | The OMP settings page stays live by watching OMP's config files; sources are derived through OMP |
+| [0046](0046-one-driver-per-session-by-file-holders.md) | The app refuses a session another process drives, detected by who holds OMP's session files |
