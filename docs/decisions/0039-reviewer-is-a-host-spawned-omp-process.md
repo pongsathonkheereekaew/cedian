@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-07, in chat: decision 1). Decision 2 takes the first option ADR-0028 already lists, so it needs no new owner call.
 - **Date:** 2026-10-07
-- **Rule text:** [ROADMAP.md](../ROADMAP.md) S3 exit and gate items 1–2; `docs/plans/s3-review-agents.md`
+- **Rule text:** [ROADMAP.md](../ROADMAP.md) S3 exit and gate items 1–2; `docs/plans/done/s3-review-agents.md`
 - **Refines:** ADR-0011 (reviewers in a read-only sandbox), ADR-0028 (known gap)
 
 ## Context

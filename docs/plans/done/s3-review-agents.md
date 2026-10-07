@@ -42,3 +42,31 @@ Exit (ROADMAP S3 is the contract; restated as observable checks). The four gate 
 | U8 | **Exit replay:** record a live implementer turn that asks for a review; the reviewer (other model, sandboxed) reports a blocker on its hunk | `replay_cli`: finding attached, gate unmet, dismiss → met, audit rows present | 0.75 |
 | U9 | Correction ledger + `cedian_correction_class` | unit: rows per event kind; class refused under two events/two turns; `enforced` only with fail-then-pass evidence | 0.5 |
 | U10 | README S3 row, ROADMAP, OMP_PARITY rows for the new host tools, plan → `done/` | docs only | — |
+
+## Exit evidence
+
+Every gate item and exit clause, and the test that shows it (`cargo test --workspace`; replays in `cargo test -p cedian_cli --test replay_cli`):
+
+| Item | Evidence |
+|---|---|
+| G1 spawn profile strict; ADR-0028 gap closed | unit `config_allow_for_an_unnamed_tool_is_pinned_to_prompt`; replay `replay_cli_user_edit_over_agent_hunk_is_stale` finds a project `allow` for `some_mcp_tool` pinned to `prompt` in the generated overlay (fails without the wiring); live `live_spawn_profile` passes on OMP 18.6.1 |
+| G2 reviewer Seatbelt profile, bypass-proof | `reviewer_sandbox`: a real `sandbox-exec` refuses workspace writes and a non-allow-listed exec with EPERM, while allow-listed commands and session writes work; fails with the workspace deny removed; live case completes an OMP turn under the profile |
+| G3 allow-list in the user's `cedian.toml` | `reviewer_allow_list` becomes the reviewer's `bash.patterns` allows and its `process-exec` rules (`allow_list_becomes_allow_patterns`, sandbox golden test) |
+| G4 audit tuple for every cedian-gate decision, `abstain` included | `replay_p5_worktree_request_and_headless_deny` reads the file back: ordinals in order, `deny` for the refused `bash`, `allow` for the served host tool; unit cases for `abstain` and two open logs |
+| An OMP turn spawns a reviewer under the reviewer profile, fresh context, different model | `replay_s3_review_agent_blocker` (recorded live): reviewer overlay `always-ask` with `edit` denied, `sandbox-exec` profile ending in the workspace deny, model glm-5.3 (implementer muse-spark-1.3) |
+| Findings arrive through `cedian_review_finding` and attach to the hunk they name | same replay: the blocker is bound to `    return a - b` in `/add.py`; unit cases refuse a finding outside every hunk |
+| A `blocker` keeps the gate unmet until fixed or dismissed with a recorded reason | same replay: `cedian_complete` refused with `review: blocker f1`; `review dismiss` needs a reason and writes an audit row; unit `an_open_review_blocker_refuses_completion_until_it_closes`; a changed hunk makes the finding stale |
+| Triggered from `cedian shell` with `review --agent` | `replay_shell_one_runtime_two_turns_lock`: `review --agent` in the shell attaches a finding to the turn's hunk (reviewer recorded on its own) |
+| Correction ledger rows | replays assert `hunk_rejected`, `user_edited_agent_hunk` (once), `turn_reverted`, `completion_refused`, `finding_dismissed` |
+| `cedian_correction_class` refuses under two events from two turns; `enforced` only with fail-then-pass evidence | unit `a_one_off_is_not_a_class`, `enforced_only_when_the_check_failed_on_the_old_code_and_passes_now` |
+
+## Findings (2026-10-07)
+
+- **A review asked for mid-turn saw nothing** (found live): a turn's changes reached the review store only at turn end. The review tool and the blocker check now bring the running turn in first, under the row G rule.
+- **Two audit logs collided on ordinals** (found live: 9 twice) while the reviewer ran inside the implementer's turn. One counter per file now; reviewer rows carry `actor: reviewer`.
+- **Seatbelt prototype passed vacuously once:** the workspace sat under `/private/tmp`, which the profile allows. The generated profile denies the workspace last.
+
+## Open after S3
+
+In ROADMAP Follow-ups: the `cedian://corrections` URI and the `repeated` escalation (ADR-0032 decision 4); `continue_escalated` rows and the `model` field are not recorded yet; a proof cannot yet check that both evidence runs were the enforcer's command (evidence keeps no command).
+

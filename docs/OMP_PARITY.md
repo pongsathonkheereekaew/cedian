@@ -113,8 +113,10 @@ Frames OMP sends besides the agent events above.
 
 | Feature | cedian surface | Status |
 |---|---|---|
-| approval modes (`always-ask`, `write`, `yolo`) | default `write`; OMP's own mode by opt-in | headless by opt-in ([ADR-0035](decisions/0035-omp-native-approval-opt-in.md), P8): `policy = "omp"` passes no mode; badge, `approved by OMP` card label, `.cedian/audit.jsonl` rows |
+| approval modes (`always-ask`, `write`, `yolo`) | default `write`; `always-ask` for reviewers (S3); OMP's own mode by opt-in | headless by opt-in ([ADR-0035](decisions/0035-omp-native-approval-opt-in.md), P8): `policy = "omp"` passes no mode; badge, `approved by OMP` card label, `.cedian/audit.jsonl` rows |
 | `omp config get <key> --json` | OMP policy badge (effective `tools.approvalMode`, `computer.enabled`); `tools.approval` read before every default-profile spawn to pin unnamed allows ([ADR-0039](decisions/0039-reviewer-is-a-host-spawned-omp-process.md)) | headless (P8, S3 U1) |
+| `--model` (launch-time) | the reviewer's `[review] model` from `cedian.toml` ([ADR-0039](decisions/0039-reviewer-is-a-host-spawned-omp-process.md)) | headless (S3): reviewer processes only |
+| running under `sandbox-exec` | the reviewer's generated Seatbelt profile (workspace unwritable, exec allow-list) | headless (S3): reviewer processes only |
 | Plan mode (launch-time) | separate plan runtime ([ADR-0014](decisions/0014-agent-modes.md)) | planned S9 |
 | `--profile` | per-workspace OMP profile in settings | planned S9 |
 | skills, rules, `AGENTS.md`, agents (`.omp/`) | used as-is; listed read-only in settings ([§77](ARCHITECTURE.md)) | headless (used); listing planned S9 |
