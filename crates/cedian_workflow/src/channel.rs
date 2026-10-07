@@ -16,8 +16,9 @@
 //!   the agent cannot attribute evidence by saying so.
 
 use crate::{
-    state::ContinueOutcome, Claim, CompletionAttempt, CurrentState, Evidence, EvidenceKind,
-    GateStatus, Outcome, Risk, TaskKind, TaskProfile, WorkflowState, WorkflowStatus,
+    state::ContinueOutcome, Claim, CompletionAttempt, CurrentState, Evidence, EvidenceKind, Gate,
+    GateFloor, GateKind, GatePredicate, GateStatus, Outcome, Risk, TaskKind, TaskProfile,
+    WorkflowState, WorkflowStatus,
 };
 use omp_rpc::HostTool;
 use serde_json::{json, Map, Value};
@@ -83,6 +84,7 @@ pub struct WorkflowChannel {
     store: Box<dyn WorkflowStore>,
     resolve: Box<Resolver>,
     current: Box<Current>,
+    floor: GateFloor,
     /// Serializes load → mutate → save across handler threads.
     lock: Mutex<()>,
 }
@@ -94,11 +96,23 @@ impl WorkflowChannel {
         resolve: impl Fn(&str, &str) -> Option<BoundCall> + Send + Sync + 'static,
         current: impl Fn() -> CurrentState + Send + Sync + 'static,
     ) -> Arc<Self> {
+        Self::with_floor(task_id, store, resolve, current, GateFloor::default())
+    }
+
+    /// Same, with the cedian gate floor every started workflow gets.
+    pub fn with_floor(
+        task_id: impl Into<String>,
+        store: Box<dyn WorkflowStore>,
+        resolve: impl Fn(&str, &str) -> Option<BoundCall> + Send + Sync + 'static,
+        current: impl Fn() -> CurrentState + Send + Sync + 'static,
+        floor: GateFloor,
+    ) -> Arc<Self> {
         Arc::new(Self {
             task_id: task_id.into(),
             store,
             resolve: Box::new(resolve),
             current: Box::new(current),
+            floor,
             lock: Mutex::new(()),
         })
     }
@@ -127,7 +141,8 @@ impl WorkflowChannel {
                 if let Some(risk) = enum_arg::<Risk>(args, "risk")? {
                     profile.risk = risk;
                 }
-                let state = WorkflowState::start(profile).map_err(|e| e.to_string())?;
+                let state = WorkflowState::start_with_floor(profile, &self.floor)
+                    .map_err(|e| e.to_string())?;
                 self.store.save(&state)?;
                 Ok(format!(
                     "workflow started\n{}",
@@ -214,7 +229,38 @@ impl WorkflowChannel {
                 self.store.save(&state)?;
                 Ok(summary(&state, &current))
             }
-            other => Err(format!("unknown op {other:?} (start|evidence|advance)")),
+            "gate" => {
+                let mut state = self.active()?;
+                let id = str_arg(args, "gate")?;
+                let kind: GateKind = enum_arg(args, "gate_kind")?.ok_or(
+                    "missing `gate_kind` (build|test|lint|behavior|visual|performance|review)",
+                )?;
+                let kinds: Vec<EvidenceKind> =
+                    enum_arg(args, "evidence_kinds")?.unwrap_or_default();
+                let min_items = args.get("min_items").and_then(Value::as_u64).unwrap_or(1);
+                let gate = Gate::register(
+                    id,
+                    kind.clone(),
+                    true,
+                    GatePredicate {
+                        kinds,
+                        min_items: usize::try_from(min_items.max(1)).unwrap_or(1),
+                        require_ok: kind != GateKind::Reproduction,
+                        fresh: kind != GateKind::Reproduction,
+                    },
+                    false,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+                state.add_gate(gate)?;
+                self.store.save(&state)?;
+                Ok(format!(
+                    "gate {id} added (required)\n{}",
+                    summary(&state, &(self.current)())
+                ))
+            }
+            other => Err(format!(
+                "unknown op {other:?} (start|evidence|advance|gate)"
+            )),
         }
     }
 
@@ -327,9 +373,13 @@ impl WorkflowChannel {
                  matching call (none found → stored unattributed, which cannot pass a required gate); \
                  outcome = pass | fail | inconclusive (could not run); evidence goes stale when a file it saw changes; \
                  performance evidence adds measurement {runs,median,range,limiter,build_profile} (any missing → inconclusive); \
-                 op=advance {passed} moves to the next phase.",
+                 op=advance {passed} moves to the next phase; op=gate {gate,gate_kind,evidence_kinds?,min_items?} \
+                 adds a required gate (you can add gates, never remove or weaken one).",
                 object(json!({
-                    "op": {"type": "string", "enum": ["start", "evidence", "advance"]},
+                    "op": {"type": "string", "enum": ["start", "evidence", "advance", "gate"]},
+                    "gate_kind": {"type": "string", "enum": ["build", "test", "lint", "reproduction", "behavior", "visual", "performance", "review"]},
+                    "evidence_kinds": {"type": "array", "items": {"type": "string"}},
+                    "min_items": {"type": "integer"},
                     "kind": {"type": "string"},
                     "title": {"type": "string"},
                     "risk": {"type": "string", "enum": ["low", "medium", "high"]},
@@ -714,6 +764,54 @@ mod tests {
             .complete(&args(json!({"claims": [{"text": "x", "label": "sure"}]})))
             .unwrap_err();
         assert!(bad.contains("bad `claims`"), "{bad}");
+    }
+
+    #[test]
+    fn omp_adds_gates_but_cannot_weaken_the_floor() {
+        let floor_gate = Gate::register(
+            "lint",
+            GateKind::Lint,
+            true,
+            GatePredicate {
+                kinds: vec![],
+                min_items: 1,
+                require_ok: true,
+                fresh: true,
+            },
+            false,
+        )
+        .unwrap();
+        let floor = GateFloor {
+            rules: vec![crate::FloorRule {
+                kind: TaskKind::BugFix,
+                min_risk: Risk::Low,
+                gates: vec![floor_gate],
+            }],
+        };
+        let store = Arc::new(MemStore::default());
+        let ch = WorkflowChannel::with_floor(
+            "t1",
+            Box::new(Arc::clone(&store)),
+            |_, _| None,
+            || files("x"),
+            floor,
+        );
+        start(&ch);
+        let gate = |id: &str, kind: &str| {
+            ch.update(&args(json!({"op": "gate", "gate": id, "gate_kind": kind})))
+        };
+        assert!(gate("lint", "lint")
+            .unwrap_err()
+            .contains("cedian floor gate"));
+        assert!(gate("bench", "performance")
+            .unwrap()
+            .contains("gate bench added"));
+        assert!(gate("x", "nope").unwrap_err().contains("bad `gate_kind`"));
+        let err = ch.complete(&Map::new()).unwrap_err();
+        assert!(
+            err.contains("\"lint\"") && err.contains("\"bench\""),
+            "{err}"
+        );
     }
 
     #[test]
