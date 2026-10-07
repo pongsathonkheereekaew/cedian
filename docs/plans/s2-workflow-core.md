@@ -59,6 +59,12 @@ Method: each history task starts in a fresh worktree at the commit's **parent**,
 
 Owner (2026-10-07): B10 was row E; swapped for P3's `browser.json` part, since row E is real work done before P8. B6 is kept as the one medium task. **Owner approved B1–B10 as listed on 2026-10-07 (in chat).** Runs go after P8 and the S2 close, and no number is reported before `benchmark-checklist`.
 
+## Exit evidence
+
+Proven 2026-10-07 by hermetic replay of recorded OMP turns.
+
+- (d) `replay_s2_bugfix_skill_blocked_claim`: OMP runs the bug-fix playbook skill from the workspace's own `.omp/skills/` copy, reproduces with an attributed `read`, fixes, cannot verify, claims done with a flagged `measured` claim → `cedian_complete` refuses and the workflow ends `failed` with `verify` listed (the P5 replay shows `blocked`); (b) `replay_s2_verification_profile`: OMP runs the `verify-notes` profile by `bash` under the P8 opt-in — draft-profile feature evidence is inconclusive and the gate stays pending, one end-to-end run proves the profile and the next instance's evidence passes the gate, a surprising drive makes evidence inconclusive until Doctor passes; fast lane (recorded trivial edit leaves no workflow); ADR-0024 in code (code state + stale, pass/fail/inconclusive, claims ledger, measurements, kind follows the bound tool, `workflow.json` v2); gate floor from the user's `cedian.toml` reaches OMP's `op=start` (`replay_row_e_floor_from_cedian_toml`) + add-only `op=gate`; CLI-typed evidence unattributed.
+
 ## Findings (2026-10-07)
 
 - **Kind-to-tool consistency was missing** (ADR-0031 had handed it to this slice): a `read` reported as `kind: test` would have passed `verify`. Evidence kind now follows the bound tool (exec → command/test, read-only → file, browser → browser/screenshot). The bug-fix `reproduce` gate accepts `file`, because reading wrong output reproduces a bug. The live recording hit exactly this: the model's verify evidence was a `read` labelled `test`.

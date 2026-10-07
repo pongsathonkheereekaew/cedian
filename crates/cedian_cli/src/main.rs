@@ -82,7 +82,7 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
     if !in_shell && !is_read_only(&args) {
         shell_lock::refuse_if_shell_live(&workdir, &args.join(" "))?;
     }
-    // One settings document per command (the user's `cedian.toml`, row E).
+    // One settings document per command (the user's `cedian.toml`, ADR-0018).
     // The dangerous tier Deny refuses prompt (the shell rule).
     let settings = cedian_shell::resolve_settings(&workdir).map_err(|e| e.to_string())?;
     match cmd {

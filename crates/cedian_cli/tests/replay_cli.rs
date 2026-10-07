@@ -626,7 +626,7 @@ const BUG_FIX_SKILL: &str = concat!(
 /// after the turn the workflow stays `failed` (not overwritten to `blocked`,
 /// ADR-0036) and the missing `verify` gate is printed. P5 covers `blocked`.
 /// `floor`: replay the same turn with a `[[workflow.floor]]` rule in the
-/// user's `cedian.toml` (row E): OMP's `op=start` gets the floor gate too.
+/// user's `cedian.toml` (ADR-0018): OMP's `op=start` gets the floor gate too.
 fn s2_blocked_scenario(record: bool, floor: bool) {
     let root: PathBuf = std::env::temp_dir().join(format!(
         "cedian-s2-{}{}",
