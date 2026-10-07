@@ -143,7 +143,12 @@ impl Gate {
                 unattributed += 1;
             } else if self.predicate.fresh && e.stale_reason(current).is_some() {
                 stale += 1;
-            } else if e.outcome == Outcome::Inconclusive {
+            } else if e.outcome == Outcome::Inconclusive
+                || (self.kind == GateKind::Performance
+                    && e.measurement
+                        .as_ref()
+                        .is_none_or(|m| !m.missing().is_empty()))
+            {
                 inconclusive += 1;
             } else if self.predicate.require_ok && e.outcome != Outcome::Pass {
                 wrong_outcome += 1;
@@ -369,6 +374,44 @@ mod tests {
         );
         assert_eq!(r.status, GateStatus::Pending);
         assert!(r.reason.contains("1 failing"), "{}", r.reason);
+    }
+
+    #[test]
+    fn performance_gate_needs_a_complete_measurement() {
+        use crate::evidence::Measurement;
+        let now = ws("1");
+        let g = Gate::register(
+            "perf",
+            GateKind::Performance,
+            true,
+            pred(vec![], 1, true),
+            false,
+        )
+        .unwrap();
+        let full = Measurement {
+            runs: Some(5),
+            median: Some(12.0),
+            range: Some([11.0, 14.0]),
+            limiter: Some("cpu".into()),
+            build_profile: Some("release".into()),
+        };
+        let mut e = item("e1", "perf", EvidenceKind::Command, Outcome::Pass, &now);
+        let r = g.evaluate(std::slice::from_ref(&e), &now);
+        assert!(
+            r.reason.contains("1 inconclusive"),
+            "no measurement: {}",
+            r.reason
+        );
+        e.measurement = Some(Measurement {
+            build_profile: None,
+            ..full.clone()
+        });
+        assert_eq!(
+            g.evaluate(std::slice::from_ref(&e), &now).status,
+            GateStatus::Pending
+        );
+        e.measurement = Some(full);
+        assert_eq!(g.evaluate(&[e], &now).status, GateStatus::Passed);
     }
 
     #[test]
