@@ -240,7 +240,7 @@ impl OmpRuntime {
         let turn = self
             .client()
             .prompt_and_wait(&cmd, self.config.prompt_timeout)
-            .map_err(OmpError::from)?;
+            .map_err(|e| OmpError::from(e).with_timeout(self.config.prompt_timeout))?;
         self.state = RuntimeState::Ready;
         Ok(turn)
     }
