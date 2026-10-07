@@ -69,6 +69,6 @@ Owner (2026-10-07): B10 was row E; swapped for P3's `browser.json` part, since r
 
 ## Open after this pass
 
-- Verification profile through an OMP turn: every profile stage is a `bash`-driven call in practice, and headless denies `bash`. Recording one needs `policy = "omp"` (P8) or a profile whose drive is read-only. Follow-up; S2 stays `◐` on (b).
+- ~~Verification profile through an OMP turn.~~ Done 2026-10-07 with P8: `replay_s2_verification_profile` (fixture `s2_verification_profile.jsonl`). The first recording stayed a draft because the test app's `doctor.sh` failed on a fresh instance (`app.sh list` exited 1 with no notes file); OMP reported `ok: false` and cedian refused the run, as it should. The app was fixed and the turn re-recorded.
 - ~~Gate floor from `cedian.toml` (row E).~~ Done 2026-10-07: `replay_row_e_floor_from_cedian_toml` replays the recorded S2 turn with a floor rule; OMP's `op=start` workflow carries the floor gate.
-- Benchmark run (after owner approval of B1–B10).
+- Benchmark run: B1–B10 approved 2026-10-07; not yet run.
