@@ -211,24 +211,30 @@ fn host_tool_names(settings: &cedian_shell::Settings) -> Vec<&'static str> {
 }
 
 /// Turn boundary (ADR-0036): a refused `cedian_complete` in this turn
-/// blocks the workflow; say so with the missing gates.
+/// blocks the workflow (or leaves it failed when the agent failed a phase);
+/// say so with the missing gates.
 fn end_workflow_turn(workdir: &Path) -> Result<(), String> {
     if !workflow_store::exists(workdir) {
         return Ok(());
     }
     let mut state = workflow_store::load(workdir)?;
-    let Some(missing) = state.end_turn() else {
+    let Some((status, missing)) = state.end_turn() else {
         if state.last_completion.is_some() {
             workflow_store::save(workdir, &state)?;
         }
         return Ok(());
     };
     workflow_store::save(workdir, &state)?;
-    println!("[!] workflow BLOCKED: the agent claimed done with required gates unmet");
+    let (word, next) = if status == cedian_workflow::WorkflowStatus::Failed {
+        ("FAILED", "start a new workflow to retry")
+    } else {
+        ("BLOCKED", "`cedian workflow resume` to continue")
+    };
+    println!("[!] workflow {word}: the agent claimed done with required gates unmet");
     for m in &missing {
         println!("    - {m}");
     }
-    println!("    (`cedian workflow status` for the claims; `cedian workflow resume` to continue)");
+    println!("    (`cedian workflow status` for the claims; {next})");
     Ok(())
 }
 
