@@ -8,7 +8,7 @@
 //! (`CEDIAN_OMP_BINARY`), which then acts as fake-omp.
 //!
 //! Hermetic: `cargo test -p cedian_cli --test replay_cli`
-//! Re-record one fixture (real OMP + auth): `CEDIAN_P2_RECORD=cli|shell|channel|worktree|revert cargo test -p cedian_cli --test replay_cli`
+//! Re-record one fixture (real OMP + auth): `CEDIAN_P2_RECORD=cli|shell|channel|worktree|revert|s2 cargo test -p cedian_cli --test replay_cli`
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,7 +24,7 @@ fn main() {
     if args.first().map(String::as_str) == Some("--mode") {
         std::process::exit(cedian_fake_omp::run(&args));
     }
-    // `CEDIAN_P2_RECORD=cli|shell|channel|worktree|revert` re-records ONE fixture against real OMP.
+    // `CEDIAN_P2_RECORD=cli|shell|channel|worktree|revert|s2` re-records ONE fixture against real OMP.
     let which = std::env::var("CEDIAN_P2_RECORD").unwrap_or_default();
     let record = which == "cli";
     print!(
@@ -60,6 +60,13 @@ fn main() {
         if record { "record" } else { "replay" }
     );
     revert_scenario(record);
+    println!("ok");
+    let record = which == "s2";
+    print!(
+        "test replay_s2_bugfix_skill_blocked_claim ({}) ... ",
+        if record { "record" } else { "replay" }
+    );
+    s2_blocked_scenario(record);
     println!("ok");
 }
 
@@ -555,4 +562,108 @@ fn revert_scenario(record: bool) {
         )
         .unwrap();
     }
+}
+
+const S2_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/s2_blocked.jsonl"
+);
+const BUG_FIX_SKILL: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/skills/bug-fix/SKILL.md"
+);
+
+/// S2 exit (d): OMP runs the bug-fix playbook skill (the workspace carries
+/// its own copy in `.omp/skills/`; cedian never writes `.omp/`, §77). It
+/// reproduces, fixes, but can't verify (`check.sh` needs `bash`, which
+/// headless denies), claims done anyway → after the turn the workflow is
+/// `blocked` and the missing `verify` gate is printed.
+fn s2_blocked_scenario(record: bool) {
+    let root: PathBuf = std::env::temp_dir().join(format!("cedian-s2-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let skill_dir = root.join("ws/.omp/skills/bug-fix"); // pre-canonical: setup only
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::copy(BUG_FIX_SKILL, skill_dir.join("SKILL.md")).unwrap();
+    std::fs::write(root.join("ws/notes.txt"), ORIGINAL).unwrap();
+    std::fs::write(
+        root.join("ws/check.sh"),
+        "#!/bin/sh\n# passes when line 2 of notes.txt is BETA\n[ \"$(sed -n 2p notes.txt)\" = BETA ]\n",
+    )
+    .unwrap();
+    let root = root.canonicalize().unwrap();
+    let sessions = root.join("sessions");
+    if record {
+        cedian_fake_omp::arm_record(&sessions, &cedian_omp_path()).unwrap();
+    } else {
+        cedian_fake_omp::install_replay(&sessions, Path::new(S2_FIXTURE)).unwrap();
+    }
+
+    let out = cedian(
+        &root,
+        &[
+            "prompt",
+            "Bug: `sh check.sh` fails because line 2 of notes.txt is wrong. Fix it. \
+             Follow the bug-fix skill in .omp/skills/bug-fix/SKILL.md exactly.",
+        ],
+    );
+    if record {
+        std::fs::copy(sessions.join(cedian_fake_omp::RECORDED_FILE), S2_FIXTURE).unwrap();
+    }
+
+    let raw = std::fs::read_to_string(root.join("ws/.cedian/workflow.json"))
+        .unwrap_or_else(|e| panic!("the skill started a workflow ({e}):\n{out}"));
+    let state: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(state["task"]["kind"], "bug_fix", "{raw}");
+    assert_eq!(
+        state["status"], "blocked",
+        "claimed done with verify unmet:\n{raw}\n{out}"
+    );
+    assert!(
+        out.contains("workflow BLOCKED") && out.contains("required gate \"verify\""),
+        "missing gate printed after the turn:\n{out}"
+    );
+    assert_eq!(
+        state["last_completion"]["accepted"], false,
+        "the turn called cedian_complete:\n{raw}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("ws/notes.txt")).unwrap(),
+        "alpha\nBETA\ngamma\n",
+        "the fix landed; only verification is missing"
+    );
+    let attributed_repro = state["evidence"]
+        .as_object()
+        .unwrap()
+        .values()
+        .any(|e| e["for_gates"][0] == "reproduce" && e["provenance"]["attributed"].is_object());
+    assert!(
+        attributed_repro,
+        "reproduction bound to a real call:\n{raw}"
+    );
+    let fixture = std::fs::read_to_string(S2_FIXTURE).unwrap();
+    assert!(
+        fixture.contains("bug-fix/SKILL.md") || fixture.contains("skill://bug-fix"),
+        "OMP read the skill"
+    );
+    // cedian wrote nothing under .omp/ besides the test's own copy.
+    let omp: Vec<_> = walk(&root.join("ws/.omp"));
+    assert_eq!(
+        omp,
+        [root.join("ws/.omp/skills/bug-fix/SKILL.md")],
+        "{omp:?}"
+    );
+}
+
+fn walk(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(walk(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out.sort();
+    out
 }
