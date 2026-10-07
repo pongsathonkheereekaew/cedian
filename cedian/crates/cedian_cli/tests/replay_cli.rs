@@ -583,8 +583,9 @@ const BUG_FIX_SKILL: &str = concat!(
 /// S2 exit (d): OMP runs the bug-fix playbook skill (the workspace carries
 /// its own copy in `.omp/skills/`; cedian never writes `.omp/`, §77). It
 /// reproduces, fixes, but can't verify (`check.sh` needs `bash`, which
-/// headless denies), claims done anyway → after the turn the workflow is
-/// `blocked` and the missing `verify` gate is printed.
+/// headless denies), claims done anyway, then fails its own verify phase →
+/// after the turn the workflow stays `failed` (not overwritten to `blocked`,
+/// ADR-0036) and the missing `verify` gate is printed. P5 covers `blocked`.
 fn s2_blocked_scenario(record: bool) {
     let root: PathBuf = std::env::temp_dir().join(format!("cedian-s2-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -621,12 +622,14 @@ fn s2_blocked_scenario(record: bool) {
         .unwrap_or_else(|e| panic!("the skill started a workflow ({e}):\n{out}"));
     let state: serde_json::Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(state["task"]["kind"], "bug_fix", "{raw}");
+    // The recorded agent failed its own verify phase before ending, so the
+    // refused claim leaves it `failed`, not `blocked` (ADR-0036).
     assert_eq!(
-        state["status"], "blocked",
+        state["status"], "failed",
         "claimed done with verify unmet:\n{raw}\n{out}"
     );
     assert!(
-        out.contains("workflow BLOCKED") && out.contains("required gate \"verify\""),
+        out.contains("workflow FAILED") && out.contains("required gate \"verify\""),
         "missing gate printed after the turn:\n{out}"
     );
     assert_eq!(

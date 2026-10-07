@@ -39,4 +39,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0033](0033-worker-brief-contract.md) | A worktree request carries a checked brief; worker liveness is side effects |
 | [0034](0034-identity-and-omp-parity.md) | Identity: a Cursor-style IDE for OMP, with full OMP feature parity |
 | [0035](0035-omp-native-approval-opt-in.md) | Per-project opt-in to OMP's own policy (approval mode and `computer`) |
-| [0036](0036-s2-evidence-freshness-and-turn-end-block.md) | (Proposed) S2 readings of ADR-0024: historical reproduction evidence, turn-end block, headless code state |
+| [0036](0036-s2-evidence-freshness-and-turn-end-block.md) | S2 readings of ADR-0024: historical reproduction evidence, turn-end block, headless code state |

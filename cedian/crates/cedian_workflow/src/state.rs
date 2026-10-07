@@ -412,9 +412,10 @@ impl WorkflowState {
 
     /// Turn boundary (ADR-0036). When the turn's last `cedian_complete` was
     /// refused, the claim failed: the workflow is `blocked` until the user
-    /// resumes it. Returns the missing gates when it blocked. Idempotent per
-    /// attempt.
-    pub fn end_turn(&mut self) -> Option<Vec<String>> {
+    /// resumes it — unless the agent already failed a phase itself, which
+    /// stays `failed` (the more exact statement). Returns the resulting
+    /// status and the missing gates. Idempotent per attempt.
+    pub fn end_turn(&mut self) -> Option<(WorkflowStatus, Vec<String>)> {
         let last = self.last_completion.as_mut()?;
         if last.turn_ended {
             return None;
@@ -424,8 +425,10 @@ impl WorkflowState {
             return None;
         }
         let missing = last.missing.clone();
-        self.block_current_phase();
-        Some(missing)
+        if self.status != WorkflowStatus::Failed {
+            self.block_current_phase();
+        }
+        Some((self.status, missing))
     }
 
     /// The user's answer to a block (§54 escalation): back to `running`
@@ -681,7 +684,8 @@ mod tests {
             missing: vec!["required gate \"verify\"".into()],
             turn_ended: false,
         });
-        let missing = w.end_turn().expect("blocked");
+        let (status, missing) = w.end_turn().expect("blocked");
+        assert_eq!(status, WorkflowStatus::Blocked);
         assert_eq!(missing, ["required gate \"verify\""]);
         assert_eq!(w.status, WorkflowStatus::Blocked);
         assert_eq!(w.end_turn(), None, "same attempt blocks once");
@@ -690,6 +694,27 @@ mod tests {
         assert!(w.continue_used.is_empty());
         assert!(w.phases.iter().all(|p| p.status != PhaseStatus::Blocked));
         assert!(w.resume().is_err(), "only a blocked workflow resumes");
+    }
+
+    #[test]
+    fn agent_failed_phase_stays_failed_at_turn_end() {
+        let mut w = WorkflowState::start(bugfix_task(Risk::Low)).unwrap();
+        w.last_completion = Some(CompletionAttempt {
+            claims: vec![],
+            accepted: false,
+            missing: vec!["required gate \"verify\"".into()],
+            turn_ended: false,
+        });
+        w.advance(false, &ws()).unwrap();
+        assert_eq!(w.status, WorkflowStatus::Failed);
+        let (status, missing) = w.end_turn().expect("reported");
+        assert_eq!(status, WorkflowStatus::Failed);
+        assert_eq!(missing.len(), 1);
+        assert_eq!(w.status, WorkflowStatus::Failed);
+        assert!(
+            w.resume().is_err(),
+            "failed is not resumable; start a new one"
+        );
     }
 
     #[test]
