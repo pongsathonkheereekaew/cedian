@@ -1970,7 +1970,7 @@ Rules:
 
 - OMP decides; cedian never schedules work, spawns agents, or gathers evidence itself (§54, §88 "second workflow engine").
 - The gate floor (required gates per task kind × risk) lives in cedian policy beside permissions. OMP may ADD gates; it can never remove or weaken a floor gate.
-- OMP reports profile, playbook, phase transitions and evidence claims through host tools (`cedian_workflow_update`, `cedian_complete`) — [ADR-0022](decisions/0022-host-tool-first.md). Evidence counts as attributed only when its `tool_call_id`s are in the router log.
+- OMP reports profile, playbook, phase transitions and evidence claims through host tools (`cedian_workflow_update`, `cedian_complete`) — [ADR-0022](decisions/0022-host-tool-first.md). Evidence counts as attributed only when cedian binds it to a router-log call: the agent names the producing tool (`from_tool`, optional `match`), cedian resolves the newest successful, non-channel matching call and stores its `tool_call_id` — the model never sees ids ([ADR-0031](decisions/0031-evidence-cites-tool-not-call-id.md)).
 - Playbooks and the project verification profile are OMP **skills** in `.omp/skills/`, not TypeScript and not cedian code ([ADR-0025](decisions/0025-playbooks-are-omp-skills.md)).
 - Until those host tools land, `cedian_workflow`'s profile/playbook/phase code is a headless stand-in (ROADMAP row A) driven from the CLI.
 
