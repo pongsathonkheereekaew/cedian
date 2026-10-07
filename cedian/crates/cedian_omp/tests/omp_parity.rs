@@ -6,13 +6,19 @@
 use std::path::PathBuf;
 
 fn repo_file(rel: &str) -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join(rel);
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(rel);
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
 
 /// `"name"` literals in `text`, in order.
 fn quoted(text: &str) -> Vec<String> {
-    text.split('"').skip(1).step_by(2).map(str::to_string).collect()
+    text.split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect()
 }
 
 /// Wire `type` of every command (`const NAME: &'static str = "…"`).
