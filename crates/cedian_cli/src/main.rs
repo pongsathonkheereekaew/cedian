@@ -26,6 +26,7 @@ mod revert_turn;
 mod session;
 mod shell;
 mod shell_lock;
+mod timing;
 mod verify_store;
 mod workflow_store;
 mod workspace_files;
@@ -36,7 +37,7 @@ use cedian_review::{AgentEdit, ReviewTracker};
 use cedian_workspace::{HostTools, WorkspaceHost};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn main() {
     let result = run(std::env::args().skip(1).collect());
@@ -468,8 +469,10 @@ fn cmd_prompt(
     message: &str,
 ) -> Result<(), String> {
     let host = HostTools::shared(workdir);
+    let started = Instant::now();
     let mut rt = spawn(session_dir, workdir, settings, &host)?;
     rt.open_session("cli").map_err(|e| e.to_string())?;
+    timing::record(serde_json::json!({"event": "spawn", "ms": timing::ms(started.elapsed())}));
     let result = run_turn(
         &mut rt,
         &host,
@@ -497,6 +500,7 @@ pub(crate) fn run_turn(
     kind: session::TurnKind,
     label: &str,
 ) -> Result<(), String> {
+    let turn_started = Instant::now();
     let mut store = session::load(workdir)?.unwrap_or_default();
     let keys = load_workspace(host, workdir);
 
@@ -562,7 +566,10 @@ pub(crate) fn run_turn(
     } else {
         format!("{ambient}\n{message}")
     };
+    let context_ms = timing::ms(turn_started.elapsed());
+    let omp_started = Instant::now();
     let turn = rt.prompt(&full, vec![]);
+    let omp_ms = timing::ms(omp_started.elapsed());
     // `Settled` follows `prompt_result`; give it a moment, then unsubscribe —
     // dropping our sender always ends the pump, even when the turn failed or
     // no `Settled` arrived.
@@ -704,7 +711,13 @@ pub(crate) fn run_turn(
     if let Some(n) = store.record_turn(kind, label, turn_files) {
         println!("(turn {n} recorded — `revert-turn {n}` puts it back)");
     }
-    session::save(workdir, &store)
+    let saved = session::save(workdir, &store);
+    let total_ms = timing::ms(turn_started.elapsed());
+    timing::record(serde_json::json!({
+        "event": "turn", "context_ms": context_ms, "omp_ms": omp_ms,
+        "post_ms": total_ms.saturating_sub(context_ms + omp_ms), "total_ms": total_ms,
+    }));
+    saved
 }
 
 /// Load the review task + tracker, rebuilt against current disk state.

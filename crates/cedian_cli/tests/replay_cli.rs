@@ -104,7 +104,8 @@ fn cli(root: &Path) -> Command {
     cmd.env("CEDIAN_CONFIG", config)
         .env("CEDIAN_WORKDIR", root.join("ws"))
         .env("CEDIAN_SESSION_DIR", root.join("sessions"))
-        .env("CEDIAN_OMP_BINARY", std::env::current_exe().unwrap());
+        .env("CEDIAN_OMP_BINARY", std::env::current_exe().unwrap())
+        .env("CEDIAN_TIMING", root.join("timing.jsonl"));
     cmd
 }
 
@@ -147,6 +148,22 @@ fn scenario(record: bool) {
     }
     assert!(out.contains("edited-ok"), "assistant text rendered:\n{out}");
     assert!(out.contains("[✓]"), "a done tool card rendered:\n{out}");
+    // ADR-0037: one spawn row and one turn row whose parts add up.
+    let timing: Vec<serde_json::Value> = std::fs::read_to_string(root.join("timing.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(timing.len(), 2, "{timing:?}");
+    assert_eq!(timing[0]["event"], "spawn");
+    let turn = &timing[1];
+    assert_eq!(turn["event"], "turn");
+    let part = |k: &str| turn[k].as_u64().unwrap();
+    assert_eq!(
+        part("context_ms") + part("omp_ms") + part("post_ms"),
+        part("total_ms"),
+        "{turn}"
+    );
     // S2 fast lane (ADR-0026): a trivial edit with no floor gate lands with
     // no workflow at all — nothing started, nothing blocked.
     assert!(
