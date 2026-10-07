@@ -17,7 +17,7 @@ Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisio
 | S1 Language services | ◐ LSP client + symbols + bridge (fake-green); live diagnostics need a warm server (`cedian shell`, P4), DAP-live needs Developer mode |
 | S9a App spike | ✅ 2026-10-07: the fork builds as `cedian` and a live GPUI test drives an OMP turn into `CedianPanel`, with OMP's edit imported as one undoable transaction; layout choice open (ROADMAP Follow-ups); evidence in [the plan](docs/plans/done/s9a-app-spike.md#exit-evidence) |
 | P6 Revert turn + inline edit | ✅ 2026-10-07 by hermetic replay of a recorded `cedian shell` session: inline edit changes only its range, revert turn keeps later user lines (STALE); evidence in [the plan](docs/plans/done/p6-revert-turn-inline-edit.md#exit-evidence) |
-| P7 OMP parity ledger | ✅ 2026-10-07: `cargo test -p cedian_omp --test omp_parity` passes against the vendored `wire.rs` (all commands, notifications and UI requests have a row in `docs/OMP_PARITY.md`), and fails naming the feature when a row is renamed (checked: `steer` → `command \`steer\``); runs in pre-commit through `cargo test --workspace` |
+| P7 OMP parity ledger | ✅ 2026-10-07: `cargo test -p cedian_omp --test omp_parity` passes against the vendored `wire.rs` (all commands, notifications and UI requests have a row in the fork's `cedian/OMP_PARITY.md`), and fails naming the feature when a row is renamed (checked: `steer` → `command \`steer\``); runs in pre-commit through `cargo test --workspace` |
 | S2 Workflow engine | ✅ 2026-10-07 by hermetic replay of recorded OMP turns, and the [ADR-0037](docs/decisions/0037-benchmark-without-cursor.md) benchmark within budget (0 false-done of 10; cedian overhead median 28 ms per turn); evidence in [the plan](docs/plans/done/s2-workflow-core.md#exit-evidence) |
 | P8 OMP policy opt-in | ✅ 2026-10-07 by live recording and hermetic replay (`replay_p8_omp_policy`, `replay_p8deny_omp_policy`): an opted-in project runs on OMP's own approvals, audited, and cedian denies still win; GPUI surfaces at S9; evidence in [the plan](docs/plans/done/p8-omp-policy.md#exit-evidence) |
 | S3 Review agents | ✅ 2026-10-07 by recorded OMP turns replayed hermetically: an OMP turn asks for a review, cedian runs the reviewer as its own sandboxed OMP process on the `review` model role, a same-model review is `inconclusive` (ADR-0039), a blocker refuses completion until dismissed with an audited reason; gate items 1–4 and the correction ledger hold; evidence in [the plan](docs/plans/done/s3-review-agents.md#exit-evidence) |
@@ -26,7 +26,7 @@ Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisio
 | S6 PR workspace | 🔜 `gh`, PR baselines, merge Deny-by-default |
 | S7 Local automations | 🔜 cron + history, no cloud ever |
 | S8 iOS track | 🔜 extension track, after v0.1 |
-| S9 Real app | 🔜 fork + GPUI binding (the only slice that yields `cedian.app`) |
+| S9 Real app | ◐ 2026-10-07: U1 done, all cedian code now lives in the fork and passes `script/cedian-check`; U2 onward (rebase on upstream Zed, the GPUI binding, `cedian.app`) is open; [progress](docs/plans/s9-real-app.md#progress) |
 
 ## Code, build and test
 

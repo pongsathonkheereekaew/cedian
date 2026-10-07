@@ -1,6 +1,6 @@
 # cedian — Architecture
 
-**cedian is a Cursor-style agentic IDE — the same agent + IDE workflow and product features — built for OMP: OMP runs as upstream ships it, every OMP feature gets a native surface, and Zed is forked only as far as OMP needs. OMP decides; cedian executes, renders, and verifies.** Built in Rust + GPUI on a Zed fork. Identity and OMP parity: [ADR-0034](decisions/0034-identity-and-omp-parity.md); scope and priorities: [ADR-0023](decisions/0023-product-scope.md). Per-feature OMP coverage: [`OMP_PARITY.md`](OMP_PARITY.md).
+**cedian is a Cursor-style agentic IDE — the same agent + IDE workflow and product features — built for OMP: OMP runs as upstream ships it, every OMP feature gets a native surface, and Zed is forked only as far as OMP needs. OMP decides; cedian executes, renders, and verifies.** Built in Rust + GPUI on a Zed fork. Identity and OMP parity: [ADR-0034](decisions/0034-identity-and-omp-parity.md); scope and priorities: [ADR-0023](decisions/0023-product-scope.md). Per-feature OMP coverage: [`cedian/OMP_PARITY.md`](https://github.com/pongsathonkheereekaew/zed/blob/cedian/s9/cedian/OMP_PARITY.md).
 
 > **cedian = environment. OMP = intelligence.** A minimal Zed fork turned into a fully native agentic IDE, powered by one and only one harness: OMP (Oh My Pi). cedian is personal: no other agent harnesses, no ACP agents, no generic third-party runtimes, no public agent marketplace. The user experiences one product: **cedian**.
 
@@ -706,7 +706,7 @@ open_session(...)
 
 ### §9 Tool Coverage
 
-Target: every OMP tool stays available and gains a native surface; cedian is the source of truth only where the IDE owns the state. Coverage of every OMP feature, tools included, is tracked in [`OMP_PARITY.md`](OMP_PARITY.md) ([ADR-0034](decisions/0034-identity-and-omp-parity.md)).
+Target: every OMP tool stays available and gains a native surface; cedian is the source of truth only where the IDE owns the state. Coverage of every OMP feature, tools included, is tracked in [`cedian/OMP_PARITY.md`](https://github.com/pongsathonkheereekaew/zed/blob/cedian/s9/cedian/OMP_PARITY.md) ([ADR-0034](decisions/0034-identity-and-omp-parity.md)).
 
 | Capability | Owner | Integration |
 |---|---|---|
@@ -2586,7 +2586,7 @@ Mechanisms adopted from Codex (`openai/codex`); research and exact upstream sema
 
 1. **Three-valued decisions.** Rules are `prefix_rule(pattern, decision?, justification?, match?, not_match?)`, `network_rule(host, protocol, decision, justification?)`, `host_executable(name, paths)`. Canonical spelling `Allow | Ask | Deny`. Each rule's `match`/`not_match` examples are validated per rule (violations report file + line/col). Effective decision = the STRICTEST of all matching rules; no match = decision omitted (never an implicit allow).
 2. **OS-enforced sandbox under the policy.** Every filesystem/network/process verdict maps to an OS mechanism — macOS Seatbelt first (deny-default base, generated read/write roots, unlink-deny anchors, network fragment), never TOML-only intent. Hardening: canonicalize-then-compare paths, write exclusions deny BOTH literal and subpath, unparseable proxy ⇒ empty network policy (fail closed), execute ONLY `/usr/bin/sandbox-exec`. The CUA driver contract is the enforcement floor for `computer` (§38).
-3. **Protected metadata paths.** Agent writes to `.git`, `.codex`, `.agents`, `.aws`, `.cedian/` and the OMP session dir are `Deny` even under writable roots — never `Ask`.
+3. **Protected metadata paths.** Agent writes to `.git`, `.codex`, `.agents`, `.aws` and the OMP session dir are `Deny` even under writable roots — never `Ask`. cedian's own state is not in the workspace at all ([ADR-0044](decisions/0044-cedian-state-outside-the-workspace.md)).
 4. **Audit tuple.** Every cedian-gate decision appends `{tool, command/prefix, decision, scope (once|task|session), timestamp}` inside a `{timestamp, ordinal, item}` JSONL envelope. `decision ∈ Allow | Ask | Deny | Abstain`; `Abstain` is system-generated only (lease expiry / dead runtime, §63): deny-for-execution, blocked-for-gates (§54), never writable in policy. *(→ [ADR-0012](decisions/0012-permissions-strict-wins-at-cedian-gate.md))*
 
 ### §38 Keep OMP Computer Tool
