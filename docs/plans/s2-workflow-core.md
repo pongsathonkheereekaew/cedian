@@ -59,6 +59,16 @@ Method: each history task starts in a fresh worktree at the commit's **parent**,
 
 Owner questions: B10 is real roadmap work (row E, needed before P8). Running it in the benchmark produces the actual migration, so approve it as a benchmark task, or swap in another. B6 is the largest history task. Keep it, or swap it for P3's `browser.json` part?
 
-## Findings
+## Findings (2026-10-07)
 
-(filled in as units land)
+- **Kind-to-tool consistency was missing** (ADR-0031 had handed it to this slice): a `read` reported as `kind: test` would have passed `verify`. Evidence kind now follows the bound tool (exec → command/test, read-only → file, browser → browser/screenshot). The bug-fix `reproduce` gate accepts `file`, because reading wrong output reproduces a bug. The live recording hit exactly this: the model's verify evidence was a `read` labelled `test`.
+- **The P5 replay already shows the S2 exit** under ADR-0036. Its recorded turn ends on a refused `cedian_complete`, so the workflow is now `blocked` (assertion updated).
+- **Live S2 recording, OMP 18.6.1.** The model read `skill://bug-fix` from the workspace copy. It forgot `kind` on its first `start` (the error message told it). It tried `bash sh check.sh` and `eval`, and headless denied both. It reported the repro from a `read`, which was born stale because the denied `bash` came after it. Not harmful, since `reproduce` isn't fresh, but denied calls can't mutate anything: a later refinement could skip calls OMP never ran. It fixed the line via `cedian_apply_edit` (its first try used a wrong `expected_version`), then reported `verify` from a `read` (now `file`, not counted). It claimed `measured` citing e1+e2, and the claim was flagged (e1 stale). It then reported `inconclusive` twice (one unattributed: no finished `bash`), marked the verify phase failed, and ended. The turn end turned `failed` into `blocked`. **Owner question (ADR-0036):** should an agent-failed phase stay `failed` rather than `blocked`? Today `blocked` wins, so the user is asked to act.
+- Gate reasons used to say "has 0" or "rejects unattributed" when the real cause was the wrong kind of evidence. They now list `N stale, N inconclusive, N unattributed, N failing, N wrong kind`.
+- `cedian browser shot --attach` was attributing headless captures to a fake `cli-browser-n` id. It's now unattributed `[headless-capture]`, as row D already required.
+
+## Open after this pass
+
+- Verification profile through an OMP turn: every profile stage is a `bash`-driven call in practice, and headless denies `bash`. Recording one needs `policy = "omp"` (P8) or a profile whose drive is read-only. Follow-up; S2 stays `◐` on (b).
+- Gate floor from `cedian.toml` (row E).
+- Benchmark run (after owner approval of B1–B10).
