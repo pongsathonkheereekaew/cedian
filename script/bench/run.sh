@@ -18,6 +18,8 @@ BENCH=$ROOT/script/bench
 WORK=${BENCH_WORK:-/tmp/cedian-bench}
 export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$WORK/target}
 export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+# cedian spawns the first omp on PATH; pin it so the recorded version is the one that ran.
+export CEDIAN_OMP_BINARY=${CEDIAN_OMP_BINARY:-$(command -v omp)}
 ALL="b1 b2 b3 b4 b5 b6 b7 b8 b9 b10"
 # B8 is open work: it starts where the harness was written.
 B8_BASE=ef2f8b7
@@ -174,22 +176,24 @@ run() {
   start=$(python3 -c 'import time; print(int(time.time()*1000))')
   out=$(CEDIAN_CONFIG=$cfg CEDIAN_WORKDIR=$dir CEDIAN_SESSION_DIR=$WORK/sessions/$id \
         CEDIAN_TIMING=$WORK/results/$id.timing.jsonl \
-        "$ROOT/target/release/cedian" prompt "$PROMPT" 2>&1) || true
+        "$CARGO_TARGET_DIR/release/cedian" prompt "$PROMPT" 2>&1) || true
   end=$(python3 -c 'import time; print(int(time.time()*1000))')
   printf '%s\n' "$out" > "$WORK/logs/$id-run.out"
   verdict=$(cd "$dir" && verdict "$id" 2>"$WORK/logs/$id-predicate.log")
-  python3 - "$id" "$verdict" "$((end - start))" "$WORK" <<'PY'
-import json, re, subprocess, sys
+  python3 - "$id" "$verdict" "$((end - start))" "$WORK" "$dir" <<'PY'
+import json, os, re, subprocess, sys
 id, verdict, wall, work = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
 out = open(f"{work}/logs/{id}-run.out").read()
 timing = [json.loads(l) for l in open(f"{work}/results/{id}.timing.jsonl")] if __import__("os").path.exists(f"{work}/results/{id}.timing.jsonl") else []
 claimed = bool(re.search(r"\b(done|fixed|complete[d]?|implemented)\b", out.split("\n[")[0], re.I))
-omp = subprocess.run(["omp", "--version"], capture_output=True, text=True).stdout.strip()
+omp_bin = os.environ["CEDIAN_OMP_BINARY"]
+omp = subprocess.run([omp_bin, "--version"], capture_output=True, text=True).stdout.strip()
+model = json.loads(subprocess.run([omp_bin, "config", "get", "modelRoles", "--json"], capture_output=True, text=True, cwd=sys.argv[5]).stdout)["value"].get("default")
 json.dump({
     "task": id, "predicate": verdict, "wall_ms": wall,
     "time_to_usable_result_ms": wall if verdict == "pass" else None,
     "claimed_done": claimed, "false_done": claimed and verdict == "fail",
-    "omp_version": omp, "timing": timing,
+    "omp_version": omp, "omp_binary": omp_bin, "model": model, "timing": timing,
 }, open(f"{work}/results/{id}.json", "w"), indent=2)
 print(f"{id}: predicate {verdict}, wall {wall} ms, claimed_done {claimed}")
 PY
@@ -199,7 +203,8 @@ mode=${1:-}; target=${2:-}
 [ -n "$mode" ] && [ -n "$target" ] || { sed -n '2,13p' "$0"; exit 2; }
 mkdir -p "$WORK/logs" "$WORK/results" "$WORK/trees"
 [ "$target" = all ] && ids=$ALL || ids=$target
-[ "$mode" = run ] && (cd "$ROOT" && cargo build -q --release -p cedian_cli)
+[ "$mode" = run ] && (cd "$ROOT" && cargo build -q --release -p cedian_cli) &&
+  { [ -x "$CARGO_TARGET_DIR/release/cedian" ] || { echo "no cedian binary at $CARGO_TARGET_DIR/release" >&2; exit 2; }; }
 status=0
 for id in $ids; do "$mode" "$id" || status=1; done
 exit $status
