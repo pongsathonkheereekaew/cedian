@@ -23,3 +23,15 @@ Exit (ROADMAP P6, ADR-0026 decisions 2–3, made observable):
 | T3 | `cedian turns` (read-only) + `cedian revert-turn <n|last>` | unit/CLI tests; revert of a revert redoes |
 | T4 | Shell `edit <path> <start>-<end> <instruction> [--model p/id]` | out-of-range changes reported; `kind: edit` turn recorded |
 | T5 | Recorded shell session → hermetic replay: inline edit turn + prompt turn, user edit on disk, `revert-turn` skips STALE, revert of the revert redoes | `cargo test -p cedian_cli --test replay_cli` green |
+
+## Findings (2026-10-07 recordings)
+
+- Asked to "use your edit tool", the model first picked `cedian_apply_edit` and got the byte offsets wrong (`alBETApha`); the out-of-range warning caught it. The inline-edit prompt now says to use OMP's own edit tool, not `cedian_apply_edit`, and the warning names `revert-turn n`.
+- Ambient context rendered buffer keys as `/notes.txt`; OMP read that as an absolute path. Ambient now renders workspace-relative paths (`notes.txt`, `selection: notes.txt bytes a-b`).
+- Latent P4 bug: `cedian shell` kept host buffers across turns and `open` never re-read disk, so turn 2's pre-turn snapshot (provenance + turn log) still held turn 1's start text. `BufferStore::reload` now takes the disk text before every turn (dirty buffers kept and reported).
+- The P2 gap "OMP-native disk edits are not replayed" blocked this replay (the model used OMP's `edit`). fake-omp now records each tool's file writes as `fs` frames (snapshot at `tool_execution_start`, diff at `tool_execution_end`) and applies them on replay.
+- No RPC model-role switch exists, and the owner's OMP config sets no `smol`: inline edit uses the session model unless `--model provider/id`.
+
+## Outcome
+
+All tasks green; `p6_revert.jsonl` replays the whole exit in one shell session.

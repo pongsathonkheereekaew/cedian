@@ -113,6 +113,29 @@ impl BufferStore {
         });
     }
 
+    /// Open, or take the disk text when it differs from a clean buffer
+    /// (headless form of Zed's `Buffer::reload`, row G: disk is authoritative
+    /// for OMP's own writes). A changed text is a new version, saved, with
+    /// the undo stack cleared (its offsets point into the old text). A dirty
+    /// buffer is never overwritten; returns false then.
+    pub fn reload(&mut self, path: &Path, text: &str) -> bool {
+        let Some(buf) = self.buffers.get_mut(path) else {
+            self.open(path, text);
+            return true;
+        };
+        if buf.text == text {
+            return true;
+        }
+        if buf.version != buf.saved_version {
+            return false;
+        }
+        buf.text = text.to_string();
+        buf.version = Version(buf.version.0 + 1);
+        buf.saved_version = buf.version;
+        buf.undo.clear();
+        true
+    }
+
     /// Current text + version. Fails when the buffer was never opened.
     pub fn read(&self, path: &Path) -> Option<(String, Version)> {
         self.buffers.get(path).map(|b| (b.text.clone(), b.version))
@@ -218,6 +241,30 @@ fn check_range(text: &str, edit: &TextEdit) -> Result<(), BufferError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reload_takes_disk_text_unless_dirty() {
+        let mut store = BufferStore::new();
+        let p = Path::new("/a");
+        assert!(store.reload(p, "one\n"));
+        assert!(store.reload(p, "two\n"));
+        assert_eq!(store.read(p), Some(("two\n".to_string(), Version(1))));
+        assert!(store.reload(p, "two\n"), "same text: no new version");
+        assert_eq!(store.version(p), Some(Version(1)));
+        store
+            .apply_edit(
+                p,
+                Version(1),
+                &TextEdit {
+                    start: 0,
+                    end: 3,
+                    replacement: "TWO".into(),
+                },
+            )
+            .unwrap();
+        assert!(!store.reload(p, "three\n"), "dirty buffer kept");
+        assert_eq!(store.read(p).unwrap().0, "TWO\n");
+    }
 
     fn store() -> BufferStore {
         let mut s = BufferStore::new();

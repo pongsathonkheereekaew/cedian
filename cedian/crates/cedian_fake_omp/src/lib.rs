@@ -13,6 +13,7 @@
 //! router) with no model call.
 
 mod fixture;
+mod fs_effects;
 mod record;
 mod replay;
 
@@ -40,11 +41,17 @@ pub fn run(args: &[String]) -> i32 {
     let marker = session_dir.join(RECORD_MARKER);
     if let Ok(real) = std::fs::read_to_string(&marker) {
         let real = PathBuf::from(real.trim());
-        return record::run(&real, args, &session_dir.join(RECORDED_FILE), &placeholders);
+        return record::run(
+            &real,
+            args,
+            &session_dir.join(RECORDED_FILE),
+            &cwd,
+            &placeholders,
+        );
     }
     let fixture = session_dir.join(REPLAY_FILE);
     if fixture.is_file() {
-        return replay::run(&fixture, &placeholders);
+        return replay::run(&fixture, &cwd, &placeholders);
     }
     eprintln!(
         "fake-omp: neither {} nor {} in {}",

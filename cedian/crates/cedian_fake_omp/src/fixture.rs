@@ -1,5 +1,8 @@
-//! Fixture format: one JSON object per line, `{"dir":"in"|"out","frame":{…}}`.
-//! `out` = server → host (OMP stdout), `in` = host → server (OMP stdin).
+//! Fixture format: one JSON object per line, `{"dir":"in"|"out"|"fs","frame":{…}}`.
+//! `out` = server → host (OMP stdout), `in` = host → server (OMP stdin),
+//! `fs` = a workspace file OMP's own tool wrote (`{"type":"fs_write"|"fs_delete",
+//! "path": <cwd-relative>, "content"?}`), replayed onto disk at the same point
+//! so OMP-native edits replay too (row G).
 //! Machine-specific paths are stored as placeholders so a fixture recorded in
 //! one temp dir replays in another, and no home path is committed.
 
@@ -13,6 +16,8 @@ pub enum Dir {
     In,
     /// OMP → host (stdout).
     Out,
+    /// File effect of an OMP tool call.
+    Fs,
 }
 
 /// One recorded frame.
@@ -29,6 +34,7 @@ impl Record {
         let dir = match v.get("dir").and_then(Value::as_str) {
             Some("in") => Dir::In,
             Some("out") => Dir::Out,
+            Some("fs") => Dir::Fs,
             other => return Err(format!("bad fixture dir: {other:?}")),
         };
         let frame = v.get("frame").cloned().ok_or("fixture line has no frame")?;
@@ -40,6 +46,7 @@ impl Record {
         let dir = match self.dir {
             Dir::In => "in",
             Dir::Out => "out",
+            Dir::Fs => "fs",
         };
         json!({"dir": dir, "frame": self.frame}).to_string()
     }

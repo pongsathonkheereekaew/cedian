@@ -14,7 +14,7 @@ use std::{
     path::Path,
 };
 
-pub(crate) fn run(fixture: &Path, placeholders: &Placeholders) -> i32 {
+pub(crate) fn run(fixture: &Path, cwd: &Path, placeholders: &Placeholders) -> i32 {
     let records = match load(fixture) {
         Ok(r) => r,
         Err(e) => {
@@ -30,6 +30,13 @@ pub(crate) fn run(fixture: &Path, placeholders: &Placeholders) -> i32 {
 
     for (n, record) in records.iter().enumerate() {
         match record.dir {
+            Dir::Fs => {
+                let frame = placeholders.expand_value(&record.frame);
+                if let Err(e) = crate::fs_effects::apply(cwd, &frame) {
+                    eprintln!("fake-omp replay: record {n}: {e}");
+                    return crate::EXIT_DIVERGED;
+                }
+            }
             Dir::Out => {
                 let mut frame = placeholders.expand_value(&record.frame);
                 if frame.get("type").and_then(Value::as_str) == Some("response") {
