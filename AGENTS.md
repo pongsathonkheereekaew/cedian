@@ -3,7 +3,7 @@
 Stack lock: Rust + GPUI only in this process (no TS/Electron/WebView). No TS anywhere: OMP is used as upstream ships it (ADR-0027). UI accelerators OK: `gpui-kit`, `elygpui.com` for panels/dialogs; editor/buffer/diff stay Zed-native.
 
 Where things live (one home per fact):
-- Status: `README.md` slice table ONLY. Per-feature OMP coverage: `docs/OMP_PARITY.md` ONLY (ADR-0034). Build/test: `README.md` "Build / test".
+- Status: `README.md` slice table ONLY, one cell = glyph + date + one sentence + link to the plan's "Exit evidence" (the narrative lives there; a run's decisions tsv is a log, never status). Gaps no exit names: ROADMAP "Follow-ups". Per-feature OMP coverage: `docs/OMP_PARITY.md` ONLY (ADR-0034). Build/test: `README.md` "Build / test".
 - Rules: `docs/ARCHITECTURE.md` (§NN numbers kept from the original plan; chapter 2 = must-not-build, chapter 17 = tests).
 - Why: `docs/decisions/` ADRs — never edit an accepted decision, supersede it with a new ADR.
 - Schedule + exit criteria + headless stand-ins: `docs/ROADMAP.md`.
