@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # S2 speed benchmark harness (ADR-0026, ADR-0037). Tasks B1-B10 are in
-# docs/plans/s2-workflow-core.md.
+# docs/plans/done/s2-workflow-core.md.
 #
 #   script/bench/run.sh check <id|all>   prove each done predicate: it passes at the
 #                                        reference commit and fails at the start commit.
