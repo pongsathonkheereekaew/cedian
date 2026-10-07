@@ -38,3 +38,8 @@ Exit (ROADMAP S9 is the contract): `cargo run -p cedian -- …` → onboard → 
 - **Dependencies.** The fork's `serde` has no `derive` feature: each cedian crate asks for it. `serde_json` gains `preserve_order` through the fork's workspace, which can change key order in JSON the tests compare. `toml` stays at the version `cedian_shell` pins unless 0.9 is a drop-in. Lints become the fork's; findings are fixed, not silenced.
 - **History.** Files are copied in one commit that names the source commit here (`git filter-repo` is not installed). This repo's history keeps everything before the move.
 - **Checks.** `script/cedian-check` in the fork runs `cargo fmt --check`, `clippy` and `test` for the cedian crates only, so a check does not build all of Zed. This repo's pre-commit hook stops running cargo.
+
+## Progress
+
+- **U1 done (2026-10-07).** Fork commits `00ab4c66d7` (the move), `3f446e30b6` (CI, guardrails, build-omp), `26814bc04c` (ADR renumbering), `a7e8478977` (S3 conformance to ADR-0039, done while the code was moving). `script/cedian-check` passes 258 tests and 14 replays with no real OMP on PATH; `cedian_panel` checks. This repo is docs only (`fa03403`).
+
