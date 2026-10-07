@@ -87,7 +87,7 @@ An independent review of S3 by three models (opus, fable, sonnet) through `pstac
 | Ledger ids raced; an unreadable class store was wiped; an enforced class could be downgraded; dismissals never formed a class (fable, sonnet) | file lock, NotFound-only, enforced-only replacement, dismissal records its turn | `concurrent_records_get_distinct_ids` (red: corrupted the ledger), `an_unreadable_class_store_is_never_overwritten` (red), `an_enforced_class_is_not_replaced_by_a_weaker_one` (red) |
 | `omp config get` blocked on a full pipe (opus) | stdout drained on a thread | none (no record that large to replay) |
 
-A two-axis code review (standards and spec, fable and sonnet) then found no missing requirement; its follow-ups are fork `b1395d610e`, including `the_implementer_reads_reviewer_text_as_one_quoted_line` for ADR-0043 decision 7 (red with the old formatting).
+A two-axis code review (standards and spec, fable and sonnet) then found no missing requirement; its follow-ups are fork `b1395d610e` and `82b51a4428`, including `the_implementer_reads_reviewer_text_as_one_quoted_line` for ADR-0043 decision 7 (red with the old formatting).
 
 Dismissed: "the sandbox tests only compare strings" (opus, sonnet). `reviewer_sandbox.rs` already ran four kernel tests. Open, in ROADMAP Follow-ups: reviewer network egress, `mach-lookup` narrowing, and ADR-0012's other protected paths.
 
