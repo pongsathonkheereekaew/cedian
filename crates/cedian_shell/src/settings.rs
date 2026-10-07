@@ -102,35 +102,59 @@ pub struct Settings {
     pub floor: GateFloor,
     /// `[projects."<path>"]` as written; read through [`Settings::policy_for`].
     projects: BTreeMap<String, Policy>,
+    /// The file these settings came from (canonical), if any.
+    source: Option<PathBuf>,
 }
 
 impl Settings {
-    /// The policy `workdir` (canonical) runs under. A project key matches
-    /// after canonicalization; a key that is not absolute or does not exist
-    /// is ignored with a note, so it can only ever mean the default.
+    /// The policy `workdir` (canonical) runs under. Fails closed to
+    /// `Cedian` with a note on any doubt (ADR-0035 decision 6): a key that is
+    /// not absolute, does not exist or is not canonical as written (a symlink
+    /// in it could be repointed); two keys for this workspace that disagree;
+    /// a settings file that lives inside the workspace itself.
     pub fn policy_for(&self, workdir: &Path, run: RunKind) -> PolicyChoice {
         let mut notes = Vec::new();
-        let mut policy = Policy::Cedian;
+        let mut matched = Vec::new();
         for (key, value) in &self.projects {
             let path = Path::new(key);
-            if !path.is_absolute() {
-                notes.push(format!(
-                    "[projects.{key:?}] ignored: not an absolute path (default policy)"
-                ));
-                continue;
-            }
-            match path.canonicalize() {
-                Ok(canonical) if canonical == workdir => policy = *value,
-                Ok(_) => {}
-                Err(e) => notes.push(format!("[projects.{key:?}] ignored: {e} (default policy)")),
-            }
+            let why = match path.canonicalize() {
+                _ if !path.is_absolute() => "not an absolute path".to_string(),
+                Ok(canonical) if canonical == path => {
+                    if canonical == workdir {
+                        matched.push(*value);
+                    }
+                    continue;
+                }
+                Ok(canonical) => format!("not canonical; write it as {:?}", canonical.display()),
+                Err(e) => e.to_string(),
+            };
+            notes.push(format!(
+                "[projects.{key:?}] ignored: {why} (default policy)"
+            ));
         }
-        if policy == Policy::Omp && run == RunKind::Unattended {
-            notes.push(
-                "policy = \"omp\" does not apply to unattended runs (ADR-0035): default policy"
-                    .to_string(),
-            );
-            policy = Policy::Cedian;
+        let mut policy = match matched.as_slice() {
+            [] => Policy::Cedian,
+            [first, rest @ ..] if rest.iter().all(|p| p == first) => *first,
+            _ => {
+                notes.push("two [projects] keys name this workspace with different policies: default policy".to_string());
+                Policy::Cedian
+            }
+        };
+        if policy == Policy::Omp {
+            let inside = self
+                .source
+                .as_deref()
+                .is_some_and(|src| src.starts_with(workdir));
+            if inside {
+                notes.push("the settings file is inside this workspace, so it cannot opt it in: default policy".to_string());
+                policy = Policy::Cedian;
+            } else if run == RunKind::Unattended {
+                notes.push(
+                    "policy = \"omp\" does not apply to unattended runs (ADR-0035): default policy"
+                        .to_string(),
+                );
+                policy = Policy::Cedian;
+            }
         }
         PolicyChoice { policy, notes }
     }
@@ -259,6 +283,7 @@ pub fn parse_settings(toml_src: &str) -> Result<Settings, SettingsError> {
             .into_iter()
             .map(|(key, project)| (key, project.policy))
             .collect(),
+        source: None,
     })
 }
 
@@ -304,10 +329,16 @@ fn resolve_with(
         return Ok(Settings::default());
     };
     match std::fs::read_to_string(&path) {
-        Ok(src) => parse_settings(&src).map_err(|error| SettingsError::InFile {
-            path,
-            error: Box::new(error),
-        }),
+        Ok(src) => match parse_settings(&src) {
+            Ok(settings) => Ok(Settings {
+                source: path.canonicalize().ok(),
+                ..settings
+            }),
+            Err(error) => Err(SettingsError::InFile {
+                path,
+                error: Box::new(error),
+            }),
+        },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound && !explicit => Ok(Settings::default()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(SettingsError::Missing(path)),
         Err(e) => Err(SettingsError::Read {
@@ -429,17 +460,21 @@ mod tests {
         let t = Tmp::new("projects");
         let other = t.0.join("other");
         std::fs::create_dir_all(&other).unwrap();
-        // Spelled through a `..` so only the canonical form matches.
-        let spelled = t.0.join("other/../ws");
         let s = parse(&format!(
-            "schema = 1\n[projects.{:?}]\npolicy = \"omp\"\n[projects.\"relative/x\"]\npolicy = \"omp\"\n[projects.{:?}]\npolicy = \"omp\"\n",
-            spelled.display().to_string(),
+            "schema = 1\n[projects.{:?}]\npolicy = \"omp\"\n[projects.\"relative/x\"]\npolicy = \"omp\"\n[projects.{:?}]\npolicy = \"omp\"\n[projects.{:?}]\npolicy = \"omp\"\n",
+            t.ws().display().to_string(),
             t.0.join("gone").display().to_string(),
+            t.0.join("other/../ws").display().to_string(),
         ))
         .unwrap();
         let ws = s.policy_for(&t.ws(), RunKind::Interactive);
         assert_eq!(ws.policy, Policy::Omp);
-        assert_eq!(ws.notes.len(), 2, "{:?}", ws.notes);
+        assert_eq!(ws.notes.len(), 3, "{:?}", ws.notes);
+        assert!(
+            ws.notes.iter().any(|n| n.contains("not canonical")),
+            "{:?}",
+            ws.notes
+        );
         assert_eq!(
             s.policy_for(&other, RunKind::Interactive).policy,
             Policy::Cedian
@@ -453,6 +488,49 @@ mod tests {
                 .policy,
             Policy::Cedian
         );
+    }
+
+    #[test]
+    fn opt_in_fails_closed_on_doubt() {
+        let t = Tmp::new("doubt");
+        let ws = t.ws().display().to_string();
+        let link = t.0.join("link");
+        std::os::unix::fs::symlink(t.ws(), &link).unwrap();
+        let conflicting = parse(&format!(
+            "schema = 1\n[projects.{ws:?}]\npolicy = \"omp\"\n[projects.{:?}]\npolicy = \"cedian\"\n",
+            format!("{ws}/"),
+        ))
+        .unwrap();
+        let choice = conflicting.policy_for(&t.ws(), RunKind::Interactive);
+        assert_eq!(choice.policy, Policy::Cedian, "{:?}", choice.notes);
+        assert!(choice
+            .notes
+            .iter()
+            .any(|n| n.contains("different policies")));
+
+        let via_link = parse(&format!(
+            "schema = 1\n[projects.{:?}]\npolicy = \"omp\"\n",
+            link.display().to_string()
+        ))
+        .unwrap();
+        assert_eq!(
+            via_link.policy_for(&t.ws(), RunKind::Interactive).policy,
+            Policy::Cedian
+        );
+
+        let inside = t.ws().join("cedian.toml");
+        std::fs::write(
+            &inside,
+            format!("schema = 1\n[projects.{ws:?}]\npolicy = \"omp\"\n"),
+        )
+        .unwrap();
+        let s = resolve_with(&t.ws(), env(&[("CEDIAN_CONFIG", &inside)])).unwrap();
+        let choice = s.policy_for(&t.ws(), RunKind::Interactive);
+        assert_eq!(choice.policy, Policy::Cedian);
+        assert!(choice
+            .notes
+            .iter()
+            .any(|n| n.contains("inside this workspace")));
     }
 
     struct Tmp(PathBuf);
