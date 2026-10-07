@@ -31,7 +31,7 @@ pub use channel::{
     CHANNEL_TOOLS, COMPLETE_TOOL, READ_ONLY_TOOLS, WORKFLOW_UPDATE_TOOL,
 };
 pub use code_state::{content_hash, CodeState, CurrentState};
-pub use evidence::{Evidence, EvidenceKind, Outcome, Provenance};
+pub use evidence::{Evidence, EvidenceKind, Measurement, Outcome, Provenance};
 pub use gate::{
     Gate, GateError, GateId, GateKind, GatePredicate, GateResult, GateStatus, MAX_CONTINUE,
 };

@@ -59,11 +59,49 @@ impl Outcome {
     }
 }
 
+/// A performance number (ADR-0024 decision 4). Every field is needed; a
+/// performance gate treats a measurement with any field missing as
+/// `inconclusive`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Measurement {
+    pub runs: Option<u32>,
+    pub median: Option<f64>,
+    /// `[min, max]` over the runs.
+    pub range: Option<[f64; 2]>,
+    /// What bounds the number (cpu, io, network, lock, …).
+    pub limiter: Option<String>,
+    /// e.g. `release`; must be production-like to mean anything.
+    pub build_profile: Option<String>,
+}
+
+impl Measurement {
+    /// Names of the fields still missing (empty = complete).
+    pub fn missing(&self) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        if self.runs.is_none_or(|n| n == 0) {
+            out.push("runs");
+        }
+        if self.median.is_none() {
+            out.push("median");
+        }
+        if self.range.is_none() {
+            out.push("range");
+        }
+        if self.limiter.as_deref().is_none_or(str::is_empty) {
+            out.push("limiter");
+        }
+        if self.build_profile.as_deref().is_none_or(str::is_empty) {
+            out.push("build_profile");
+        }
+        out
+    }
+}
+
 /// One evidence item: what was observed, which gate(s) it supports, where it
 /// came from and which code it saw. A `Fail` outcome records a FAILING
 /// observation (e.g. a reproduction that still fails) — gates read it, they
 /// never re-run it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Evidence {
     /// Stable id within the workflow (dedup key for the continue rule).
     pub id: String,
@@ -82,6 +120,9 @@ pub struct Evidence {
     /// the observation and the report).
     #[serde(default)]
     pub born_stale: Option<String>,
+    /// Performance numbers, when the item is a measurement.
+    #[serde(default)]
+    pub measurement: Option<Measurement>,
 }
 
 impl Evidence {
@@ -107,6 +148,7 @@ impl Evidence {
             },
             code_state: None,
             born_stale: None,
+            measurement: None,
         }
     }
 
@@ -127,6 +169,7 @@ impl Evidence {
             provenance: Provenance::Unattributed,
             code_state: None,
             born_stale: None,
+            measurement: None,
         }
     }
 
@@ -170,6 +213,25 @@ mod tests {
         let u = Evidence::unattributed("e2", EvidenceKind::File, &["g"], "note", Outcome::Pass);
         assert!(a.is_attributed());
         assert!(!u.is_attributed());
+    }
+
+    #[test]
+    fn measurement_lists_missing_fields() {
+        let full = Measurement {
+            runs: Some(5),
+            median: Some(12.0),
+            range: Some([11.0, 14.0]),
+            limiter: Some("cpu".into()),
+            build_profile: Some("release".into()),
+        };
+        assert!(full.missing().is_empty());
+        let m = Measurement {
+            runs: Some(0),
+            limiter: Some(String::new()),
+            ..full
+        };
+        assert_eq!(m.missing(), ["runs", "limiter"]);
+        assert_eq!(Measurement::default().missing().len(), 5);
     }
 
     #[test]

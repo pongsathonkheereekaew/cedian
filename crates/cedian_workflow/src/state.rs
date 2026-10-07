@@ -381,6 +381,7 @@ mod tests {
             },
             code_state: Some(ws().bind(&[])),
             born_stale: None,
+            measurement: None,
         }
     }
 
@@ -445,6 +446,7 @@ mod tests {
             },
             code_state: Some(ws().bind(&[])),
             born_stale: None,
+            measurement: None,
         })
         .unwrap();
         w.advance(true, &ws()).unwrap();

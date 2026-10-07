@@ -188,6 +188,13 @@ impl WorkflowChannel {
                         },
                     ),
                 };
+                let mut item = item;
+                if let Some(m) = args.get("measurement") {
+                    item.measurement = Some(
+                        serde_json::from_value(m.clone())
+                            .map_err(|_| format!("bad `measurement`: {m}"))?,
+                    );
+                }
                 state.attach(item).map_err(|e| e.to_string())?;
                 self.store.save(&state)?;
                 let gate_line = match state.gate_result(gate, &current) {
@@ -297,6 +304,7 @@ impl WorkflowChannel {
                  match = a substring of its arguments; cedian binds the evidence to your most recent successful \
                  matching call (none found → stored unattributed, which cannot pass a required gate); \
                  outcome = pass | fail | inconclusive (could not run); evidence goes stale when a file it saw changes; \
+                 performance evidence adds measurement {runs,median,range,limiter,build_profile} (any missing → inconclusive); \
                  op=advance {passed} moves to the next phase.",
                 object(json!({
                     "op": {"type": "string", "enum": ["start", "evidence", "advance"]},
@@ -309,7 +317,12 @@ impl WorkflowChannel {
                     "ok": {"type": "boolean"},
                     "from_tool": {"type": "string"},
                     "match": {"type": "string"},
-                    "passed": {"type": "boolean"}
+                    "passed": {"type": "boolean"},
+                    "measurement": {"type": "object", "properties": {
+                        "runs": {"type": "integer"}, "median": {"type": "number"},
+                        "range": {"type": "array", "items": {"type": "number"}},
+                        "limiter": {"type": "string"}, "build_profile": {"type": "string"}
+                    }}
                 }), &["op"]),
                 move |args, _ctx| update.update(&args).map(Into::into).map_err(Into::into),
             ),
