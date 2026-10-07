@@ -493,6 +493,10 @@ fn cedian_omp_path() -> PathBuf {
         .expect("omp on PATH for recording")
 }
 
+const SHELL_REVIEWER_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/shell_review_reviewer.jsonl"
+);
 const SHELL_FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/shell_session.jsonl"
@@ -519,6 +523,21 @@ fn shell_scenario(record: bool) {
     } else {
         cedian_fake_omp::install_replay(&sessions, Path::new(SHELL_FIXTURE)).unwrap();
     }
+    // S3: `review --agent` inside the shell runs a sandboxed reviewer. Its
+    // turn is recorded on its own (`CEDIAN_P2_RECORD=shellreview`); recording
+    // proxies to real OMP, so the allow-list names `omp`.
+    let reviewer = sessions.join("reviewer");
+    let record_reviewer = std::env::var("CEDIAN_P2_RECORD").as_deref() == Ok("shellreview");
+    if record_reviewer {
+        cedian_fake_omp::arm_record(&reviewer, &cedian_omp_path()).unwrap();
+    } else {
+        cedian_fake_omp::install_replay(&reviewer, Path::new(SHELL_REVIEWER_FIXTURE)).unwrap();
+    }
+    std::fs::write(
+        root.join("cedian.toml"),
+        "schema = 1\nreviewer_allow_list = [\"omp\"]\n[review]\nmodel = \"opencode-go/glm-5.3\"\n",
+    )
+    .unwrap();
 
     let mut shell = cli(&root)
         .arg("shell")
@@ -598,6 +617,25 @@ fn shell_scenario(record: bool) {
     assert!(
         out.contains("second-turn"),
         "turn 2 on the same runtime:\n{out}"
+    );
+
+    send("review --agent is the uppercase BETA intended");
+    let out = wait_for("finding(s)");
+    assert!(
+        out.contains("reviewer (opencode-go/glm-5.3) reported"),
+        "{out}"
+    );
+    if record_reviewer {
+        std::fs::copy(
+            reviewer.join(cedian_fake_omp::RECORDED_FILE),
+            SHELL_REVIEWER_FIXTURE,
+        )
+        .unwrap();
+    }
+    let findings = std::fs::read_to_string(root.join("ws/.cedian/findings.json")).unwrap();
+    assert!(
+        findings.contains("\"path\": \"/notes.txt\""),
+        "the shell's review attached a finding to the turn's hunk:\n{findings}"
     );
 
     send("quit");
