@@ -53,3 +53,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0047](0047-bash-writes-are-agent-edits.md) | Files an OMP `bash` call changes are agent edits |
 | [0048](0048-one-lsp-zeds-staged.md) | The app runs one language server, Zed's; OMP's `lsp` tool is turned off only once Zed covers it |
 | [0049](0049-one-chromium-owned-by-the-app.md) | The app owns one Chromium per workspace; OMP attaches to it over CDP |
+| [0050](0050-workers-are-omp-subagents.md) | S5's workers are OMP subagents; worktrees stay cedian's |

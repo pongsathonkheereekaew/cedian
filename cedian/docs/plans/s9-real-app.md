@@ -68,6 +68,17 @@ Decided by the agent during the unattended run of 2026-10-08, taking the safer o
 - **"Accept all" asks about STALE hunks** (owner ruling, 2026-10-08): when the set includes STALE hunks, the panel asks whether to include them; Yes accepts them too, No accepts the rest.
 - **Files a `bash` call changes are agent edits** (owner ruling, 2026-10-08, [ADR-0047](../decisions/0047-bash-writes-are-agent-edits.md)); built in U9.
 
+## U8 design
+
+Decided with the owner on 2026-10-08 ([ADR-0050](../decisions/0050-workers-are-omp-subagents.md)):
+
+- **A worker is an OMP subagent.** OMP's `task` tool starts it inside the OMP process; cedian's worktrees are a separate mechanism with no OMP session. The app subscribes at level `progress` when the link starts, routes `subagent_lifecycle` and `subagent_progress` (the progress id is `progress.id`), and shows each subagent under its `task` tool card (`parentToolCallId`) with its status.
+- **Steer and Cancel per subagent** through `steer_subagent` and `cancel_subagent`, off the UI thread. A Cancel writes an audit row; `cancelled: false` shows "already ended"; a refused steer shows on the row.
+- **Send during a turn** sends `follow_up` (a queued chip); a Steer button sends `steer` into the running turn.
+- **Worktrees in the app.** `OmpLink` registers `cedian_worktree_request` with the ADR-0033 brief (a request without goal, `scope.write`, acceptance, verify and timebox is refused with no tree); the overlay pins `task.isolation.enabled: false` except under `policy = "omp"`.
+- **Stand-in C.** `cedian worker steer` and `list` are deleted; `spawn`, `preview`, `merge-back` and `remove` stay until the app has them.
+- **Order:** U8a events render; U8b subagent steer and cancel; U8c main-session follow-up and steer; U8d worktree request in the app, isolation pin, CLI deletions. Each starts with a red test.
+
 ## Upstream sync (U2)
 
 - **How:** merge upstream `main` into `cedian/s9`; never rebase a published branch (owner, 2026-10-07).
