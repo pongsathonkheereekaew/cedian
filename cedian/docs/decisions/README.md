@@ -55,3 +55,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0049](0049-one-chromium-owned-by-the-app.md) | The app owns one Chromium per workspace; OMP attaches to it over CDP |
 | [0050](0050-workers-are-omp-subagents.md) | S5's workers are OMP subagents; worktrees stay cedian's |
 | [0051](0051-poteto-methodology-as-user-omp-config.md) | poteto's methodology (pstack) runs as the user's OMP config; cedian's gates stay the judge |
+| [0052](0052-pstack-pinned-from-upstream.md) | pstack is pinned straight from Lauren Tan's upstream, with no Pi extension |
