@@ -4,6 +4,7 @@
 - **Date:** 2026-10-09
 - **Rule text:** ROADMAP Follow-ups (reviewer prompt files); the user's OMP config, outside this repo
 - **Builds on:** ADR-0025 (playbooks are OMP skills), ADR-0027 (no OMP fork), ADR-0033 (what is not adopted from pstack), ADR-0039 (model roles), ADR-0043 (reviewer profile)
+- **Superseded in part by [ADR-0052](0052-pstack-pinned-from-upstream.md):** decision 2's mapping translates Cursor names and decision 5's pin comes from upstream `cursor/plugins`, not the port.
 
 ## Context
 
