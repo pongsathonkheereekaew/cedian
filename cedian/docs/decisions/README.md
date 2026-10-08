@@ -54,3 +54,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0048](0048-one-lsp-zeds-staged.md) | The app runs one language server, Zed's; OMP's `lsp` tool is turned off only once Zed covers it |
 | [0049](0049-one-chromium-owned-by-the-app.md) | The app owns one Chromium per workspace; OMP attaches to it over CDP |
 | [0050](0050-workers-are-omp-subagents.md) | S5's workers are OMP subagents; worktrees stay cedian's |
+| [0051](0051-poteto-methodology-as-user-omp-config.md) | poteto's methodology (pstack) runs as the user's OMP config; cedian's gates stay the judge |

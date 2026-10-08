@@ -29,7 +29,7 @@ Exit (ROADMAP S9 is the contract): `cargo run -p cedian -- …` → onboard → 
 | U10 | ⌘K inline edit and revert turn in the editor | gpui test ports the P6 replay | 1 |
 | **E. Close** | | | |
 | U11 | Parity: every `OMP_PARITY.md` row native, gated with a working opt-in, or upstream-blocked; parity test green on the pin | parity test + row review | 1 |
-| U12 | Benchmark re-run on the app (frame time while streaming, per-turn overhead, B1–B10 against the S2 baseline) | `benchmark-checklist` applied; results recorded here | 1.5 |
+| U12 | Benchmark re-run on the app (frame time while streaming, per-turn overhead, B1–B10 against the S2 baseline; B1–B10 also with and without the pstack mandate and skills, [ADR-0051](../decisions/0051-poteto-methodology-as-user-omp-config.md) decision 6) | `benchmark-checklist` applied; results recorded here | 1.5 |
 | U13 | Packaging: branding, `.app` bundle, signing and notarization for cedian and the bundled OMP | needs full Xcode and a signing identity: owner step | 1 |
 | U14 | README S0–S5 and S9 rows, ROADMAP stand-ins removed, plan → `done/` | docs only | — |
 
