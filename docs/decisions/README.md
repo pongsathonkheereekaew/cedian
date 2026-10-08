@@ -51,3 +51,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0045](0045-omp-settings-live-by-watching-config-sources.md) | The OMP settings page stays live by watching OMP's config files; sources are derived through OMP |
 | [0046](0046-one-driver-per-session-by-file-holders.md) | The app refuses a session another process drives, detected by who holds OMP's session files |
 | [0047](0047-bash-writes-are-agent-edits.md) | Files an OMP `bash` call changes are agent edits |
+| [0048](0048-one-lsp-zeds-staged.md) | The app runs one language server, Zed's; OMP's `lsp` tool is turned off only once Zed covers it |

@@ -351,8 +351,6 @@ crates/
   cedian_browser/    process.rs  cdp.rs  session.rs
   cedian_worker/     registry.rs  worktree.rs
   cedian_shell/      settings.rs  palette.rs  session_manager.rs
-  cedian_lsp/        headless stand-in (ROADMAP row B)
-  cedian_dap/        headless stand-in (ROADMAP row B)
   cedian_cli/        throwaway harness — dies at S9
 vendor/omp-rpc/      vendored upstream Rust RPC client (pin: vendor/omp-revision.json)
 ```
