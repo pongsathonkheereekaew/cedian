@@ -28,7 +28,7 @@ Exit (ROADMAP S9 is the contract): `cargo run -p cedian -- …` → onboard → 
 | U9 | Workflow, verification evidence and review findings visible; findings annotate code; reviewers shown from cedian's records (ADR-0041) | gpui tests over the S2/S3 replays | 1.5 |
 | U10 | ⌘K inline edit and revert turn in the editor | gpui test ports the P6 replay | 1 |
 | **E. Close** | | | |
-| U11 | Parity: every `OMP_PARITY.md` row native, gated with a working opt-in, or upstream-blocked; parity test green on the pin | parity test + row review | 1 |
+| U11 | Parity core ([ADR-0057](../decisions/0057-parity-bar-and-s10.md)): every `OMP_PARITY.md` row has an allowed status, the rest deferred to S10; login, model and thinking picker, toasts, queue commands, compaction and retry native; the pinned OMP found or warned; stand-ins H and I deleted | parity test enforces the statuses; gpui tests per surface | 1 |
 | U12 | Benchmark re-run on the app (frame time while streaming, per-turn overhead, B1–B10 against the S2 baseline; B1–B10 also with and without the pstack mandate and skills, [ADR-0051](../decisions/0051-poteto-methodology-as-user-omp-config.md) decision 6) | `benchmark-checklist` applied; results recorded here | 1.5 |
 | U13 | Packaging: branding, `.app` bundle, signing and notarization for cedian and the bundled OMP | needs full Xcode and a signing identity: owner step | 1 |
 | U14 | README S0–S5 and S9 rows, ROADMAP stand-ins removed, plan → `done/` | docs only | — |
@@ -105,6 +105,21 @@ Decided with the owner on 2026-10-09 ([ADR-0056](../decisions/0056-inline-edit-i
 - **U10d** The P6 replay as a GPUI test through the app (the unit's check).
 - **U10e** An edit outside the selection is warned about.
 - **U10f ★** ctrl-enter opens the instruction block in the editor, replacing Zed's inline-assistant binding there.
+
+## U11 design
+
+Decided with the owner on 2026-10-09 ([ADR-0057](../decisions/0057-parity-bar-and-s10.md)). Order, each started with a red test; ★ may slip to the partial exit:
+
+- **U11a** The ledger corrected (stale rows, statuses from the new vocabulary, deferred rows named `deferred: S10`) and the parity test enforcing the statuses.
+- **U11b** The pinned OMP found first (PATH, `~/.local/bin`, `CEDIAN_OMP_BINARY`, by `--version`), else a warning naming both versions; app and CLI.
+- **U11c** One toast surface: `notice`, `notify`, `extension_error`, `config_warnings_changed`, `ttsr_triggered`.
+- **U11d** The model and thinking-level picker (`get_available_models`, `set_model`, `cycle_model`, thinking levels, `model_changed`, `thinking_level_changed`).
+- **U11e** Queue commands (`abort_and_prompt`, `promote_queued_message`, queue modes), compaction and auto-retry shown.
+- **U11f** Login and onboarding in the app (`get_login_providers`, `login`).
+- **U11g** Revert turn names each STALE hunk it skipped.
+- **U11h** Stand-in I deleted (`cedian_apply_edit`, `buffer.rs`; replays drop those steps).
+- **U11i ★** Stand-in H deleted: evidence in the app on Zed's `clock::Global`.
+- Live re-recording of the hand-cut fixtures joins U12.
 
 ## Upstream sync (U2)
 
