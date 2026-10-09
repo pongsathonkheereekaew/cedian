@@ -56,3 +56,5 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0050](0050-workers-are-omp-subagents.md) | S5's workers are OMP subagents; worktrees stay cedian's |
 | [0051](0051-poteto-methodology-as-user-omp-config.md) | poteto's methodology (pstack) runs as the user's OMP config; cedian's gates stay the judge |
 | [0052](0052-pstack-pinned-from-upstream.md) | pstack is pinned straight from Lauren Tan's upstream, with no Pi extension |
+| [0053](0053-reviewer-refuses-workspace-prompt-files.md) | A reviewer refuses a workspace that carries OMP system-prompt files |
+| [0054](0054-license-gpl-3-or-later.md) | cedian's code is GPL-3.0-or-later; vendored code keeps its own license |
