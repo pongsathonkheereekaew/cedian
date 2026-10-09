@@ -26,7 +26,7 @@ Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisio
 | S6 PR workspace | 🔜 `gh`, PR baselines, merge Deny-by-default |
 | S7 Local automations | 🔜 cron + history, no cloud ever |
 | S8 iOS track | 🔜 extension track, after v0.1 |
-| S9 Real app | ◐ 2026-10-09: U1–U8 done: the app starts and supervises OMP, has a live OMP settings page, runs turns natively (dialogs answered and audited, Stop, images, follow-up and steer, one driver per session), reviews OMP's edits as Zed buffer transactions, gives OMP the person's context and code intelligence from Zed, shares one owned Chromium with the agent, and shows OMP's subagents with steer and cancel (stand-ins B, D, G deleted); U9 onward is open; [progress](docs/plans/s9-real-app.md#progress) |
+| S9 Real app | ◐ 2026-10-09: U1–U9 done: the app starts and supervises OMP, has a live OMP settings page, runs turns natively (dialogs answered and audited, Stop, images, follow-up and steer, one driver per session), reviews OMP's edits as Zed buffer transactions (bash writes included), gives OMP the person's context and code intelligence from Zed, shares one owned Chromium with the agent, shows OMP's subagents with steer and cancel, and runs the workflow, its gates and evidence, and the independent reviewer in the app with findings on the code (stand-ins B, D, G deleted); U10 onward is open; [progress](docs/plans/s9-real-app.md#progress) |
 
 ## Code, build and test
 

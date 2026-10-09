@@ -58,3 +58,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0052](0052-pstack-pinned-from-upstream.md) | pstack is pinned straight from Lauren Tan's upstream, with no Pi extension |
 | [0053](0053-reviewer-refuses-workspace-prompt-files.md) | A reviewer refuses a workspace that carries OMP system-prompt files |
 | [0054](0054-license-gpl-3-or-later.md) | cedian's code is GPL-3.0-or-later; vendored code keeps its own license |
+| [0055](0055-rigor-visible-in-the-app.md) | Workflow, evidence and review run in the app; findings annotate code as blocks |
