@@ -79,6 +79,22 @@ Decided with the owner on 2026-10-08 ([ADR-0050](../decisions/0050-workers-are-o
 - **Stand-in C.** `cedian worker steer` and `list` are deleted; `spawn`, `preview`, `merge-back` and `remove` stay until the app has them.
 - **Order:** U8a events render; U8b subagent steer and cancel; U8c main-session follow-up and steer; U8d worktree request in the app, isolation pin, CLI deletions. Each starts with a red test.
 
+## U9 design
+
+Decided with the owner on 2026-10-09 ([ADR-0055](../decisions/0055-rigor-visible-in-the-app.md)). Order, each started with a red test; ★ may slip to the partial exit:
+
+- **U9a** Move the workflow store, correction ledger, findings store and reviewer runner from `cedian_cli` into `cedian_shell` (existing tests prove it).
+- **U9b** Correction rows written in the app (`hunk_rejected`, `user_edited_agent_hunk`, `turn_reverted`).
+- **U9c** The app registers `cedian_workflow_update` and `cedian_complete`; the workflow ends a turn on `Settled`.
+- **U9d** The workflow visible in the panel: phases, gates and reasons, evidence outcome (inconclusive never shown as pass), the last claims ledger, Resume.
+- **U9e** §54: a dialog timeout during a workflow blocks the phase; outside one, a notice.
+- **U9f** The ToolStart race closed with OMP's `oldText`; pruned text shows "not reviewable".
+- **U9g** Bash writes: open buffers become the call's hunks; files not open are listed, not hunks; overlapping calls import nothing.
+- **U9h ★** Browser gate through the workflow: a capture at the end of OMP's `browser` call is attributed evidence; `stale-frame` refuses completion. Required only by the user's floor.
+- **U9i ★** The reviewer from the app: `cedian_review_request` registered, diffs from `TaskReview`, findings on hunks, blockers refuse completion, Dismiss with a reason.
+- **U9j ★** Findings as editor blocks under their hunk, removed when the hunk changes.
+- Stand-in H stays (owner); binding evidence to `clock::Global` is its own step before S9 closes.
+
 ## Upstream sync (U2)
 
 - **How:** merge upstream `main` into `cedian/s9`; never rebase a published branch (owner, 2026-10-07).
