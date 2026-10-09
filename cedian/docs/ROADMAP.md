@@ -21,6 +21,7 @@ P1 spawn profile → P2 fake-omp → P3 snapshot_version
   → P7 OMP parity ledger + test
   → S2 workflow core → `cedian.toml` move ([ADR-0018](decisions/0018-settings-in-one-toml.md)) → P8 OMP policy opt-in → S3 review agents
   → S9 real app, closing S4 browser evidence and S5 parallel workers  (= v0.1, ADR-0038)
+  → S10 OMP parity: every OMP feature the S9 core left deferred  (ADR-0057; order among S6–S8 set by the owner)
   → S6 PR workspace → S7 local automations  (= v0.2)
   → S8 iOS (extension)
 ```
@@ -548,6 +549,12 @@ Acceptance:
 
 > Scheduled run fires while the machine is awake → history + evidence visible on return.
 
+### S10 — OMP parity
+
+Every row of the fork's `cedian/OMP_PARITY.md` marked `deferred: S10` ([ADR-0057](decisions/0057-parity-bar-and-s10.md)): sessions and the thread tree, branching, plan mode, goals and todos, `btw`, word prediction, voice, the subagent transcript pane and the rest of OMP's surface the S9 core did not need.
+
+**Exit:** no row of the parity ledger says `deferred: S10`; the parity test is green on the pin.
+
 ### S8 — iOS extension track
 
 Off the native critical path; ships after v0.1 and never gates it.
@@ -609,7 +616,7 @@ Acceptance:
 
 Fork hygiene, signing/notarization, app-shell UI, GPUI binding of every headless model, and deletion of stand-ins B and D. THIS — not S1–S8 — is what makes cedian triable as an app.
 
-**Exit:** `cargo run -p cedian -- …` → onboard → prompt → answer with zero terminal, AND every non-extension item of the checklist below is true, AND ⌘K inline edit + revert turn work in the editor, AND the [ADR-0026](decisions/0026-fast-lane.md) benchmark is re-run on the whole app (frame time while streaming, per-turn cedian overhead against the [ADR-0037](decisions/0037-benchmark-without-cursor.md) budgets, the 10 tasks against the S2 baseline).
+**Exit:** `cargo run -p cedian -- …` → onboard → prompt → answer with zero terminal, AND every non-extension item of the checklist below is true or deferred to S10 in the parity ledger ([ADR-0057](decisions/0057-parity-bar-and-s10.md)), AND ⌘K inline edit + revert turn work in the editor, AND the [ADR-0026](decisions/0026-fast-lane.md) benchmark is re-run on the whole app (frame time while streaming, per-turn cedian overhead against the [ADR-0037](decisions/0037-benchmark-without-cursor.md) budgets, the 10 tasks against the S2 baseline).
 
 #### Definition of "fully native" (v0.1 gate)
 
