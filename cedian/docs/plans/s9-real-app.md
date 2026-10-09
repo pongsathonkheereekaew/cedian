@@ -111,7 +111,7 @@ Decided with the owner on 2026-10-09 ([ADR-0056](../decisions/0056-inline-edit-i
 Decided with the owner on 2026-10-09 ([ADR-0057](../decisions/0057-parity-bar-and-s10.md)). Order, each started with a red test; ★ may slip to the partial exit:
 
 - **U11a** The ledger corrected (stale rows, statuses from the new vocabulary, deferred rows named `deferred: S10`) and the parity test enforcing the statuses.
-- **U11b** The pinned OMP found first (PATH, `~/.local/bin`, `CEDIAN_OMP_BINARY`, by `--version`), else a warning naming both versions; app and CLI.
+- **U11b** A set `CEDIAN_OMP_BINARY` is used as given; otherwise the pinned OMP is found first (PATH, then `~/.local/bin`, by `--version`); a binary off the pin runs with a warning naming both versions; app and CLI.
 - **U11c** One toast surface: `notice`, `notify`, `extension_error`, `config_warnings_changed`, `ttsr_triggered`.
 - **U11d** The model and thinking-level picker (`get_available_models`, `set_model`, `cycle_model`, thinking levels, `model_changed`, `thinking_level_changed`).
 - **U11e** Queue commands (`abort_and_prompt`, `promote_queued_message`, queue modes), compaction and auto-retry shown.
