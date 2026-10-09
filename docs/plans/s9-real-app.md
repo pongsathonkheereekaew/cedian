@@ -95,6 +95,17 @@ Decided with the owner on 2026-10-09 ([ADR-0055](../decisions/0055-rigor-visible
 - **U9j ★** Findings as editor blocks under their hunk, removed when the hunk changes.
 - Stand-in H stays (owner); binding evidence to `clock::Global` is its own step before S9 closes.
 
+## U10 design
+
+Decided with the owner on 2026-10-09 ([ADR-0056](../decisions/0056-inline-edit-in-the-live-session.md)). P6's replay fixture and the CLI's revert commands were deleted with stand-in G (fork `c41e5623c8`); the port recovers `p6_revert.jsonl` from git and splices its recorded edit frames after the app's own preamble, as U9's `review.jsonl` did. Order, each started with a red test; ★ may slip to the partial exit:
+
+- **U10a** Revert turn from the editor: a palette command and a non-colliding keybinding, one undo, STALE skipped.
+- **U10b** An inline-edit kind of turn in the review, named in Review Changes and reverted like any turn.
+- **U10c** The panel sends an inline edit (selection and instruction) as a turn in the live session; queued as a follow-up while a turn runs.
+- **U10d** The P6 replay as a GPUI test through the app (the unit's check).
+- **U10e** An edit outside the selection is warned about.
+- **U10f ★** ctrl-enter opens the instruction block in the editor, replacing Zed's inline-assistant binding there.
+
 ## Upstream sync (U2)
 
 - **How:** merge upstream `main` into `cedian/s9`; never rebase a published branch (owner, 2026-10-07).
