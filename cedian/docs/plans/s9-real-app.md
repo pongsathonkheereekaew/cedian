@@ -125,6 +125,7 @@ Decided with the owner on 2026-10-09 ([ADR-0057](../decisions/0057-parity-bar-an
 
 Decided with the owner on 2026-10-10 ([ADR-0058](../decisions/0058-u12-benchmark-on-the-app.md)). Order; ★ may slip to the partial exit:
 
+- **U12-pin** ([ADR-0059](../decisions/0059-omp-pin-18-8-6.md)) The pin moves to OMP 18.8.6 (`wire.rs` from tag v18.8.6, parity rows, the pin test); Stop uses `abort_and_restore_queue`; a live smoke on 18.8.6 before the benchmark. The live pass is capped at 45 turns.
 - **U12a** Harness, no model: `CEDIAN_OMP_BINARY` pinned to the pinned OMP; a mandate on/off switch (`--append-system-prompt ""` for off); run worktrees dropped after scoring; a disk preflight; `run.sh check all` proves the predicates on this machine.
 - **U12b** App instruments, red first: per-turn timing rows in `cedian_panel` (the CLI's schema), and a frame-duration dump behind an env var.
 - **U12c** Record modes for the hand-cut fixtures (`turn_lifecycle`, `workflow`, `review`, `inline_edit`, the CLI replays), modelled on `live_approval`; a recording's secrets scrubbed in code.
