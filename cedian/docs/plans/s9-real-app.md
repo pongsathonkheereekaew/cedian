@@ -121,6 +121,18 @@ Decided with the owner on 2026-10-09 ([ADR-0057](../decisions/0057-parity-bar-an
 - **U11i ★** Stand-in H deleted: evidence in the app on Zed's `clock::Global`.
 - Live re-recording of the hand-cut fixtures joins U12.
 
+## U12 design
+
+Decided with the owner on 2026-10-10 ([ADR-0058](../decisions/0058-u12-benchmark-on-the-app.md)). Order; ★ may slip to the partial exit:
+
+- **U12a** Harness, no model: `CEDIAN_OMP_BINARY` pinned to the pinned OMP; a mandate on/off switch (`--append-system-prompt ""` for off); run worktrees dropped after scoring; a disk preflight; `run.sh check all` proves the predicates on this machine.
+- **U12b** App instruments, red first: per-turn timing rows in `cedian_panel` (the CLI's schema), and a frame-duration dump behind an env var.
+- **U12c** Record modes for the hand-cut fixtures (`turn_lifecycle`, `workflow`, `review`, `inline_edit`, the CLI replays), modelled on `live_approval`; a recording's secrets scrubbed in code.
+- **U12d** The live pass, at most 40 model turns: re-record the fixtures (mandate on), then B1–B10 without and with the mandate; `~/.omp` config hashes before and after, new `run/` and `logs/` files listed.
+- **U12e** App runs: per-turn overhead over warm turns, frame time while streaming (debug, `inconclusive`).
+- **U12f** The benchmark checklist applied; results recorded in Progress and `docs/benchmarks/2026-10-10/`.
+- ★ Frame time on a release build (U13); more than one run per task.
+
 ## Upstream sync (U2)
 
 - **How:** merge upstream `main` into `cedian/s9`; never rebase a published branch (owner, 2026-10-07).

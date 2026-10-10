@@ -61,3 +61,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0055](0055-rigor-visible-in-the-app.md) | Workflow, evidence and review run in the app; findings annotate code as blocks |
 | [0056](0056-inline-edit-in-the-live-session.md) | Inline edit is a turn in the live session, on ctrl-enter; revert turn from the editor |
 | [0057](0057-parity-bar-and-s10.md) | S9 closes on a named parity core; the rest of OMP parity moves to a new slice S10 |
+| [0058](0058-u12-benchmark-on-the-app.md) | The S9 benchmark: the S2 model, both mandate arms once, debug frame time against 16.7 ms p99 |
