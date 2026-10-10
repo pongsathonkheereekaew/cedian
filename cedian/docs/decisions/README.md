@@ -60,3 +60,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0054](0054-license-gpl-3-or-later.md) | cedian's code is GPL-3.0-or-later; vendored code keeps its own license |
 | [0055](0055-rigor-visible-in-the-app.md) | Workflow, evidence and review run in the app; findings annotate code as blocks |
 | [0056](0056-inline-edit-in-the-live-session.md) | Inline edit is a turn in the live session, on ctrl-enter; revert turn from the editor |
+| [0057](0057-parity-bar-and-s10.md) | S9 closes on a named parity core; the rest of OMP parity moves to a new slice S10 |
