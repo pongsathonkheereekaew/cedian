@@ -64,3 +64,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0058](0058-u12-benchmark-on-the-app.md) | The S9 benchmark: the S2 model, both mandate arms once, debug frame time against 16.7 ms p99 |
 | [0059](0059-omp-pin-18-8-6.md) | The OMP pin moves to 18.8.6 before the benchmark; Stop uses `abort_and_restore_queue` |
 | [0060](0060-live-pass-cap-46.md) | The live pass's cap is 46 turns |
+| [0061](0061-pass-pins-its-model.md) | The live pass pins its model in the spawn wrapper; the person's default is theirs |
