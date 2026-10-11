@@ -87,7 +87,6 @@ Known gaps that no slice exit names yet. Each row has the slice it must be settl
 
 | Follow-up | Found in | Settle before |
 |---|---|---|
-| OMP's `read` may prefix a host URI's content with `1:` (18.7.0 did; the ADR-0057 pin check that replaced the old "never checks its version" gap now warns instead of running off-pin). Settling it on 18.8.6 needs one model turn reading a host URI, which the ADR-0059 smoke does not include | `crates/cedian_omp/tests/smoke_real_omp.rs:89` (18.7.0, 2026-10-07) | S9 (U12 live pass) |
 | The one-shot prompt timeout is a fixed 600 s; both B6 runs were cut there mid-task | `crates/cedian_cli/src/main.rs` (`prompt_timeout`), S2 benchmark | S9 (long turns in the app) |
 | Correction ledger gaps (ADR-0032): no `cedian://corrections` URI, no `repeated` escalation, no `continue_escalated` rows, `model` left empty, and a class proof cannot check that both evidence runs were the enforcer's command | [S3 plan](plans/done/s3-review-agents.md) | S9 |
 | Reviewer panels by role ([ADR-0039](decisions/0039-model-roles-and-independent-review.md) decision 5): `[[workflow.floor]] review_roles` and `maxReviewers` are not built; one reviewer runs on the `review` role | ADR-0039 | S9 |
