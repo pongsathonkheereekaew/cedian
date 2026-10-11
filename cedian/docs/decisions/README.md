@@ -63,3 +63,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0057](0057-parity-bar-and-s10.md) | S9 closes on a named parity core; the rest of OMP parity moves to a new slice S10 |
 | [0058](0058-u12-benchmark-on-the-app.md) | The S9 benchmark: the S2 model, both mandate arms once, debug frame time against 16.7 ms p99 |
 | [0059](0059-omp-pin-18-8-6.md) | The OMP pin moves to 18.8.6 before the benchmark; Stop uses `abort_and_restore_queue` |
+| [0060](0060-live-pass-cap-46.md) | The live pass's cap is 46 turns |
