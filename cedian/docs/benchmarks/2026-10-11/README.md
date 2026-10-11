@@ -31,7 +31,14 @@ cedian's overhead per turn is **5026 ms median, 5066 ms max over 9 turns**, over
 The app driving the pinned OMP itself, not the CLI: one approval turn and four warm turns in one session, mandate off, debug build. Rows: `app/app-timing.jsonl` and `app/app-frames.jsonl`.
 
 - cedian's overhead per turn: **median 147 ms, max 300 ms over 5 turns** (the approval turn included; the four warm ones are 300, 147, 107 and 185 ms). Inside ADR-0037's budgets. The CLI arm's 31 ms is the same code without a panel: the difference is the panel's context snapshot and its post-turn work over the reply.
-- Frame time while a reply streams: one row per turn, p50 2.9 to 4.9 ms and p99 7.8 to 10.6 ms, so inside ADR-0058 decision 4's 16.7 ms p99 on this **debug** build. The decision labels the debug number **inconclusive**; the release measurement is U13's.
+- Frame time while a reply streams: one row per turn, p50 2.9 to 4.9 ms and p99 7.8 to 10.6 ms, so inside ADR-0058 decision 4's 16.7 ms p99 on this **debug** build, which the decision labels **inconclusive**.
+
+### The release build (`app-release/`)
+
+The same lane on the release build (`cargo test --release -p cedian_panel --test live_approval`), five turns, OMP's own approval mode so no dialog is needed: GPUI's debug bounds are a debug-build feature, so no test click reaches a dialog there.
+
+- cedian's overhead per turn: **median 167 ms, max 227 ms over 5 turns**, next to the debug run's 147 ms.
+- Frame time while streaming: p50 0.45 to 0.64 ms and **p99 1.0 to 1.9 ms, max 1.9 ms**. ADR-0058 decision 4's budget of 16.7 ms p99 **is met on the release build**: the debug run's inconclusive number was 4 to 8 times it.
 
 ## What the numbers do not say
 
