@@ -65,3 +65,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0059](0059-omp-pin-18-8-6.md) | The OMP pin moves to 18.8.6 before the benchmark; Stop uses `abort_and_restore_queue` |
 | [0060](0060-live-pass-cap-46.md) | The live pass's cap is 46 turns |
 | [0061](0061-pass-pins-its-model.md) | The live pass pins its model in the spawn wrapper; the person's default is theirs |
+| [0062](0062-own-build-ships-unsigned.md) | The owner's own build ships unsigned; signing and notarization reopen only for redistribution |
