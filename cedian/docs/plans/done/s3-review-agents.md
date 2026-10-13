@@ -93,5 +93,5 @@ Dismissed: "the sandbox tests only compare strings" (opus, sonnet). `reviewer_sa
 
 ## Open after S3
 
-In ROADMAP Follow-ups: the `cedian://corrections` URI and the `repeated` escalation (ADR-0032 decision 4); `continue_escalated` rows and the `model` field are not recorded yet; a proof cannot yet check that both evidence runs were the enforcer's command (evidence keeps no command).
+In ROADMAP Follow-ups: a class proof cannot yet check that both evidence runs were the enforcer's command (evidence keeps no command). The `cedian://corrections` URI, `repeated` escalation, `continue_escalated` rows, and `model` on review rows landed in fork `91cbd8b644` (see [S9 Progress](../s9-real-app.md#progress)).
 

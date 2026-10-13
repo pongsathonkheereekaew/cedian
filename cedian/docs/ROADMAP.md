@@ -88,7 +88,7 @@ Known gaps that no slice exit names yet. Each row has the slice it must be settl
 | Follow-up | Found in | Settle before |
 |---|---|---|
 | The one-shot prompt timeout is a fixed 600 s; both B6 runs were cut there mid-task | `crates/cedian_cli/src/main.rs` (`prompt_timeout`), S2 benchmark | S9 (long turns in the app) |
-| Correction ledger gaps (ADR-0032): no `cedian://corrections` URI, no `repeated` escalation, no `continue_escalated` rows, `model` left empty, and a class proof cannot check that both evidence runs were the enforcer's command | [S3 plan](plans/done/s3-review-agents.md) | S9 |
+| Correction ledger (ADR-0032): a class proof cannot check that both evidence runs were the enforcer's command (evidence keeps no command) | [S3 plan](plans/done/s3-review-agents.md) | S9 |
 | Reviewer panels by role ([ADR-0039](decisions/0039-model-roles-and-independent-review.md) decision 5): `[[workflow.floor]] review_roles` and `maxReviewers` are not built; one reviewer runs on the `review` role | ADR-0039 | S9 |
 | S5 exit items not built in U8 ([ADR-0050](decisions/0050-workers-are-omp-subagents.md)): OMP's subagent events name no worktree, so the app cannot show which subagent works in which tree | [S9 plan](plans/s9-real-app.md#progress) U8 | S9 (S5 exit) |
 | Subagent and queue gaps (U8): no subagent transcript pane (`get_subagent_messages`); a follow-up's text is not shown in the thread as a user message; composer images are not sent with a follow-up or steer; a new session clearing subagent rows is checked by reading only | same | S10 (parity) |
