@@ -71,3 +71,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0065](0065-second-live-pass-cap-20.md) | A second live pass, `u12b`, capped at 20 turns on the pinned model |
 | [0066](0066-reviewer-fixtures-in-a-live-pass.md) | A live pass records the reviewer on its own pinned model and the pinned binary |
 | [0067](0067-u12b-s3-lanes-on-cursor-default.md) | u12b records the s3 lanes on `cursor/default`; benchmark runs keep the pinned model |
+| [0068](0068-s9-closes-as-a-partial-exit.md) | S9 closes as a partial exit; Tab completion moves to S10 |

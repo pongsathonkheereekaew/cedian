@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-13, in chat: "apple signin ข้ามไปก่อนครับ เราทำใช้เองคนเดียว")
 - **Date:** 2026-10-13
-- **Rule text:** the fork's `script/cedian-bundle` (`CODESIGN_IDENTITY`), `script/cedian-icon`, `docs/plans/s9-real-app.md` U13, `docs/ROADMAP.md` S9 ("macOS signing / notarization owner"), the S9 "fully native" checklist (no signing item)
+- **Rule text:** the fork's `script/cedian-bundle` (`CODESIGN_IDENTITY`), `script/cedian-icon`, `docs/plans/done/s9-real-app.md` U13, `docs/ROADMAP.md` S9 ("macOS signing / notarization owner"), the S9 "fully native" checklist (no signing item)
 - **Builds on:** ADR-0054 (GPL-3.0-or-later), ADR-0058 decision 4 (U13 is the benchmark's release-build unit), ADR-0034 (branding is the fork's)
 
 ## Context

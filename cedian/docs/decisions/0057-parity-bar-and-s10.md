@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-09, in chat: "เพิ่มสถานะ เลื่อนไป slice ที่ระบุ", must be native in S9: "Login/onboarding, เลือกโมเดลและ thinking, แจ้งเตือน (toast) ของ OMP, คำสั่งคิว + compaction/retry", "slice ใหม่ S10 OMP parity", "รวมกับ U12 รอบเดียว", "คงเดิม + บอกชื่อ hunk ที่ข้าม", "หา omp ตัวที่ตรง pin ก่อน ไม่เจอก็เตือน", "ลบ cedian_apply_edit และ buffer.rs"; the rest decided by the agent as the safer option)
 - **Date:** 2026-10-09
-- **Rule text:** ROADMAP S9 exit and S10; `docs/plans/s9-real-app.md` U11; the fork's `cedian/OMP_PARITY.md` status vocabulary
+- **Rule text:** ROADMAP S9 exit and S10; `docs/plans/done/s9-real-app.md` U11; the fork's `cedian/OMP_PARITY.md` status vocabulary
 - **Refines:** ADR-0034 (parity rule), ADR-0038 (S9 = v0.1)
 
 ## Context

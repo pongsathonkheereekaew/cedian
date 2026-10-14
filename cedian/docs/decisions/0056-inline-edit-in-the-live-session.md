@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-09, in chat: "ctrl-enter (ปุ่มของ Zed)", "ให้ cedian แทนที่", "ใน chat เดิม ต่อคิวถ้ากำลังรัน", "โมเดลของ chat ไปก่อน", "เฉพาะใน Review Changes", "palette และปุ่มลัด"; the rest decided by the agent as the safer option)
 - **Date:** 2026-10-09
-- **Rule text:** `docs/plans/s9-real-app.md` U10
+- **Rule text:** `docs/plans/done/s9-real-app.md` U10
 - **Builds on:** ADR-0026 (fast lane: inline edit and revert turn are core), ADR-0034, ADR-0006, ADR-0050 decision 3
 
 ## Context

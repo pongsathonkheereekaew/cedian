@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-10, in chat: "ตัวเดิมกับ S2", "รอบเดียว ทั้งมีและไม่มี pstack", "debug ติดป้าย inconclusive", "p99 ≤ 16.7 ms (60 fps)", "เริ่มได้เลย หยุดที่ 40 เทิร์น", "เปิดไว้ เหมือนใช้จริง", "เก็บทำมือไว้พร้อมหมายเหตุ", "ปิด 2 แถวนั้น ใช้ต่อ"; the rest decided by the agent as the safer option)
 - **Date:** 2026-10-10
-- **Rule text:** `docs/plans/s9-real-app.md` U12; ROADMAP S9 exit (the ADR-0026 benchmark re-run on the app)
+- **Rule text:** `docs/plans/done/s9-real-app.md` U12; ROADMAP S9 exit (the ADR-0026 benchmark re-run on the app)
 - **Builds on:** ADR-0026, ADR-0037, ADR-0051 decision 6, ADR-0057 decision 8
 
 ## Context

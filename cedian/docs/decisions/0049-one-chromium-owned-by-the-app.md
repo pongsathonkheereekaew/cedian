@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-08, in chat: "Profile แยกใหม่", "เมื่อ agent ใช้ครั้งแรก"; the rest decided by the agent as the safer option)
 - **Date:** 2026-10-08
-- **Rule text:** `docs/plans/s9-real-app.md` U7; ARCHITECTURE §25, §29 R4
+- **Rule text:** `docs/plans/done/s9-real-app.md` U7; ARCHITECTURE §25, §29 R4
 - **Closes:** ROADMAP stand-in row D; refines ADR-0038 for S4
 
 ## Context

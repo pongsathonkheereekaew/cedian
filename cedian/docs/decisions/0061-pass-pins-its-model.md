@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-11, in chat: "ให้ pass pin โมเดลเองใน wrapper")
 - **Date:** 2026-10-11
-- **Rule text:** the fork's `script/cedian-bench/run.sh` (`wrapper`, `model_check`); `docs/plans/s9-real-app.md` U12a
+- **Rule text:** the fork's `script/cedian-bench/run.sh` (`wrapper`, `model_check`); `docs/plans/done/s9-real-app.md` U12a
 - **Builds on:** ADR-0058 decision 1 (the model is S2's), ADR-0058 decision 5, ADR-0059 decision 3
 
 ## Context

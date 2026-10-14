@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-08, in chat: "เฝ้าไฟล์ config" and "ทุกคีย์ + แก้แบบง่าย")
 - **Date:** 2026-10-08
-- **Rule text:** `docs/plans/s9-real-app.md` U3a
+- **Rule text:** `docs/plans/done/s9-real-app.md` U3a
 - **Refines:** ADR-0040 decisions 2 and 3
 
 ## Context
