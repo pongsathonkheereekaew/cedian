@@ -1,0 +1,6 @@
+{"event":"spawn","ms":2398}
+{"event":"turn","context_ms":11,"omp_ms":4726,"post_ms":51,"total_ms":4788}
+{"event":"turn","context_ms":221,"omp_ms":1240,"post_ms":6,"total_ms":1467}
+{"event":"turn","context_ms":74,"omp_ms":1168,"post_ms":18,"total_ms":1260}
+{"event":"turn","context_ms":73,"omp_ms":2195,"post_ms":105,"total_ms":2373}
+{"event":"turn","context_ms":63,"omp_ms":989,"post_ms":104,"total_ms":1156}

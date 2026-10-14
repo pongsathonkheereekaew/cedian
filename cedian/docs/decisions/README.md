@@ -61,3 +61,15 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0055](0055-rigor-visible-in-the-app.md) | Workflow, evidence and review run in the app; findings annotate code as blocks |
 | [0056](0056-inline-edit-in-the-live-session.md) | Inline edit is a turn in the live session, on ctrl-enter; revert turn from the editor |
 | [0057](0057-parity-bar-and-s10.md) | S9 closes on a named parity core; the rest of OMP parity moves to a new slice S10 |
+| [0058](0058-u12-benchmark-on-the-app.md) | The S9 benchmark: the S2 model, both mandate arms once, debug frame time against 16.7 ms p99 |
+| [0059](0059-omp-pin-18-8-6.md) | The OMP pin moves to 18.8.6 before the benchmark; Stop uses `abort_and_restore_queue` |
+| [0060](0060-live-pass-cap-46.md) | The live pass's cap is 46 turns |
+| [0061](0061-pass-pins-its-model.md) | The live pass pins its model in the spawn wrapper; the person's default is theirs |
+| [0062](0062-own-build-ships-unsigned.md) | The owner's own build ships unsigned; signing and notarization reopen only for redistribution |
+| [0063](0063-scope-attribution-interim.md) | A running worker's brief is the scope for imported edits, until OMP names the worktree |
+| [0064](0064-stop-and-send-composes-stop-and-prompt.md) | Stop and send composes Stop and a `prompt`; OMP's `abort_and_prompt` is unused |
+| [0065](0065-second-live-pass-cap-20.md) | A second live pass, `u12b`, capped at 20 turns on the pinned model |
+| [0066](0066-reviewer-fixtures-in-a-live-pass.md) | A live pass records the reviewer on its own pinned model and the pinned binary |
+| [0067](0067-u12b-s3-lanes-on-cursor-default.md) | u12b records the s3 lanes on `cursor/default`; benchmark runs keep the pinned model |
+| [0068](0068-s9-closes-as-a-partial-exit.md) | S9 closes as a partial exit; Tab completion moves to S10 |
+| [0069](0069-upstream-zed-by-weekly-merge.md) | The fork takes upstream Zed by a weekly merge, never a rebase |

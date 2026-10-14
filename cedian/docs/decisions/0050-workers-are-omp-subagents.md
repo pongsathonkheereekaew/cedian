@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-08, in chat: "subagent ของ OMP", "Enter = ต่อคิว, ปุ่ม Steer แยก", "ลบ steer กับ list ก่อน"; the rest decided by the agent as the safer option)
 - **Date:** 2026-10-08
-- **Rule text:** ROADMAP S5 exit and stand-in row C; `docs/plans/s9-real-app.md` U8; ARCHITECTURE §42, §43
+- **Rule text:** ROADMAP S5 exit and stand-in row C; `docs/plans/done/s9-real-app.md` U8; ARCHITECTURE §42, §43
 - **Refines:** ADR-0038 for S5; ADR-0009 holds unchanged
 
 ## Context
