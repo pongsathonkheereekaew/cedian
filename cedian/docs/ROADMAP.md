@@ -87,7 +87,6 @@ Known gaps that no slice exit names yet. Each row has the slice it must be settl
 
 | Follow-up | Found in | Settle before |
 |---|---|---|
-| The one-shot prompt timeout is a fixed 600 s; both B6 runs were cut there mid-task | `crates/cedian_cli/src/main.rs` (`prompt_timeout`), S2 benchmark | S9 (long turns in the app) |
 | S5 exit items not built in U8 ([ADR-0050](decisions/0050-workers-are-omp-subagents.md)): OMP's subagent events name no worktree, so the app cannot show which subagent works in which tree | [S9 plan](plans/s9-real-app.md#progress) U8 | S9 (S5 exit) |
 | Subagent and queue gaps (U8): no subagent transcript pane (`get_subagent_messages`); a follow-up's text is not shown in the thread as a user message; composer images are not sent with a follow-up or steer; a new session clearing subagent rows is checked by reading only | same | S10 (parity) |
 | Hand-made fixture frames (U8): `p5_worktree.jsonl` was edited to carry a brief; `turn_lifecycle_1/3/4` keep their hand-ordered restarts, hangs and refuses (no model's to make), and the lane's own recording now exists (`turn_lifecycle_live.jsonl`, ADR-0059's pin). `live_approval.jsonl` is re-recorded on 18.8.6, so its two inserted pairs are gone | same | S9 (U12 live pass) |
