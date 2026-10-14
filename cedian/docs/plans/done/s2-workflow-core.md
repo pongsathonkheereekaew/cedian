@@ -12,7 +12,7 @@ Exit (ROADMAP S2 is the contract; restated here as observable checks):
 **Timebox:** 4 working sessions for U1–U10. The benchmark run is separate, after approval.
 **Partial exit:** U1–U6 (engine + CLI) first, then U8–U9 (skill + blocked replay), then U7/U10 (profile, profile replay). Commit each green unit. If a unit is unfinished when the time runs out, README marks S2 `◐` and names it as the gap. Live recording is the riskiest step: if real OMP can't be recorded (auth, model behavior), that unit stays open and S2 stays `◐`. Never hand-write a fixture and call it a recorded turn.
 
-**Owner-accepted 2026-10-07:** [ADR-0036](../decisions/0036-s2-evidence-freshness-and-turn-end-block.md): `reproduction` gates count historical evidence; a refused claim blocks at turn end and only `cedian workflow resume` unblocks; headless code state is a content hash (stand-in row H).
+**Owner-accepted 2026-10-07:** [ADR-0036](../../decisions/0036-s2-evidence-freshness-and-turn-end-block.md): `reproduction` gates count historical evidence; a refused claim blocks at turn end and only `cedian workflow resume` unblocks; headless code state is a content hash (stand-in row H).
 
 ## Design
 
@@ -42,7 +42,7 @@ Exit (ROADMAP S2 is the contract; restated here as observable checks):
 
 ## Benchmark tasks (ADR-0026) — PROPOSED, awaiting owner approval
 
-Method: each history task starts in a fresh worktree at the commit's **parent**, with a one-paragraph task statement and no view of the commit. The predicate is checked after the run by applying the commit's own tests (hidden from the agent) plus `cargo test --workspace`. A result whose own code builds but whose hidden tests do not compile against it is `hidden_tests_broken`: it counts as neither a pass nor a false-done, and the owner reviews it by hand. The two open-work tasks have predicates written up front. cedian only ([ADR-0037](../decisions/0037-benchmark-without-cursor.md), accepted 2026-10-07; the Cursor arm is dropped). Recorded per task: time-to-usable-result, false-done (claimed done, predicate fails), cedian overhead per turn, optional owner review time. The model and OMP version are recorded with every result.
+Method: each history task starts in a fresh worktree at the commit's **parent**, with a one-paragraph task statement and no view of the commit. The predicate is checked after the run by applying the commit's own tests (hidden from the agent) plus `cargo test --workspace`. A result whose own code builds but whose hidden tests do not compile against it is `hidden_tests_broken`: it counts as neither a pass nor a false-done, and the owner reviews it by hand. The two open-work tasks have predicates written up front. cedian only ([ADR-0037](../../decisions/0037-benchmark-without-cursor.md), accepted 2026-10-07; the Cursor arm is dropped). Recorded per task: time-to-usable-result, false-done (claimed done, predicate fails), cedian overhead per turn, optional owner review time. The model and OMP version are recorded with every result.
 
 | # | Kind | Task (start point) | Done predicate (pass/fail) |
 |---|---|---|---|

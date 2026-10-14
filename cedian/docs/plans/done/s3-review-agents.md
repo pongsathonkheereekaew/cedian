@@ -9,7 +9,7 @@ Exit (ROADMAP S3 is the contract; restated as observable checks). The four gate 
 - **Exit.** An OMP turn asks for a review; cedian spawns the reviewer under the reviewer profile (fresh session, the `[review] model` from `cedian.toml`, ADR-0041). Each finding arrives through `cedian_review_finding` and attaches to the hunk it names. A `blocker` keeps the `review` gate unmet until the hunk changes or the finding is dismissed with a reason (audit row). `cedian shell` runs it with `review --agent`.
 - **Exit, correction ledger (ADR-0032).** Each rejected hunk, reverted turn, user edit of an agent hunk, refused completion and dismissed finding appends a row to `.cedian/corrections.jsonl`. `cedian_correction_class` refuses a class with fewer than two events from two turns. A class shows `enforced` only with evidence that its check fails on the recorded mistake and passes at head.
 
-**Owner-accepted 2026-10-07:** [ADR-0041](../decisions/0041-reviewer-is-a-host-spawned-omp-process.md): the reviewer is a separate OMP process cedian spawns at OMP's request.
+**Owner-accepted 2026-10-07:** [ADR-0041](../../decisions/0041-reviewer-is-a-host-spawned-omp-process.md): the reviewer is a separate OMP process cedian spawns at OMP's request.
 
 **Timebox:** 5 working sessions for U1–U10.
 **Partial exit:** the gate first (U1–U4), then the reviewer and findings (U5–U8), then the correction ledger (U9). Commit each green unit. If time runs out, README marks S3 `◐` and names the gap. Live recording of two OMP processes (implementer + reviewer) is the riskiest step; if it cannot be recorded, U8 stays open and S3 stays `◐`. Never hand-write a fixture.
@@ -93,5 +93,5 @@ Dismissed: "the sandbox tests only compare strings" (opus, sonnet). `reviewer_sa
 
 ## Open after S3
 
-In ROADMAP Follow-ups: a class proof cannot yet check that both evidence runs were the enforcer's command (evidence keeps no command). The `cedian://corrections` URI, `repeated` escalation, `continue_escalated` rows, and `model` on review rows landed in fork `91cbd8b644` (see [S9 Progress](../s9-real-app.md#progress)).
+Settled in S9: a class proof requires the enforcer's command on both evidence runs (fork `781da1b658`). The `cedian://corrections` URI, `repeated` escalation, `continue_escalated` rows, and `model` on review rows landed in fork `91cbd8b644` (see [S9 Progress](../s9-real-app.md#progress)).
 
