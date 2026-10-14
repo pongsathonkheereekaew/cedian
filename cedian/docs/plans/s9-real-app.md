@@ -136,7 +136,7 @@ Decided with the owner on 2026-10-10 ([ADR-0058](../decisions/0058-u12-benchmark
 
 ## Upstream sync (U2)
 
-- **How:** merge upstream `main` into `cedian/s9`; never rebase a published branch (owner, 2026-10-07).
+- **How:** merge upstream `main` into `cedian/s9`; never rebase a published branch (owner, 2026-10-07; [ADR-0066](../decisions/0066-upstream-zed-by-weekly-merge.md)). Each sync PR states the Zed core footprint (ADR-0066).
 - **Cadence:** weekly, and before any release build (owner, 2026-10-07).
 - **Conflict owner:** the agent doing the sync resolves conflicts. A sync is done when `script/cedian-check` passes and the app builds (`cargo build -j4 -p zed --bin cedian --features gpui_platform/runtime_shaders`). A change to cedian's patches in Zed core goes to the owner.
 - **Zed core footprint at the first sync:** `Cargo.toml`, `Cargo.lock`, `crates/paths/src/paths.rs`, `crates/zed/{Cargo.toml,src/main.rs,src/zed.rs}`.

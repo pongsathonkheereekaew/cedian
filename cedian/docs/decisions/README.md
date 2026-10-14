@@ -69,3 +69,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0063](0063-scope-attribution-interim.md) | A running worker's brief is the scope for imported edits, until OMP names the worktree |
 | [0064](0064-stop-and-send-composes-stop-and-prompt.md) | Stop and send composes Stop and a `prompt`; OMP's `abort_and_prompt` is unused |
 | [0065](0065-second-live-pass-cap-20.md) | A second live pass, `u12b`, capped at 20 turns on the pinned model |
+| [0066](0066-upstream-zed-by-weekly-merge.md) | The fork takes upstream Zed by a weekly merge, never a rebase |

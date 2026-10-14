@@ -682,7 +682,7 @@ Build:
 Zed fork builds
 OMP builds from the pinned upstream commit (never forked — [ADR-0027](decisions/0027-zero-omp-fork.md))
 pinned upstream remotes
-upstream rebase cadence + conflict owner
+upstream merge cadence + conflict owner (weekly merge, never rebase — [ADR-0066](decisions/0066-upstream-zed-by-weekly-merge.md))
 Zed license audit for redistributed binary (GPL terms)
 macOS signing / notarization owner for cedian.app + bundled omp
 cedian branding
