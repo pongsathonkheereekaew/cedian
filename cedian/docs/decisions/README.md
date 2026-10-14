@@ -67,3 +67,5 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0061](0061-pass-pins-its-model.md) | The live pass pins its model in the spawn wrapper; the person's default is theirs |
 | [0062](0062-own-build-ships-unsigned.md) | The owner's own build ships unsigned; signing and notarization reopen only for redistribution |
 | [0063](0063-scope-attribution-interim.md) | A running worker's brief is the scope for imported edits, until OMP names the worktree |
+| [0064](0064-stop-and-send-composes-stop-and-prompt.md) | Stop and send composes Stop and a `prompt`; OMP's `abort_and_prompt` is unused |
+| [0065](0065-second-live-pass-cap-20.md) | A second live pass, `u12b`, capped at 20 turns on the pinned model |
