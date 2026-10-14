@@ -1,4 +1,4 @@
-# ADR-0072: `cedian_debug` is an interim exception to "no duplicate debugger tool", until OMP's `debug` can attach to Zed's session
+# ADR-0073: `cedian_debug` is an interim exception to "no duplicate debugger tool", until OMP's `debug` can attach to Zed's session
 
 - **Status:** Accepted (owner, 2026-10-14, AskUserQuestion. First "ค่อยๆ เปลี่ยนแบบ LSP" and "lldb-dap ตัวจริง + 1 turn จริง"; then, told that `cedian_debug` conflicts with ARCHITECTURE §10, §22 and ADR-0004, chose "ยกเว้นชั่วคราว + ขอ OMP"; on approvals, "ถามเฉพาะตอนเริ่มและคุม session ของคุณ"; on Developer mode, "ผมเปิดเอง")
 - **Date:** 2026-10-14

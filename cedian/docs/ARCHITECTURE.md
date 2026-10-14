@@ -1275,7 +1275,7 @@ Effects:
 
 No second debugger runtime.
 
-> **Interim (ADR-0072).** OMP 18.8.6's `debug` always starts its own adapter and has no seam for a host-owned session, so the app adds the host tool `cedian_debug` on Zed's session beside it, until OMP can attach. *(→ [ADR-0072](decisions/0072-cedian-debug-interim-exception.md))*
+> **Interim (ADR-0073).** OMP 18.8.6's `debug` always starts its own adapter and has no seam for a host-owned session, so the app adds the host tool `cedian_debug` on Zed's session beside it, until OMP can attach. *(→ [ADR-0073](decisions/0073-cedian-debug-interim-exception.md))*
 
 ---
 
