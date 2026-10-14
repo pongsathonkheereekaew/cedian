@@ -34,4 +34,4 @@ The plan already had the pieces (ADR-0001, ADR-0023, ADR-0027) but not the parit
 - `spike/CAPABILITY_TABLE.md` is frozen history. Its rows are carried into the ledger.
 - Safety defaults no longer delete OMP features: the approval mode and `computer` become `gated` behind one per-project opt-in, `policy = "omp"` (ADR-0035).
 - Some rows are large (sessions tree, branch/fork, `live`, `btw`). They land in S9 or get their own slice. A row is never left without one.
-- **Refined by ADR-0066:** the fixed cadence is a weekly merge, never a rebase.
+- **Refined by ADR-0069:** the fixed cadence is a weekly merge, never a rebase.

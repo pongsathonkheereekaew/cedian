@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-08, in chat: "นับเป็นของ agent")
 - **Date:** 2026-10-08
-- **Rule text:** `docs/plans/s9-real-app.md` U5 design; ROADMAP Follow-ups
+- **Rule text:** `docs/plans/done/s9-real-app.md` U5 design; ROADMAP Follow-ups
 - **Refines:** ADR-0027 decision 2
 
 ## Context

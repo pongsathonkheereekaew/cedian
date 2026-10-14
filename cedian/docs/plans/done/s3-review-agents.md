@@ -93,5 +93,5 @@ Dismissed: "the sandbox tests only compare strings" (opus, sonnet). `reviewer_sa
 
 ## Open after S3
 
-Settled in S9: a class proof requires the enforcer's command on both evidence runs (fork `781da1b658`). The `cedian://corrections` URI, `repeated` escalation, `continue_escalated` rows, and `model` on review rows landed in fork `91cbd8b644` (see [S9 Progress](../s9-real-app.md#progress)).
+Settled in S9: a class proof requires the enforcer's command on both evidence runs (fork `781da1b658`). The `cedian://corrections` URI, `repeated` escalation, `continue_escalated` rows, and `model` on review rows landed in fork `91cbd8b644` (see [S9 Progress](s9-real-app.md#progress)).
 

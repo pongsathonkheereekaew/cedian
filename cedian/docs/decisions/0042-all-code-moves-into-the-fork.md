@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-07, in chat)
 - **Date:** 2026-10-07
-- **Rule text:** `AGENTS.md` "Where things live"; `docs/plans/s9-real-app.md` U1
+- **Rule text:** `AGENTS.md` "Where things live"; `docs/plans/done/s9-real-app.md` U1
 - **Refines:** ADR-0030 (layout option B)
 
 ## Context

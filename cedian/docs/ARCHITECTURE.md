@@ -334,7 +334,7 @@ Window management
 
 Patch Zed core only at clean integration points.
 
-**Fork scope.** Zed is forked only as far as OMP needs: a core patch exists only to give an OMP capability a native surface or to bind a cedian crate at a registration point ([ADR-0030](decisions/0030-fork-layout-and-build-profile.md)). Every other Zed feature behaves as upstream ships it, and the fork takes upstream Zed by a merge every week and before every release build, never a rebase ([ADR-0066](decisions/0066-upstream-zed-by-weekly-merge.md)). *(→ [ADR-0034](decisions/0034-identity-and-omp-parity.md))*
+**Fork scope.** Zed is forked only as far as OMP needs: a core patch exists only to give an OMP capability a native surface or to bind a cedian crate at a registration point ([ADR-0030](decisions/0030-fork-layout-and-build-profile.md)). Every other Zed feature behaves as upstream ships it, and the fork takes upstream Zed by a merge every week and before every release build, never a rebase ([ADR-0069](decisions/0069-upstream-zed-by-weekly-merge.md)). *(→ [ADR-0034](decisions/0034-identity-and-omp-parity.md))*
 
 Create cedian-owned crates instead of scattering custom logic everywhere.
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-08, in chat: "ไม่เปิด บอกเหตุ")
 - **Date:** 2026-10-08
-- **Rule text:** `docs/plans/s9-real-app.md` U4
+- **Rule text:** `docs/plans/done/s9-real-app.md` U4
 - **Refines:** ADR-0040 decision 5
 
 ## Context

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-09, in chat: "รัน reviewer จากแอป", "แสดงรายชื่อ ไม่ทำ hunk", "เฉพาะที่ตั้งใน cedian.toml", "U9 ใช้ hash ไปก่อน"; the rest decided by the agent as the safer option)
 - **Date:** 2026-10-09
-- **Rule text:** `docs/plans/s9-real-app.md` U9; ROADMAP stand-in rows H and I, Follow-ups
+- **Rule text:** `docs/plans/done/s9-real-app.md` U9; ROADMAP stand-in rows H and I, Follow-ups
 - **Builds on:** ADR-0010, ADR-0024, ADR-0026, ADR-0032, ADR-0039, ADR-0041, ADR-0047, ADR-0049
 
 ## Context

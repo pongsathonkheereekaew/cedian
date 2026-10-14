@@ -1,8 +1,8 @@
-# ADR-0066: The fork takes upstream Zed by a weekly merge, never a rebase
+# ADR-0069: The fork takes upstream Zed by a weekly merge, never a rebase
 
 - **Status:** Accepted (owner, 2026-10-07 in the S9 plan's U2; recorded as an ADR 2026-10-14, in chat)
 - **Date:** 2026-10-14
-- **Rule text:** [ARCHITECTURE.md](../ARCHITECTURE.md) §7 "Fork scope"; [ROADMAP.md](../ROADMAP.md) S9 "Fork Hygiene"; [S9 plan](../plans/s9-real-app.md) "Upstream sync (U2)"
+- **Rule text:** [ARCHITECTURE.md](../ARCHITECTURE.md) §7 "Fork scope"; [ROADMAP.md](../ROADMAP.md) S9 "Fork Hygiene"; [S9 plan](../plans/done/s9-real-app.md) "Upstream sync (U2)"
 - **Refines:** ADR-0030 (its "upstream rebases"), ADR-0034 (the fixed cadence it names)
 
 ## Context

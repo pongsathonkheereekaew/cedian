@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-08: chose one language server, Zed's, then left the staging to the agent: "ใช้อะไรดีครับ")
 - **Date:** 2026-10-08
-- **Rule text:** `docs/plans/s9-real-app.md` U6; ARCHITECTURE §21, §22
+- **Rule text:** `docs/plans/done/s9-real-app.md` U6; ARCHITECTURE §21, §22
 - **Refines:** ADR-0034 (cutting an OMP feature needs an ADR)
 
 ## Context

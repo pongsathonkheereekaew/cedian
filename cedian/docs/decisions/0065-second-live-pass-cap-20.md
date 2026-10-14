@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-14, in chat: the live turns the plan needs, at "20 เทิร์น โมเดลเดิม")
 - **Date:** 2026-10-14
-- **Rule text:** `docs/plans/s9-real-app.md` U12; the fork's `script/cedian-bench/run.sh` (`MAX_TURNS`, `BENCH_PASS`)
+- **Rule text:** `docs/plans/done/s9-real-app.md` U12; the fork's `script/cedian-bench/run.sh` (`MAX_TURNS`, `BENCH_PASS`)
 - **Builds on:** ADR-0058 (the benchmark on the app), ADR-0060 (the first pass's cap and the harness that enforces it), ADR-0061 (the pass pins its model)
 
 ## Context

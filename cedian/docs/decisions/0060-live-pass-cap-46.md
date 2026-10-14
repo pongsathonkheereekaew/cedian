@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-10-11, in chat: "ยกเพดานเป็น 46")
 - **Date:** 2026-10-11
-- **Rule text:** `docs/plans/s9-real-app.md` U12; the fork's `script/cedian-bench/run.sh` and `script/cedian-bench/cap.py`
+- **Rule text:** `docs/plans/done/s9-real-app.md` U12; the fork's `script/cedian-bench/run.sh` and `script/cedian-bench/cap.py`
 - **Supersedes:** ADR-0059 decision 4 (the 45-turn cap). Everything else in ADR-0059 stands.
 - **Builds on:** ADR-0058 decision 5, ADR-0059
 
@@ -29,4 +29,4 @@ The 36 remaining turns fit exactly: 46 minus the 10 the smoke and the two re-rec
 
 - The cap is a ceiling, not a target: a step starts only when its worst case fits, and the first step that does not ends the pass.
 - A re-run of the lanes or the arms needs its own `BENCH_PASS` and a cap that fits what remains of it.
-- The pass's arithmetic lives in `docs/plans/s9-real-app.md#progress`, where each step's booked turns are recorded.
+- The pass's arithmetic lives in `docs/plans/done/s9-real-app.md#progress`, where each step's booked turns are recorded.
