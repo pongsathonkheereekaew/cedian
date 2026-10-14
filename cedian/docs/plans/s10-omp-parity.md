@@ -8,7 +8,11 @@ Exit (ROADMAP S10 is the contract): no row of the fork's `cedian/OMP_PARITY.md` 
 
 **Machine (2026-10-14).** 19 GB free with a 27 GB warm `target/`. One writer in the fork at a time and no extra worktrees (cargo rebuilds per path), so units run one after another, never in parallel.
 
-**Recordings.** Frames that need no model turn (session lists, the tree, stats, commands, settings) are recorded from the pinned OMP over a real session file. A feature whose frames need a model turn uses OMP's own frames recorded on the pin where a turn already exists in a fixture; otherwise its frames are hand-made and named in ROADMAP Follow-ups until a live pass the owner caps records them.
+**Recordings.** Frames that need no model turn (session lists, the tree, stats, commands, settings) are recorded from the pinned OMP over a real session file. Frames that need a model turn are recorded in one pass, `s10`, of at most 20 turns on `cursor/default` ([ADR-0070](../decisions/0070-s10-live-pass-cursor-default-20.md)); a unit the pass cannot cover keeps hand-made frames, named in ROADMAP Follow-ups.
+
+**v0.1 first (owner, 2026-10-14).** After U1, S1's missing exit item (an agent breakpoint round trip through a debug adapter) is built, and v0.1 is then declared with S5 waiting on OMP to name the worktree, in its own ADR. U2 follows.
+
+**Merges (owner, 2026-10-14).** The owner merges every PR, docs and fork. The agent opens it after review and green CI, and names the merge order.
 
 **Timebox.** 16 working sessions. Each unit is its own partial exit: commit what is green, README names the rest. ROADMAP follow-ups that name S10 are taken by the unit that touches the same code; the exit does not wait on them.
 
@@ -32,7 +36,7 @@ The order puts the Cursor workflows the owner uses first (threads and checkpoint
 | **D. Settings** | | | | |
 | U9 | Settings listings and accounts | `--profile`, skills/rules/agents listing, MCP/extensions listing, model roles page, the 18.8.6 config keys, `get_logout_accounts`, `logout` | gpui test: the settings page lists what OMP loaded, read-only; a profile is chosen per workspace; model roles are shown and written through OMP ([ADR-0040](../decisions/0040-omp-settings-mirror-omp-config.md)); one stored credential is removed | 1.5 |
 | **E. Open product questions** | | | | |
-| U10 | Composer word prediction and Tab completion | `predict_word`, `predict_word_feedback` | composer: a gpui test shows OMP's prediction as ghost text, accepted with Tab and reported back. Editor Tab completion: which predictor, since Zed's own needs a Zed account and OMP has no editor prediction, is an owner call made at the unit's start | 2 |
+| U10 | Composer word prediction and Tab completion | `predict_word`, `predict_word_feedback` | composer: a gpui test shows OMP's prediction as ghost text, accepted with Tab and reported back. Editor Tab completion: OMP's `predict_word` is a local prose-word engine (n-gram, SmolLM2 and macOS's own, blended in a daemon), one word at the cursor, not a multi-line code edit. Which editor predictor (Copilot, a local model, or OMP's word engine in the editor) is an owner call made at the unit's start, after a prototype compares them | 2 |
 | U11 | Live (voice) session | `live_start`, `live_stop`, `live_mute`, `live_phase`, `live_levels`, `live_transcript`, `live_end` | gpui test over recorded frames: start, mute, the level meter, the transcript, end; microphone permission handled by macOS's prompt | 1.5 |
 | **F. Close** | | | | |
 | U12 | Parity test refuses `deferred: S10`; README row, ROADMAP, plan → `done/` | — | the parity test fails on a `deferred: S10` row; docs only otherwise | — |
