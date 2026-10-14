@@ -82,6 +82,9 @@ Known gaps that no slice exit names yet. Each row has the slice it must be settl
 
 | Follow-up | Found in | Settle before |
 |---|---|---|
+| `debug_round_trip`'s OMP approval frames are hand-made, not recorded from OMP | [S10 plan](plans/s10-omp-parity.md#progress) S1-dap | S1 exit (the live turn's fixture replaces them) |
+| U1's OMP rename (`session_info_update`) and `handoff` frames in `sessions.rs` are hand-made (`handMade`), since both need a model turn and the `s10` pass is spent ([ADR-0074](decisions/0074-s1-live-turn-after-the-runaway.md)) | same, U1 | S10 exit, or a new pass the owner grants |
+| A `cedian_debug` approval cancelled by the turn leaves its dialog up, and a late Approve is audited as allow (`person_allows` returns on cancel) | same, review of fork #12 (R3) | S1 exit |
 | S5 exit items not built in U8 ([ADR-0050](decisions/0050-workers-are-omp-subagents.md)): OMP's subagent events name no worktree, so the app cannot show which subagent works in which tree | [S9 plan](plans/done/s9-real-app.md#progress) U8 | when OMP names the worktree (S5 exit) |
 | Subagent and queue gaps (U8): no subagent transcript pane (`get_subagent_messages`); a follow-up's text is not shown in the thread as a user message; composer images are not sent with a follow-up or steer; a new session clearing subagent rows is checked by reading only | same | S10 (parity) |
 | Inline edit runs on the session model: OMP has no RPC model-role switch, so it cannot use `smol` as ADR-0026 asks. The 18.8.6 pin bump (ADR-0059) re-checked it: the wire's `set_model` still takes only `provider` and `modelId`, so the inline edit runs on the session model until OMP grows a role switch | README P6 row | S10 (parity) |
