@@ -14,7 +14,7 @@ Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisio
 | Slice | State |
 |---|---|
 | S0 Foundation loop | ✅ 2026-10-07 by hermetic replay: prompt → streamed text in the thread → tool card → edit → review → accept/reject persisted, STALE over a user edit, OMP disk edits never overwritten; evidence in [the record](docs/plans/done/s0-foundation-loop.md#exit-evidence) |
-| S1 Language services | ◐ 2026-10-08: the app serves OMP diagnostics, definitions, references and symbols from Zed's own language servers (S9 U6; stand-in B deleted); an agent breakpoint round trip through a debug adapter is not built; [evidence](docs/plans/done/s9-real-app.md#progress) |
+| S1 Language services | ◐ 2026-10-14: the app serves OMP diagnostics, definitions, references and symbols from Zed's own language servers (S9 U6), and `cedian_debug` drives a breakpoint round trip through Zed's debug session, proved on the real `lldb-dap` ([ADR-0073](docs/decisions/0073-cedian-debug-interim-exception.md)); the live OMP turn ran away and has no fixture yet, and a retry waits on the watchdog ([ADR-0074](docs/decisions/0074-s1-live-turn-after-the-runaway.md)); [evidence](docs/plans/s10-omp-parity.md#progress) |
 | S9a App spike | ✅ 2026-10-07: the fork builds as `cedian` and a live GPUI test drives an OMP turn into `CedianPanel`, with OMP's edit imported as one undoable transaction; layout choice open (ROADMAP Follow-ups); evidence in [the plan](docs/plans/done/s9a-app-spike.md#exit-evidence) |
 | P6 Revert turn + inline edit | ✅ 2026-10-07 by hermetic replay of a recorded `cedian shell` session: inline edit changes only its range, revert turn keeps later user lines (STALE); evidence in [the plan](docs/plans/done/p6-revert-turn-inline-edit.md#exit-evidence) |
 | P7 OMP parity ledger | ✅ 2026-10-07: `cargo test -p cedian_omp --test omp_parity` passes against the vendored `wire.rs` (all commands, notifications and UI requests have a row in the fork's `cedian/OMP_PARITY.md`), and fails naming the feature when a row is renamed (checked: `steer` → `command \`steer\``); runs in pre-commit through `cargo test --workspace` |
@@ -26,7 +26,7 @@ Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisio
 | S6 PR workspace | 🔜 `gh`, PR baselines, merge Deny-by-default |
 | S7 Local automations | 🔜 cron + history, no cloud ever |
 | S8 iOS track | 🔜 extension track, after v0.1 |
-| S10 OMP parity | 🔜 every OMP feature the S9 core deferred ([ADR-0057](docs/decisions/0057-parity-bar-and-s10.md)) |
+| S10 OMP parity | ◐ 2026-10-14: 1 of 12 units in the app (U1, the session manager and history); the live pass is spent at 25 of 20 and closed ([ADR-0074](docs/decisions/0074-s1-live-turn-after-the-runaway.md)); [progress](docs/plans/s10-omp-parity.md#progress) |
 | S9 Real app | ◐ 2026-10-14, closed as a partial exit ([ADR-0068](docs/decisions/0068-s9-closes-as-a-partial-exit.md)): S9's own exit holds (the app onboards, prompts and answers with no terminal, no parity row is left for S9, inline edit and revert turn work in the editor, the benchmark re-ran on the app, and it names itself cedian), and it closes S4, but S5's worktree attribution waits on OMP; the rest moves to S10; [exit evidence](docs/plans/done/s9-real-app.md#exit-evidence) |
 
 ## Code, build and test
