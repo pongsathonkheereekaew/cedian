@@ -1,0 +1,29 @@
+{
+  "task": "b4",
+  "predicate": "pass",
+  "wall_ms": 339911,
+  "time_to_usable_result_ms": 339911,
+  "claimed_done": true,
+  "false_done": false,
+  "omp_version": "omp/18.8.6",
+  "omp_binary": "/Users/pond/.local/bin/omp",
+  "model": "opencode-go/muse-spark-1.3-contributor",
+  "mandate": "on",
+  "observed_models": [
+    "opencode-go/muse-spark-1.3-contributor"
+  ],
+  "model_turns": 1,
+  "timing": [
+    {
+      "event": "spawn",
+      "ms": 1469
+    },
+    {
+      "event": "turn",
+      "context_ms": 3,
+      "omp_ms": 332790,
+      "post_ms": 5023,
+      "total_ms": 337816
+    }
+  ]
+}

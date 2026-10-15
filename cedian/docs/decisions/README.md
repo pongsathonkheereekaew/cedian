@@ -1,0 +1,83 @@
+# Decisions (ADRs)
+
+One file per decision. Never edit an accepted ADR's decision — write a new ADR and mark the old one `Superseded by ADR-xxxx`.
+
+| ADR | Decision |
+|---|---|
+| [0001](0001-environment-vs-intelligence.md) | cedian is the environment, OMP is the intelligence |
+| [0002](0002-omp-child-process-rpc-v2.md) | OMP runs as a child process over RPC v2 |
+| [0003](0003-bundled-omp-pin-and-trust.md) | Bundled OMP is pinned and verified as a trust boundary |
+| [0004](0004-integrate-via-host-tools-and-uris.md) | Integrate through host tools and `cedian://` URIs — OMP has no backend seam |
+| [0005](0005-agent-sync-v1-unsaved-buffers.md) | Unsaved buffers: Agent Sync V1 (with an expiry) |
+| [0006](0006-review-baseline-provenance-precedence.md) | Review: task baseline, cedian-owned provenance, strict hunk precedence |
+| [0007](0007-shared-browser-and-evidence-frames.md) | One shared browser, user input preempts, evidence bound to frames |
+| [0008](0008-computer-tool-cua-driver-only.md) | `computer` goes through the CUA `cua-driver` contract only |
+| [0009](0009-worktree-mechanism-vs-policy.md) | Worktrees: cedian owns the mechanism, OMP owns the policy |
+| [0010](0010-gate-checker-a1-narrow.md) | Workflow split A1-narrow: OMP drives, cedian checks |
+| [0011](0011-reviewers-read-only-sandbox.md) | Reviewer agents are read-only, enforced by the OS |
+| [0012](0012-permissions-strict-wins-at-cedian-gate.md) | Permissions: OMP configured strict, strict-wins at the cedian gate |
+| [0013](0013-ask-is-a-lease.md) | `ask` is a lease, not a lock |
+| [0014](0014-agent-modes.md) | Agent modes: Normal + Goal; Plan only via OMP addition; no Deep |
+| [0015](0015-two-shells-one-policy.md) | Two shells, one policy |
+| [0016](0016-crash-persistence-resume.md) | Crash, persistence and resume |
+| [0017](0017-slices-exit-rule-stand-ins.md) | Plan by vertical slices, with an exit-criterion rule and registered stand-ins |
+| [0018](0018-settings-in-one-toml.md) | Settings and policy live in one TOML file |
+| [0019](0019-scope-cuts.md) | Scope cuts: PR v1, local-only automations, out-of-scope list, daemon track |
+| [0020](0020-omp-spawn-profile.md) | OMP strictness via a cedian spawn profile (argv + config overlay), not RPC |
+| [0021](0021-headless-host-process.md) | Headless work runs in one long-lived `cedian shell` process |
+| [0022](0022-host-tool-first.md) | Host-tool-first: OMP reports to cedian through host tools |
+| [0023](0023-product-scope.md) | Product scope — what cedian is |
+| [0024](0024-evidence-bound-to-code-state.md) | Evidence is bound to code state, has three outcomes, and claims must cite it |
+| [0025](0025-playbooks-are-omp-skills.md) | Playbooks and project verification profiles are OMP skills |
+| [0026](0026-fast-lane.md) | Fast lane — proportional rigor, inline edit, revert turn, measured speed |
+| [0027](0027-zero-omp-fork.md) | Zero OMP fork — cedian adapts to OMP, only Zed is forked |
+| [0028](0028-spawn-profile-approval-findings.md) | Spawn profile approval findings: exec floor, host-tool allows, precedence test on an exec tool |
+| [0029](0029-agent-edit-import-via-reload.md) | Agent-edit import via `Buffer::reload`; attribution is a cedian map, not `ReplicaId::AGENT` |
+| [0030](0030-fork-layout-and-build-profile.md) | Zed fork layout (crates move into the fork at S9) and build profile |
+| [0031](0031-evidence-cites-tool-not-call-id.md) | Evidence names the tool; cedian resolves the call id from the router log |
+| [0032](0032-correction-ledger.md) | Correction ledger: recorded corrections become enforced rules |
+| [0033](0033-worker-brief-contract.md) | A worktree request carries a checked brief; worker liveness is side effects |
+| [0034](0034-identity-and-omp-parity.md) | Identity: a Cursor-style IDE for OMP, with full OMP feature parity |
+| [0035](0035-omp-native-approval-opt-in.md) | Per-project opt-in to OMP's own policy (approval mode and `computer`) |
+| [0036](0036-s2-evidence-freshness-and-turn-end-block.md) | S2 readings of ADR-0024: historical reproduction evidence, turn-end block, headless code state |
+| [0037](0037-benchmark-without-cursor.md) | The speed benchmark measures cedian on its own, against fixed budgets |
+| [0038](0038-s4-s5-close-inside-s9.md) | After S3 comes S9; S4 and S5 close inside S9 |
+| [0039](0039-model-roles-and-independent-review.md) | Model roles are OMP's `modelRoles`; an independent review needs a different model |
+| [0040](0040-omp-settings-mirror-omp-config.md) | The OMP settings page mirrors OMP's config; OMP's CLI and cedian edit the same state |
+| [0041](0041-reviewer-is-a-host-spawned-omp-process.md) | A reviewer is a separate OMP process that cedian spawns at OMP's request |
+| [0042](0042-all-code-moves-into-the-fork.md) | All cedian code moves into the fork; this repo keeps the docs |
+| [0043](0043-reviewer-sandbox-private-state-no-credentials.md) | The reviewer writes only its own run directory, cannot read credentials, and gets a fixed tool set |
+| [0044](0044-cedian-state-outside-the-workspace.md) | cedian's per-workspace state lives outside the workspace |
+| [0045](0045-omp-settings-live-by-watching-config-sources.md) | The OMP settings page stays live by watching OMP's config files; sources are derived through OMP |
+| [0046](0046-one-driver-per-session-by-file-holders.md) | The app refuses a session another process drives, detected by who holds OMP's session files |
+| [0047](0047-bash-writes-are-agent-edits.md) | Files an OMP `bash` call changes are agent edits |
+| [0048](0048-one-lsp-zeds-staged.md) | The app runs one language server, Zed's; OMP's `lsp` tool is turned off only once Zed covers it |
+| [0049](0049-one-chromium-owned-by-the-app.md) | The app owns one Chromium per workspace; OMP attaches to it over CDP |
+| [0050](0050-workers-are-omp-subagents.md) | S5's workers are OMP subagents; worktrees stay cedian's |
+| [0051](0051-poteto-methodology-as-user-omp-config.md) | poteto's methodology (pstack) runs as the user's OMP config; cedian's gates stay the judge |
+| [0052](0052-pstack-pinned-from-upstream.md) | pstack is pinned straight from Lauren Tan's upstream, with no Pi extension |
+| [0053](0053-reviewer-refuses-workspace-prompt-files.md) | A reviewer refuses a workspace that carries OMP system-prompt files |
+| [0054](0054-license-gpl-3-or-later.md) | cedian's code is GPL-3.0-or-later; vendored code keeps its own license |
+| [0055](0055-rigor-visible-in-the-app.md) | Workflow, evidence and review run in the app; findings annotate code as blocks |
+| [0056](0056-inline-edit-in-the-live-session.md) | Inline edit is a turn in the live session, on ctrl-enter; revert turn from the editor |
+| [0057](0057-parity-bar-and-s10.md) | S9 closes on a named parity core; the rest of OMP parity moves to a new slice S10 |
+| [0058](0058-u12-benchmark-on-the-app.md) | The S9 benchmark: the S2 model, both mandate arms once, debug frame time against 16.7 ms p99 |
+| [0059](0059-omp-pin-18-8-6.md) | The OMP pin moves to 18.8.6 before the benchmark; Stop uses `abort_and_restore_queue` |
+| [0060](0060-live-pass-cap-46.md) | The live pass's cap is 46 turns |
+| [0061](0061-pass-pins-its-model.md) | The live pass pins its model in the spawn wrapper; the person's default is theirs |
+| [0062](0062-own-build-ships-unsigned.md) | The owner's own build ships unsigned; signing and notarization reopen only for redistribution |
+| [0063](0063-scope-attribution-interim.md) | A running worker's brief is the scope for imported edits, until OMP names the worktree |
+| [0064](0064-stop-and-send-composes-stop-and-prompt.md) | Stop and send composes Stop and a `prompt`; OMP's `abort_and_prompt` is unused |
+| [0065](0065-second-live-pass-cap-20.md) | A second live pass, `u12b`, capped at 20 turns on the pinned model |
+| [0066](0066-reviewer-fixtures-in-a-live-pass.md) | A live pass records the reviewer on its own pinned model and the pinned binary |
+| [0067](0067-u12b-s3-lanes-on-cursor-default.md) | u12b records the s3 lanes on `cursor/default`; benchmark runs keep the pinned model |
+| [0068](0068-s9-closes-as-a-partial-exit.md) | S9 closes as a partial exit; Tab completion moves to S10 |
+| [0069](0069-upstream-zed-by-weekly-merge.md) | The fork takes upstream Zed by a weekly merge, never a rebase |
+| [0070](0070-s10-live-pass-cursor-default-20.md) | S10 records its live fixtures on `cursor/default`, at most 20 turns |
+| [0071](0071-restore-checkpoint-restores-everything.md) | "Restore checkpoint and branch" restores every later agent change, accepted and STALE included |
+| [0073](0073-cedian-debug-interim-exception.md) | `cedian_debug` is an interim exception to "no duplicate debugger tool", until OMP's `debug` can attach to Zed's session |
+| [0074](0074-s1-live-turn-after-the-runaway.md) | S1's live turn gets its own 2-turn cap, usable only behind a watchdog; `stop` asks on a session the person started |
+| [0075](0075-narrow-omp-fork.md) | cedian forks OMP narrowly, as it forks Zed, and ships the fork's build |
+| [0076](0076-s1-live-cap-three.md) | S1's live turns are capped at 3 in total, so the second take keeps its margin |
+| [0077](0077-v0-1-waits-for-three-fork-items.md) | v0.1 waits for the bundled fork OMP, S5's worktree attribution, and project-scoped reads |
+| [0078](0078-two-private-repos-one-product.md) | cedian is one private product in two repos, `cedian` and `cedian-agent` |

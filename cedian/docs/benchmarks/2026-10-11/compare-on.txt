@@ -1,0 +1,12 @@
+task  s2       s2_wall_s  verdict  wall_s  ratio  regression  false_done  overhead_ms
+b1    pass           256  pass       103  0.40   False       False       [35]
+b2    pass           307  pass       155  0.50   False       False       [25]
+b3    pass           120  fail        98  -      False       True        [19]
+b4    pass           291  pass       340  1.17   False       False       [5026]
+b5    pass            69  pass       105  1.53   True        False       [19]
+b6    fail           602  fail       602  -      False       False       []
+b7    pass           203  pass       395  1.95   True        False       [5045]
+b8    pass           231  pass       587  2.54   True        False       [5066]
+b9    pass           440  pass       325  0.74   False       False       [5034]
+b10   hidden_tests_broken       101  pass        78  -      False       False       [5053]
+overhead per turn: median 5026 ms, max 5066 ms, 9 turns
