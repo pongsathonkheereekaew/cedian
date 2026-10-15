@@ -5,6 +5,7 @@
 - **Rule text:** [ARCHITECTURE.md](../ARCHITECTURE.md) §9 (`computer` row), §38, §64, §77; [ROADMAP.md](../ROADMAP.md) P8
 - **Supersedes in part:** ADR-0020 decision 2 ("`yolo` is never passed") and decision 3 (`computer.enabled: false` always); ADR-0012 ("the runtime configures OMP strict at spawn", now the default, not the only mode); ADR-0008 ("hard-disabled", now the default)
 - **Follows from:** ADR-0034 (OMP feature parity)
+- **Superseded in part by [ADR-0072](0072-loop-wakes-a-live-session.md):** decision 5 no longer covers loop ticks, which run with the profile of the session that armed them
 
 ## Context
 

@@ -1971,6 +1971,7 @@ Complete             ← cedian refuses while a required gate is unmet
 Rules:
 
 - OMP decides; cedian never schedules work, spawns agents, or gathers evidence itself (§54, §88 "second workflow engine").
+- A loop is OMP's decision that cedian executes: the agent arms it through `cedian_loop` and decides what each tick does and when it stops; cedian runs the timer, delivers each tick into the session that armed it, and keeps the history. A tick never lowers a gate, and stopping a loop never completes work ([ADR-0072](decisions/0072-loop-wakes-a-live-session.md)).
 - The gate floor (required gates per task kind × risk) lives in cedian policy beside permissions. OMP may ADD gates; it can never remove or weaken a floor gate.
 - OMP reports profile, playbook, phase transitions and evidence claims through host tools (`cedian_workflow_update`, `cedian_complete`) — [ADR-0022](decisions/0022-host-tool-first.md). Evidence counts as attributed only when cedian binds it to a router-log call: the agent names the producing tool (`from_tool`, optional `match`), cedian resolves the newest successful, non-channel matching call and stores its `tool_call_id` — the model never sees ids ([ADR-0031](decisions/0031-evidence-cites-tool-not-call-id.md)).
 - Playbooks and the project verification profile are OMP **skills** in `.omp/skills/`, not TypeScript and not cedian code ([ADR-0025](decisions/0025-playbooks-are-omp-skills.md)).
@@ -2523,7 +2524,7 @@ Because cedian is personal, use a simple policy.
 - OMP prompts still render as native dialogs
 - every tool execution is audited; in opt-in mode with `decision_source: omp`
 - the agent panel shows a persistent badge, and auto-approved tool cards say "approved by OMP"
-- reviewers (§58) and automations (S7) always use the default profile
+- reviewers (§58) and S7's scheduled automations always use the default profile; a loop tick (S7) runs with the profile of the session that armed it ([ADR-0072](decisions/0072-loop-wakes-a-live-session.md))
 - a repository can never opt itself in: the key lives only in the user's `cedian.toml` (§77)
 
 *(→ [ADR-0035](decisions/0035-omp-native-approval-opt-in.md))*
@@ -2578,7 +2579,7 @@ dangerous = "ask"
 
 How the pieces combine: the tiers above are the DEFAULT verdict per action class; prefix/network rules (below) refine individual commands; OMP's own resolver runs first (configured strict, [ADR-0020](decisions/0020-omp-spawn-profile.md)); the effective verdict is the strictest of all of them (`Deny > Ask > Allow`).
 
-**Eval gate.** `eval` runs Python/JS and is as powerful as `bash`, but `bash.patterns` do not cover it — so under the default policy `eval` is never auto-approved: `Ask` interactively, `Deny` for reviewers and automations ([ADR-0020](decisions/0020-omp-spawn-profile.md)). Under `policy = "omp"` the user's OMP config decides for interactive turns; reviewers and automations keep `Deny` ([ADR-0035](decisions/0035-omp-native-approval-opt-in.md)).
+**Eval gate.** `eval` runs Python/JS and is as powerful as `bash`, but `bash.patterns` do not cover it — so under the default policy `eval` is never auto-approved: `Ask` interactively, `Deny` for reviewers and automations ([ADR-0020](decisions/0020-omp-spawn-profile.md)). Under `policy = "omp"` the user's OMP config decides for interactive turns; reviewers and scheduled automations keep `Deny` ([ADR-0035](decisions/0035-omp-native-approval-opt-in.md)). A loop tick gets what an interactive turn in its session gets ([ADR-0072](decisions/0072-loop-wakes-a-live-session.md)).
 
 **CI policy gate.** `cedian.toml` is validated in CI: it must parse, every rule's `match`/`not_match` examples must hold (mechanism 1), and the reviewer allow-list must contain only read-only prefixes. The settings UI edits the same file, so there is one source of truth.
 

@@ -75,6 +75,7 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0069](0069-upstream-zed-by-weekly-merge.md) | The fork takes upstream Zed by a weekly merge, never a rebase |
 | [0070](0070-s10-live-pass-cursor-default-20.md) | S10 records its live fixtures on `cursor/default`, at most 20 turns |
 | [0071](0071-restore-checkpoint-restores-everything.md) | "Restore checkpoint and branch" restores every later agent change, accepted and STALE included |
+| [0072](0072-loop-wakes-a-live-session.md) | A loop wakes a live session, armed by the agent, with the session's own permissions |
 | [0073](0073-cedian-debug-interim-exception.md) | `cedian_debug` is an interim exception to "no duplicate debugger tool", until OMP's `debug` can attach to Zed's session |
 | [0074](0074-s1-live-turn-after-the-runaway.md) | S1's live turn gets its own 2-turn cap, usable only behind a watchdog; `stop` asks on a session the person started |
 | [0075](0075-narrow-omp-fork.md) | cedian forks OMP narrowly, as it forks Zed, and ships the fork's build |

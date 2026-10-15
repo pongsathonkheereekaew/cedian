@@ -520,7 +520,7 @@ Acceptance:
 
 No cloud, ever (ARCHITECTURE §89).
 
-**Exit:** a scheduled run fires while the machine is awake → history + evidence visible on return; same gates and provenance as interactive turns.
+**Exit:** a scheduled run fires while the machine is awake → history + evidence visible on return; same gates and provenance as interactive turns. The agent arms a loop through `cedian_loop`, it ticks in that session while the machine is awake, it stops on `cedian_loop stop`, and every tick is in the run history ([ADR-0072](decisions/0072-loop-wakes-a-live-session.md)).
 
 #### Scope from Phase 19 — Automations (Scheduled Runs)
 
@@ -536,13 +536,26 @@ consecutive-failure limit (default 3 → auto-pause + notify, same shape as max_
 wake = spawn turn in existing workspace (same lifecycle as §71, steps 1–12)
 ```
 
-Rules: automations run under the SAME permission profile as interactive turns (no privilege elevation for background); `computer` actuation is `Deny` for automation runs until the user explicitly allows per-automation. Every scheduled run emits the same provenance (§17) and evidence (§53) as interactive work — gates apply identically. No cloud/SSH execution, EVER (out of scope, ARCHITECTURE §89). Runs execute inside a live `cedian shell` (P4).
+Rules (scheduled automations; loops follow their session, see Loops below): automations run under the SAME permission profile as interactive turns (no privilege elevation for background); `computer` actuation is `Deny` for automation runs until the user explicitly allows per-automation. Every scheduled run emits the same provenance (§17) and evidence (§53) as interactive work — gates apply identically. No cloud/SSH execution, EVER (out of scope, ARCHITECTURE §89). Runs execute inside a live `cedian shell` (P4).
 
 > **Cut from v1 (2026-10-06).** Dropped from v1: NL→cron parsing (cron expr typed directly; OMP translation is its own feature with its own misparse risk), lid-closed guarantee (acceptance is "history + evidence visible on return from sleep", not a power-management promise — no `IOPMAssertion`, no wake-from-sleep; machine-on-24/7 is the user's setup, not cedian's contract).
+
+#### Loops ([ADR-0072](decisions/0072-loop-wakes-a-live-session.md))
+
+```text
+target = live OMP session (bound to its session id), beside the fresh-turn automation
+arm = host tool cedian_loop {arm, stop, status} by the agent, no confirmation; /loop and palette by the person
+wake = interval (>= 1 min) | S6 PR event (CI finished, merged, review comment) | workspace ref moved
+tick = prompt when idle, follow_up while a turn runs, at most one queued; held while another session is current
+permissions = the arming session's own profile (cedian or policy = "omp"); prompts hold the turn (ADR-0013)
+stop = cedian_loop stop | stop predicate | duration cap (default 24 h) | failure limit | Stop button | session closed
+```
 
 Acceptance:
 
 > Scheduled run fires while the machine is awake → history + evidence visible on return.
+>
+> The agent arms a loop through `cedian_loop`; it ticks in that session while the machine is awake, stops on `cedian_loop stop`, and every tick is in the run history.
 
 ### S10 — OMP parity
 
