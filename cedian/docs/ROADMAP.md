@@ -1,6 +1,6 @@
 # cedian — Roadmap
 
-**cedian is a Cursor-style agentic IDE — the same agent + IDE workflow and product features — built for OMP: OMP runs as upstream ships it, every OMP feature gets a native surface, and Zed is forked only as far as OMP needs. OMP decides; cedian executes, renders, and verifies.** ([ADR-0034](decisions/0034-identity-and-omp-parity.md), scope [ADR-0023](decisions/0023-product-scope.md)).
+**cedian is a Cursor-style agentic IDE — the same agent + IDE workflow and product features — built for OMP: OMP runs from a narrow fork of upstream ([ADR-0075](decisions/0075-narrow-omp-fork.md)), every OMP feature gets a native surface, and Zed is forked only as far as OMP needs. OMP decides; cedian executes, renders, and verifies.** ([ADR-0034](decisions/0034-identity-and-omp-parity.md), scope [ADR-0023](decisions/0023-product-scope.md)).
 
 The ONE schedule: vertical slices S0–S9. Each slice is a thin cut that ends triable in the `cedian` CLI (or the app once S9 lands). Never start a slice whose exit can't be exercised in this repo — integration risk first, never accumulate untested layers. Old phase numbers survive only as the "Scope from Phase N" blocks under each slice.
 
@@ -35,7 +35,7 @@ Version numbers exist only once the app exists:
 | Release | = | Notes |
 |---|---|---|
 | — (pre-S9) | S0–S8 headless work | no version numbers |
-| **v0.1** | **S9 exit** | binds every slice that is ✅ in README at that point (target: S0–S5); gate = the "fully native" checklist under S9 |
+| **v0.1** | **S9 exit** | binds every slice that is ✅ in README at that point (target: S0–S5); gate = the "fully native" checklist under S9, plus the bundled fork OMP, S5's worktree attribution and project-scoped reads ([ADR-0077](decisions/0077-v0-1-waits-for-three-fork-items.md)) |
 | **v0.2** | S6 + S7 | PR workspace + local automations |
 | iOS | S8 | extension track, after v0.1, never gating |
 
@@ -82,9 +82,10 @@ Known gaps that no slice exit names yet. Each row has the slice it must be settl
 
 | Follow-up | Found in | Settle before |
 |---|---|---|
-| `debug_round_trip`'s OMP approval frames are hand-made, not recorded from OMP | [S10 plan](plans/s10-omp-parity.md#progress) S1-dap | S1 exit (the live turn's fixture replaces them) |
+| `debug_round_trip`'s OMP approval frames are hand-made; `debug_live_replay` now covers the recorded turn, but `debug_round_trip` keeps its hand-made frames | [S10 plan](plans/s10-omp-parity.md#progress) S1-dap | when `cedian_debug` is replaced by the fork's `debug` (ADR-0075) |
+| `debug_live_replay` asserts `x = 42` only through the whole-reply compare; add a direct assertion on cedian's `start` reply | fork #17 review | S10 |
 | U1's OMP rename (`session_info_update`) and `handoff` frames in `sessions.rs` are hand-made (`handMade`), since both need a model turn and the `s10` pass is spent ([ADR-0074](decisions/0074-s1-live-turn-after-the-runaway.md)) | same, U1 | S10 exit, or a new pass the owner grants |
-| A `cedian_debug` approval cancelled by the turn leaves its dialog up, and a late Approve is audited as allow (`person_allows` returns on cancel) | same, review of fork #12 (R3) | S1 exit |
+| A `cedian_debug` approval cancelled by the turn leaves its dialog up, and a late Approve is audited as allow (`person_allows` returns on cancel) | same, review of fork #12 (R3) | v0.1 ([ADR-0077](decisions/0077-v0-1-waits-for-three-fork-items.md)) |
 | S5 exit items not built in U8 ([ADR-0050](decisions/0050-workers-are-omp-subagents.md)): OMP's subagent events name no worktree, so the app cannot show which subagent works in which tree | [S9 plan](plans/done/s9-real-app.md#progress) U8 | when OMP names the worktree (S5 exit) |
 | Subagent and queue gaps (U8): no subagent transcript pane (`get_subagent_messages`); a follow-up's text is not shown in the thread as a user message; composer images are not sent with a follow-up or steer; a new session clearing subagent rows is checked by reading only | same | S10 (parity) |
 | Inline edit runs on the session model: OMP has no RPC model-role switch, so it cannot use `smol` as ADR-0026 asks. The 18.8.6 pin bump (ADR-0059) re-checked it: the wire's `set_model` still takes only `provider` and `modelId`, so the inline edit runs on the session model until OMP grows a role switch | README P6 row | S10 (parity) |
@@ -657,7 +658,7 @@ Do not call cedian “fully native OMP-integrated” until all critical items be
 □ restart restores session
 □ protocol mismatch fails safely
 
-□ every `cedian/OMP_PARITY.md` row (in the fork) is native, gated with a working opt-in, or upstream-blocked
+□ every `cedian/OMP_PARITY.md` row (in the fork) is native, gated with a working opt-in, or upstream-blocked; a capability the IDE needs is patched in the OMP fork instead ([ADR-0077](decisions/0077-v0-1-waits-for-three-fork-items.md))
 □ parity test green on the pinned OMP
 
 □ no second harness
