@@ -1,6 +1,9 @@
+mod cedian;
 mod components;
 mod page_data;
 pub mod pages;
+
+pub use cedian::{CedianHost, set_host};
 
 use agent_skills::SkillIndex;
 use anyhow::{Context as _, Result};
@@ -446,6 +449,8 @@ struct SettingsFieldMetadata {
     display_clear_button: bool,
     confirm_on_focus_out: bool,
     treat_missing_text_as_empty: bool,
+    /// cedian's scope chip after the label.
+    badge: Option<cedian::ScopeBadge>,
 }
 
 pub fn init(cx: &mut App) {
@@ -555,6 +560,9 @@ fn init_renderers(cx: &mut App) {
         .add_basic_renderer::<settings::SaturatingBool>(render_toggle_button)
         .add_basic_renderer::<settings::CursorShape>(render_dropdown)
         .add_basic_renderer::<settings::RestoreOnStartupBehavior>(render_dropdown)
+        .add_basic_renderer::<settings::FollowUp>(render_dropdown)
+        .add_basic_renderer::<settings::TurnFinishedNotification>(render_dropdown)
+        .add_basic_renderer::<settings::NotificationSound>(render_dropdown)
         .add_basic_renderer::<settings::OnNewWindow>(render_dropdown)
         .add_basic_renderer::<settings::BottomDockLayout>(render_dropdown)
         .add_basic_renderer::<settings::OnLastWindowClosed>(render_dropdown)
@@ -1090,6 +1098,7 @@ enum SettingsPageItem {
     SubPageLink(SubPageLink),
     DynamicItem(DynamicItem),
     ActionLink(ActionLink),
+    CedianRow(cedian::CedianRow),
 }
 
 impl std::fmt::Debug for SettingsPageItem {
@@ -1108,6 +1117,7 @@ impl std::fmt::Debug for SettingsPageItem {
             SettingsPageItem::ActionLink(action_link) => {
                 write!(f, "ActionLink({})", action_link.title)
             }
+            SettingsPageItem::CedianRow(row) => write!(f, "CedianRow({})", row.title),
         }
     }
 }
@@ -1349,6 +1359,14 @@ impl SettingsPageItem {
 
                 return content.into_any_element();
             }
+            SettingsPageItem::CedianRow(row) => v_flex()
+                .group("setting-item")
+                .px_8()
+                .child(
+                    cedian::render_cedian_row(row, settings_window, window, cx).map(apply_padding),
+                )
+                .when(bottom_border, |this| this.child(Divider::horizontal()))
+                .into_any_element(),
             SettingsPageItem::ActionLink(action_link) => v_flex()
                 .group("setting-item")
                 .px_8()
@@ -1416,6 +1434,7 @@ fn render_settings_item_layout(
     modified_in: Option<String>,
     json_path: Option<&'static str>,
     sub_field: bool,
+    badge: Option<cedian::ScopeBadge>,
     cx: &mut Context<'_, SettingsWindow>,
 ) -> Stateful<Div> {
     // Note: the row itself is intentionally not exposed as a labeled group.
@@ -1437,6 +1456,9 @@ fn render_settings_item_layout(
                         .w_full()
                         .gap_1()
                         .child(Label::new(SharedString::new_static(title)))
+                        .when_some(badge, |this, badge| {
+                            this.child(cedian::render_scope_badge(badge, cx))
+                        })
                         .when_some(reset_fn, |this, reset_to_default| {
                             this.child(
                                 IconButton::new("reset-to-default-btn", IconName::Undo)
@@ -1537,6 +1559,10 @@ fn render_settings_item(
         modified_in,
         setting_item.field.json_path(),
         sub_field,
+        setting_item
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.badge),
         cx,
     )
 }
@@ -1798,7 +1824,7 @@ impl SettingsWindow {
         let current_file = SettingsUiFile::User;
         let search_bar = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Search settings…", window, cx);
+            editor.set_placeholder_text("Search all settings", window, cx);
             editor
         });
         cx.subscribe(&search_bar, |this, _, event: &EditorEvent, cx| {
@@ -2244,6 +2270,13 @@ impl SettingsWindow {
                             any_found_since_last_header = true;
                         }
                     }
+                    SettingsPageItem::CedianRow(_) => {
+                        if !USER.contains(current_file) {
+                            page_filter[index] = false;
+                        } else {
+                            any_found_since_last_header = true;
+                        }
+                    }
                 }
             }
             if let Some(last_header) = page_filter.get_mut(header_index)
@@ -2493,6 +2526,19 @@ impl SettingsWindow {
                             action_link.title.as_ref(),
                         );
                     }
+                    SettingsPageItem::CedianRow(row) => {
+                        documents.push(SearchDocument {
+                            id: key_index,
+                            words: split_into_words(&[
+                                page.title,
+                                header_str,
+                                row.title,
+                                row.description,
+                            ]),
+                        });
+                        push_candidates(&mut fuzzy_match_candidates, key_index, row.title);
+                        push_candidates(&mut fuzzy_match_candidates, key_index, row.description);
+                    }
                 }
                 push_candidates(&mut fuzzy_match_candidates, key_index, page.title);
                 push_candidates(&mut fuzzy_match_candidates, key_index, header_str);
@@ -2694,10 +2740,12 @@ impl SettingsWindow {
             .filter(|(_, _, count)| *count > 0)
             .max_by_key(|(_, _, count)| *count)
             .map(|(logical_index, index, _)| (logical_index, index));
-        if let Some((logical_index, navbar_entry_index)) = best_match.or(first_entry) {
+        if let Some((_, navbar_entry_index)) = best_match.or(first_entry) {
             self.open_navbar_entry_page(navbar_entry_index);
-            self.navbar_scroll_handle
-                .scroll_to_item(logical_index + 1, gpui::ScrollStrategy::Top);
+            if let Some(row) = self.nav_row_of(navbar_entry_index) {
+                self.navbar_scroll_handle
+                    .scroll_to_item(row, gpui::ScrollStrategy::Top);
+            }
         }
     }
 
@@ -3030,17 +3078,31 @@ impl SettingsWindow {
             .track_focus(&self.search_bar.focus_handle(cx))
             .a11y_synthetic_children(a11y_text_runs)
             .py_1()
-            .pl_1p5()
-            .pr_0p5()
-            .h_7()
+            .pl_2()
+            .pr_1()
+            .h_8()
             .mb_3()
             .gap_1p5()
-            .rounded_sm()
+            .rounded_md()
             .bg(cx.theme().colors().editor_background)
             .border_1()
             .border_color(cx.theme().colors().border)
-            .child(Icon::new(IconName::MagnifyingGlass).color(Color::Muted))
+            .child(
+                Icon::new(IconName::MagnifyingGlass)
+                    .size(IconSize::Small)
+                    .color(Color::Muted),
+            )
             .child(self.search_bar.clone())
+            .when(!has_query, |this| {
+                this.child(
+                    KeyBinding::for_action_in(
+                        &search::FocusSearch,
+                        &self.search_bar.focus_handle(cx),
+                        cx,
+                    )
+                    .size(rems_from_px(11_f32)),
+                )
+            })
             .when(has_query, |this| {
                 this.child(
                     IconButton::new("clear-btn", IconName::Close)
@@ -3059,7 +3121,7 @@ impl SettingsWindow {
         window: &mut Window,
         cx: &mut Context<SettingsWindow>,
     ) -> impl IntoElement {
-        let visible_count = self.visible_navbar_entries().count();
+        let nav_count = self.nav_rows().len();
 
         let focus_keybind_label = if self
             .navbar_focus_handle
@@ -3222,18 +3284,33 @@ impl SettingsWindow {
                     .child(
                         uniform_list(
                             "settings-ui-nav-bar",
-                            visible_count + 1,
+                            nav_count,
                             cx.processor(move |this, range: Range<usize>, _, cx| {
-                                this.visible_navbar_entries()
-                                    .skip(range.start.saturating_sub(1))
-                                    .take(range.len())
-                                    .map(|(entry_index, entry)| {
+                                let rows = this.nav_rows();
+                                let range = range.start.min(rows.len())..range.end.min(rows.len());
+                                rows[range]
+                                    .iter()
+                                    .map(|row| {
+                                        let entry_index = match *row {
+                                            cedian::NavRow::Group(group) => {
+                                                return cedian::render_group_heading(group);
+                                            }
+                                            cedian::NavRow::Entry(entry_index) => entry_index,
+                                        };
+                                        let entry = &this.navbar_entries[entry_index];
                                         TreeViewItem::new(
                                             ("settings-ui-navbar-entry", entry_index),
                                             entry.title,
                                         )
                                         .track_focus(&entry.focus_handle)
                                         .root_item(entry.is_root)
+                                        .when_some(
+                                            entry
+                                                .is_root
+                                                .then(|| cedian::sidebar_page(entry.title))
+                                                .flatten(),
+                                            |item, page| item.icon(page.icon),
+                                        )
                                         .toggle_state(this.is_navbar_entry_selected(entry_index))
                                         .when(entry.is_root, |item| {
                                             item.expanded(entry.expanded || this.has_query)
@@ -3278,6 +3355,7 @@ impl SettingsWindow {
                                                 );
                                             })
                                         })
+                                        .into_any_element()
                                     })
                                     .collect()
                             }),
@@ -3362,13 +3440,10 @@ impl SettingsWindow {
         }
 
         if let Some(scroll_strategy) = scroll_strategy
-            && let Some(logical_entry_index) = self
-                .visible_navbar_entries()
-                .into_iter()
-                .position(|(index, _)| index == navbar_entry_index)
+            && let Some(row) = self.nav_row_of(navbar_entry_index)
         {
             self.navbar_scroll_handle
-                .scroll_to_item(logical_entry_index + 1, scroll_strategy);
+                .scroll_to_item(row, scroll_strategy);
         }
 
         // Page scroll handle updates the active item index
@@ -3436,10 +3511,7 @@ impl SettingsWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(position) = self
-            .visible_navbar_entries()
-            .position(|(index, _)| index == nav_entry_index)
-        else {
+        let Some(position) = self.nav_row_of(nav_entry_index) else {
             return;
         };
         self.navbar_scroll_handle
@@ -3618,13 +3690,15 @@ impl SettingsWindow {
 
             let render_item = cx.processor(move |settings_window, index, window, cx| {
                 if index == 0 {
+                    let title = settings_window
+                        .sub_page_stack
+                        .is_empty()
+                        .then_some(root_nav_label)
+                        .flatten();
                     return div()
                         .px_8()
-                        .when(settings_window.sub_page_stack.is_empty(), |element| {
-                            element.when_some(root_nav_label, |element, title| {
-                                element
-                                    .child(Label::new(title).size(LabelSize::Large).mt_2().mb_3())
-                            })
+                        .when_some(title, |element, title| {
+                            element.child(cedian::render_page_title(title, cx.entity()))
                         })
                         .into_any_element();
                 }
@@ -6934,6 +7008,7 @@ pub mod test {
     }
 
     #[gpui::test]
+    #[ignore = "cedian hides Zed's AI page and its Skills sub-page (Settings spec, hidden pages)"]
     async fn test_skills_page_scope_switch_updates_displayed_skills(cx: &mut gpui::TestAppContext) {
         use agent_skills::{
             ProjectSkillGroup, Skill, SkillScopeId, SkillSource, load_skills_from_directory,
@@ -7109,6 +7184,7 @@ pub mod test {
     }
 
     #[gpui::test]
+    #[ignore = "cedian hides Zed's AI page and its Skills sub-page (Settings spec, hidden pages)"]
     async fn test_open_skill_creator_navigates_to_sub_page(cx: &mut gpui::TestAppContext) {
         use project::Project;
 
@@ -7197,6 +7273,7 @@ pub mod test {
     }
 
     #[gpui::test]
+    #[ignore = "cedian hides Zed's AI page and its Skills sub-page (Settings spec, hidden pages)"]
     async fn test_open_skill_creator_action_opens_settings_window_at_sub_page(
         cx: &mut gpui::TestAppContext,
     ) {

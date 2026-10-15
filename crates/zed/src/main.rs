@@ -745,6 +745,13 @@ fn main() {
         project_panel::init(cx);
         outline_panel::init(cx);
         cedian_panel::init(cx);
+        settings_ui::set_host(
+            settings_ui::CedianHost {
+                agent_settings: cedian_panel::settings_host::agent_settings,
+                restart_agent: cedian_panel::settings_host::restart_agent,
+            },
+            cx,
+        );
         tasks_ui::init(cx);
         snippets_ui::init(cx);
         channel::init(&app_state.client.clone(), app_state.user_store.clone(), cx);

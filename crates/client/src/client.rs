@@ -546,9 +546,12 @@ pub struct TelemetrySettings {
 impl settings::Settings for TelemetrySettings {
     fn from_settings(content: &SettingsContent) -> Self {
         let telemetry = content.telemetry.as_ref().unwrap();
+        // cedian: crash reports and usage metrics go to Zed Industries'
+        // servers, so both are off in code whatever the settings say
+        // (owner ruling 2026-10-15; Settings > Privacy says so).
         Self {
-            diagnostics: telemetry.diagnostics.unwrap(),
-            metrics: telemetry.metrics.unwrap(),
+            diagnostics: false,
+            metrics: false,
             anthropic_retention: telemetry.anthropic_retention.unwrap(),
         }
     }
@@ -1999,6 +2002,19 @@ mod tests {
     use proto::TypedEnvelope;
     use settings::SettingsStore;
     use std::future;
+
+    #[test]
+    fn telemetry_is_off_even_when_settings_turn_it_on() {
+        let mut content = SettingsContent::default();
+        content.telemetry = Some(settings::TelemetrySettingsContent {
+            diagnostics: Some(true),
+            metrics: Some(true),
+            anthropic_retention: Some(false),
+        });
+        let telemetry = TelemetrySettings::from_settings(&content);
+        assert!(!telemetry.diagnostics, "crash reports must stay off");
+        assert!(!telemetry.metrics, "usage metrics must stay off");
+    }
 
     #[test]
     fn test_proxy_settings_trims_and_ignores_empty_proxy() {

@@ -2935,6 +2935,7 @@ dependencies = [
  "libc",
  "log",
  "lsp",
+ "menu",
  "omp-rpc",
  "parking_lot",
  "project",
@@ -2953,6 +2954,7 @@ dependencies = [
  "util",
  "workspace",
  "worktree",
+ "zed_actions",
 ]
 
 [[package]]
@@ -16635,6 +16637,7 @@ dependencies = [
  "agent_skills",
  "anyhow",
  "audio",
+ "cedian_omp",
  "client",
  "cloud_api_types",
  "codestral",

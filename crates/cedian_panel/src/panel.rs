@@ -17,6 +17,8 @@
 //! view lists each file's hunks with Accept and Reject, Accept all, and
 //! Revert turn.
 
+use crate::app_settings::CedianSettings;
+use crate::attention::{self, Attention};
 use crate::browser::BrowserHost;
 use crate::context;
 use crate::dialogs::OpenDialog;
@@ -24,7 +26,6 @@ use crate::import::{self, ImportOutcome, Mark};
 use crate::omp_link::{
     AnswerError, LaunchSpec, LinkEvent, OmpLink, Prompt, ReviewReader, WorktreeAsk,
 };
-use crate::omp_settings::OmpSettings;
 use crate::review::{ReviewError, TaskReview};
 use crate::worker_trees::{self, WorkerTreeRow};
 use crate::workflow_view::WorkflowView;
@@ -57,6 +58,7 @@ const APPROVE: &str = "Approve";
 /// The gate every panel browser capture is evidence for.
 pub const BROWSER_GATE: &str = "browser";
 use project::Project;
+use settings::{FollowUp, Settings as _};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -67,6 +69,7 @@ use ui::{Button, Label, prelude::*};
 use workspace::{
     Workspace,
     dock::{DockPosition, Panel, PanelEvent},
+    notifications::NotificationId,
 };
 
 actions!(
@@ -417,9 +420,8 @@ pub struct CedianPanel {
     /// Images pasted into the composer, sent with the next prompt.
     images: Vec<ImageContent>,
     after_stop: Option<AfterStop>,
-    /// The OMP settings page, shown instead of the thread when open.
-    settings: Option<Entity<OmpSettings>>,
-    show_settings: bool,
+    /// What to tell the person once the current event is handled.
+    attention: Vec<Attention>,
     /// The workspace whose active editor gives the selection OMP sees.
     workspace: Option<WeakEntity<Workspace>>,
     _events: Option<Task<()>>,
@@ -640,8 +642,7 @@ impl CedianPanel {
             dialogs: IndexMap::default(),
             images: Vec::new(),
             after_stop: None,
-            settings: None,
-            show_settings: false,
+            attention: Vec::new(),
             state_dir: None,
             workflow: None,
             _workflow_load: None,
@@ -1538,20 +1539,16 @@ impl CedianPanel {
         Some(worktree.read(cx).abs_path().to_path_buf())
     }
 
-    /// Show or hide the OMP settings page; it is built on first open.
-    pub fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.show_settings = !self.show_settings;
-        if self.show_settings && self.settings.is_none() {
-            if let Some(root) = self.workspace_root(cx) {
-                let project = self.project.clone();
-                self.settings = Some(cx.new(|cx| OmpSettings::new(project, root, window, cx)));
-            }
-        }
-        cx.notify();
-    }
-
-    pub fn omp_settings(&self) -> Option<&Entity<OmpSettings>> {
-        self.settings.as_ref()
+    /// Open the settings window on Advanced, where the agent's settings
+    /// live.
+    pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        window.dispatch_action(
+            Box::new(zed_actions::OpenSettingsPage {
+                page: "Advanced".to_string(),
+                target: None,
+            }),
+            cx,
+        );
     }
 
     /// Start (or restart) OMP for the open folder.
@@ -2542,6 +2539,7 @@ impl CedianPanel {
     }
 
     fn on_link_event(&mut self, event: LinkEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let was_running = matches!(self.turn, Turn::Queued | Turn::Streaming | Turn::Stopping);
         if let LinkEvent::PromptTimed { .. }
         | LinkEvent::PromptCancelled
         | LinkEvent::PromptStopped(_)
@@ -2551,7 +2549,40 @@ impl CedianPanel {
             *returned = true;
         }
         self.handle_link_event(event, window, cx);
+        if was_running && self.turn == Turn::Idle {
+            self.attention.push(Attention::TurnFinished);
+        }
         self.send_next_if_due(window, cx);
+        self.tell(window, cx);
+    }
+
+    /// Deliver what the person should hear about (Settings > Notifications).
+    fn tell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let settings = *CedianSettings::get_global(cx);
+        let focused = window.is_window_active();
+        for attention in std::mem::take(&mut self.attention) {
+            let delivery = attention::delivery(attention, &settings, focused);
+            if delivery.toast
+                && let Some(workspace) = self.workspace.as_ref().and_then(|w| w.upgrade())
+            {
+                workspace.update(cx, |workspace, cx| {
+                    workspace.show_toast(
+                        workspace::Toast::new(
+                            NotificationId::composite::<Attention>(attention.message()),
+                            attention.message(),
+                        )
+                        .autohide(),
+                        cx,
+                    );
+                });
+            }
+            if delivery.bounce {
+                window.request_attention();
+            }
+            if delivery.sound {
+                window.play_system_bell();
+            }
+        }
     }
 
     fn handle_link_event(&mut self, event: LinkEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -2574,9 +2605,9 @@ impl CedianPanel {
                 );
                 self.forget_subagents();
                 self.onboarding = None;
-                if model.is_some() {
-                    self.picker.model = model;
-                } else if let Some(link) = &self.link {
+                let has_model = model.is_some();
+                self.picker.model = model;
+                if !has_model && let Some(link) = &self.link {
                     self.onboarding = Some(Onboarding::default());
                     link.login_providers();
                 }
@@ -2741,7 +2772,12 @@ impl CedianPanel {
                 self.open_url(request, cx);
             }
             LinkEvent::Event(RouterEvent::UiRequest(request)) => {
-                let id = cedian_omp::dialog::dialog(&request).map(|(id, _)| id.to_string());
+                let asked = cedian_omp::dialog::dialog(&request)
+                    .map(|(id, title)| (id.to_string(), Attention::for_dialog(title)));
+                let id = asked.as_ref().map(|(id, _)| id.clone());
+                if let Some((_, attention)) = asked {
+                    self.attention.push(attention);
+                }
                 if let Some(id) = id
                     && self.link.as_ref().is_some_and(|link| link.is_open(&id))
                     && let Some(mut dialog) = OpenDialog::new(request, window, cx)
@@ -2770,9 +2806,7 @@ impl CedianPanel {
             LinkEvent::Event(RouterEvent::Unknown { frame_type })
                 if frame_type == "config_update" =>
             {
-                if let Some(settings) = &self.settings {
-                    settings.update(cx, |settings, cx| settings.reload(cx));
-                }
+                crate::settings_host::reload(cx);
             }
             LinkEvent::Setting(result) => self.push_note(match result {
                 Ok(note) => note,
@@ -3038,6 +3072,9 @@ impl CedianPanel {
         }
         match self.turn {
             Turn::Idle => {}
+            Turn::Streaming if CedianSettings::get_global(cx).follow_up == FollowUp::Steer => {
+                return self.stop_and_send(window, cx);
+            }
             Turn::Streaming => return self.queue(false, cx),
             _ => {
                 self.notice = Some("the turn is starting or stopping; wait for it".to_string());
@@ -5850,32 +5887,15 @@ impl Render for CedianPanel {
                                     .on_click(cx.listener(|this, _, _, cx| this.open_browser(cx))),
                             ),
                     )
-                    .child(
-                        Button::new(
-                            "cedian-settings",
-                            if self.show_settings {
-                                "Back to chat"
-                            } else {
-                                "agent settings"
-                            },
-                        )
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.toggle_settings(window, cx)),
-                        ),
-                    ),
+                    .child(Button::new("cedian-settings", "agent settings").on_click(
+                        cx.listener(|this, _, window, cx| this.open_settings(window, cx)),
+                    )),
             )
             .when_some(review, |panel, review| panel.child(review))
-            .when_some(
-                self.settings
-                    .clone()
-                    .filter(|_| self.show_settings && !self.show_review),
-                |panel, settings| panel.child(div().flex_1().child(settings)),
-            )
-            .when(
-                self.sessions.open && !self.show_settings && !self.show_review,
-                |panel| panel.child(self.render_sessions(cx)),
-            )
-            .when(!self.show_settings && !self.show_review, |panel| {
+            .when(self.sessions.open && !self.show_review, |panel| {
+                panel.child(self.render_sessions(cx))
+            })
+            .when(!self.show_review, |panel| {
                 panel.child(
                     v_flex()
                         .id("cedian-thread")
@@ -5954,7 +5974,14 @@ impl Render for CedianPanel {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(div().flex_1().child(self.input.clone()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .on_action(cx.listener(|this, _: &menu::Confirm, window, cx| {
+                                this.send(window, cx)
+                            }))
+                            .child(self.input.clone()),
+                    )
                     .child(
                         Button::new("cedian-send", "Send")
                             .disabled((!idle && self.turn != Turn::Streaming) || self.needs_model())
@@ -6328,6 +6355,188 @@ mod tests {
                 );
             })
             .unwrap();
+    }
+
+    fn set_user_settings(json: &str, cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            cx.update_global::<SettingsStore, _>(|store, cx| {
+                store.set_user_settings(json, cx).result().unwrap();
+            })
+        });
+    }
+
+    /// Settings > General: a message sent during a turn waits in the queue
+    /// by default; with "Steer" it stops the turn and goes once it ended.
+    #[gpui::test]
+    async fn follow_up_setting_chooses_queue_or_steer(cx: &mut TestAppContext) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        window
+            .update(cx, |panel, window, cx| {
+                panel.turn = Turn::Streaming;
+                panel.set_prompt("later", window, cx);
+                panel.submit(window, cx);
+                assert_eq!(panel.next_prompt(), None, "queued, not armed after a stop");
+                assert_eq!(
+                    panel.notice(),
+                    Some("cedian agent is not running; restart it"),
+                    "the queue path ran"
+                );
+            })
+            .unwrap();
+        set_user_settings(r#"{"cedian": {"follow_up": "steer"}}"#, cx);
+        window
+            .update(cx, |panel, window, cx| {
+                panel.notice = None;
+                panel.turn = Turn::Streaming;
+                panel.set_prompt("now", window, cx);
+                panel.submit(window, cx);
+                assert_eq!(
+                    panel.next_prompt(),
+                    Some("now"),
+                    "goes once the turn stopped"
+                );
+            })
+            .unwrap();
+    }
+
+    /// Ruling 36: Enter sends, and during a turn queues under the default
+    /// follow-up; Cmd+Enter steers once, as the shipped macOS keymap binds it.
+    #[gpui::test]
+    async fn cmd_enter_steers_a_running_turn_once(cx: &mut TestAppContext) {
+        init(cx);
+        cx.update(|cx| {
+            let keymap = settings::KeymapFile::parse(include_str!(
+                "../../../assets/keymaps/default-macos.json"
+            ))
+            .unwrap();
+            let section = keymap
+                .sections()
+                .find(|section| section.context == "CedianPanel > Editor")
+                .unwrap();
+            let mut bindings = vec![gpui::KeyBinding::new(
+                "enter",
+                menu::Confirm,
+                Some("Editor"),
+            )];
+            for (keys, action) in section.bindings() {
+                let (name, _) = settings::KeymapFile::parse_action(action).unwrap().unwrap();
+                let action = cx.build_action(name, None).unwrap();
+                bindings.push(
+                    gpui::KeyBinding::load(
+                        keys,
+                        action,
+                        Some(
+                            gpui::KeyBindingContextPredicate::parse("CedianPanel > Editor")
+                                .unwrap()
+                                .into(),
+                        ),
+                        false,
+                        None,
+                        &gpui::DummyKeyboardMapper,
+                    )
+                    .unwrap(),
+                );
+            }
+            cx.bind_keys(bindings);
+        });
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let mut vcx = VisualTestContext::from_window(window.into(), cx);
+        let press = |vcx: &mut VisualTestContext, turn: Turn, keys: &str| {
+            window
+                .update(vcx, |panel, window, cx| {
+                    panel.notice = None;
+                    panel.after_stop = None;
+                    panel.turn = turn;
+                    panel.set_prompt("hello", window, cx);
+                    window.focus(&panel.input.focus_handle(cx), cx);
+                })
+                .unwrap();
+            vcx.run_until_parked();
+            vcx.simulate_keystrokes(keys);
+            vcx.run_until_parked();
+            window
+                .read_with(vcx, |panel, _| {
+                    (
+                        panel.notice().map(str::to_string),
+                        panel.next_prompt().map(str::to_string),
+                    )
+                })
+                .unwrap()
+        };
+        let (notice, _) = press(&mut vcx, Turn::Idle, "enter");
+        assert!(notice.is_some(), "Enter sends when idle");
+        let (notice, next) = press(&mut vcx, Turn::Streaming, "enter");
+        assert_eq!(next, None, "Enter during a turn does not steer");
+        assert_eq!(
+            notice.as_deref(),
+            Some("cedian agent is not running; restart it"),
+            "Enter during a turn queues"
+        );
+        let (_, next) = press(&mut vcx, Turn::Streaming, "cmd-enter");
+        assert_eq!(
+            next.as_deref(),
+            Some("hello"),
+            "Cmd+Enter steers the running turn"
+        );
+    }
+
+    /// Settings acts on the workspace window that opened it, even when
+    /// another window is in front; the frontmost one only once it closed.
+    #[gpui::test]
+    async fn settings_target_the_window_that_opened_them(cx: &mut TestAppContext) {
+        init(cx);
+        let open = async |cx: &mut TestAppContext| {
+            let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+            let window = cx.add_window(|window, cx| {
+                workspace::MultiWorkspace::test_new(project.clone(), window, cx)
+            });
+            let panel = window
+                .update(cx, |multi, window, cx| {
+                    multi.workspace().clone().update(cx, |workspace, cx| {
+                        let panel = cx.new(|cx| CedianPanel::new(project.clone(), window, cx));
+                        workspace.add_panel(panel.clone(), window, cx);
+                        panel
+                    })
+                })
+                .unwrap();
+            (window, panel)
+        };
+        let (_front, front_panel) = open(cx).await;
+        let (origin, origin_panel) = open(cx).await;
+        let target = |origin: Option<gpui::AnyWindowHandle>, cx: &mut TestAppContext| {
+            cx.update(|cx| crate::settings_host::target(origin, cx).map(|(_, _, panel)| panel))
+        };
+        assert_eq!(target(Some(origin.into()), cx), Some(origin_panel));
+        assert_eq!(target(None, cx), Some(front_panel.clone()));
+        origin
+            .update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(target(Some(origin.into()), cx), Some(front_panel));
+    }
+
+    /// The panel's "agent settings" opens the settings window on Advanced,
+    /// where the agent's settings live.
+    #[gpui::test]
+    async fn agent_settings_opens_the_settings_window_on_advanced(cx: &mut TestAppContext) {
+        init(cx);
+        let opened = Rc::new(RefCell::new(Vec::new()));
+        cx.update(|cx| {
+            let opened = opened.clone();
+            cx.on_action(move |action: &zed_actions::OpenSettingsPage, _| {
+                opened.borrow_mut().push(action.page.clone());
+            });
+        });
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        window
+            .update(cx, |panel, window, cx| panel.open_settings(window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(*opened.borrow(), ["Advanced"]);
     }
 
     /// ADR-0035: an audit failure fails the turn once, however many rows

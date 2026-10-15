@@ -47,6 +47,6 @@ pub use session::{
 };
 pub use sessions::SessionEntry;
 pub use spawn_profile::{
-    ApprovalMode, Approvals, BashRule, Sessions, SpawnPlan, SpawnPolicy, SpawnProfile, ToolPolicy,
-    agent_env, omp_config_get, omp_version, resolve_on_path, scrub_env,
+    ApprovalMode, Approvals, BashRule, PRIVACY_PINS, PrivacyPin, Sessions, SpawnPlan, SpawnPolicy,
+    SpawnProfile, ToolPolicy, agent_env, omp_config_get, omp_version, resolve_on_path, scrub_env,
 };
