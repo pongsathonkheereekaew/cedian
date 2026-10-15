@@ -80,3 +80,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0075](0075-narrow-omp-fork.md) | cedian forks OMP narrowly, as it forks Zed, and ships the fork's build |
 | [0076](0076-s1-live-cap-three.md) | S1's live turns are capped at 3 in total, so the second take keeps its margin |
 | [0077](0077-v0-1-waits-for-three-fork-items.md) | v0.1 waits for the bundled fork OMP, S5's worktree attribution, and project-scoped reads |
+| [0078](0078-two-private-repos-one-product.md) | cedian is one private product in two repos, `cedian` and `cedian-agent` |
