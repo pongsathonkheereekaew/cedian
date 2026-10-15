@@ -17,6 +17,7 @@ pub mod driver;
 pub mod errors;
 pub mod event_router;
 pub mod history;
+pub mod model_roles;
 pub mod omp_config;
 pub mod protected;
 pub mod runtime;

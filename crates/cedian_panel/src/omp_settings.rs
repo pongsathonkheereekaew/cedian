@@ -4,6 +4,7 @@
 //! `config.yml` changes on disk, and on `config_update`.
 
 use crate::omp_link::LaunchSpec;
+use cedian_omp::model_roles::{ModelRoles, RoleModel, Thinking};
 use cedian_omp::omp_config::{Entry, Setting, layered, overlay_keys};
 use cedian_omp::{Layer, OmpConfig};
 use collections::HashSet;
@@ -179,18 +180,34 @@ impl OmpSettings {
         self.write(cx, move |config, cwd| config.reset(cwd, &key));
     }
 
-    /// Set one `modelRoles` entry: OMP takes the record whole, so read it,
-    /// change the entry, write it back (ADR-0045 decision 3).
+    /// The `modelRoles` record as the agent reports it.
+    pub fn roles(&self) -> ModelRoles {
+        ModelRoles::from_value(
+            self.setting("modelRoles")
+                .and_then(|setting| setting.entry.value.as_ref()),
+        )
+    }
+
+    /// Set one role: OMP takes the record whole, so the others are written
+    /// back unchanged (ADR-0045 decision 3).
     pub fn set_role(&mut self, role: &str, model: &str, cx: &mut Context<Self>) {
-        let mut roles = match self
-            .setting("modelRoles")
-            .and_then(|s| s.entry.value.clone())
-        {
-            Some(Value::Object(map)) => map,
-            _ => serde_json::Map::new(),
-        };
-        roles.insert(role.to_string(), Value::String(model.to_string()));
-        self.set_value("modelRoles", &Value::Object(roles).to_string(), cx);
+        let mut roles = self.roles();
+        roles.set(role, RoleModel::parse(model));
+        self.set_roles(&roles, cx);
+    }
+
+    pub fn set_roles(&mut self, roles: &ModelRoles, cx: &mut Context<Self>) {
+        self.set_value("modelRoles", &roles.to_config_value(), cx);
+    }
+
+    /// The agent's `defaultThinkingLevel`, once read.
+    pub fn default_thinking(&self) -> Option<Thinking> {
+        let value = self.setting("defaultThinkingLevel")?.entry.value.as_ref()?;
+        Thinking::parse(value.as_str()?)
+    }
+
+    pub fn set_default_thinking(&mut self, level: Thinking, cx: &mut Context<Self>) {
+        self.set_value("defaultThinkingLevel", level.as_str(), cx);
     }
 
     fn write(
