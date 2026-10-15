@@ -6625,12 +6625,22 @@ mod tests {
         });
         let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let state = std::env::temp_dir().join(format!("cedian-cmd-enter-{}", std::process::id()));
+        std::fs::create_dir_all(&state).unwrap();
+        let (events, _) = mpsc::unbounded::<LinkEvent>();
+        let link =
+            OmpLink::audit_only(events, &state, cedian_omp::SpawnPolicy::default().approvals)
+                .unwrap();
+        window
+            .update(cx, |panel, _, _| panel.link = Some(link))
+            .unwrap();
         let mut vcx = VisualTestContext::from_window(window.into(), cx);
         let press = |vcx: &mut VisualTestContext, turn: Turn, keys: &str| {
             window
                 .update(vcx, |panel, window, cx| {
                     panel.notice = None;
                     panel.after_stop = None;
+                    panel.follow_ups.clear();
                     panel.turn = turn;
                     panel.set_prompt("hello", window, cx);
                     window.focus(&panel.input.focus_handle(cx), cx);
@@ -6640,29 +6650,36 @@ mod tests {
             vcx.simulate_keystrokes(keys);
             vcx.run_until_parked();
             window
-                .read_with(vcx, |panel, _| {
+                .read_with(vcx, |panel, cx| {
                     (
-                        panel.notice().map(str::to_string),
+                        panel.turn.clone(),
+                        panel.follow_ups.len(),
+                        panel.input.read(cx).text(cx),
                         panel.next_prompt().map(str::to_string),
                     )
                 })
                 .unwrap()
         };
-        let (notice, _) = press(&mut vcx, Turn::Idle, "enter");
-        assert!(notice.is_some(), "Enter sends when idle");
-        let (notice, next) = press(&mut vcx, Turn::Streaming, "enter");
-        assert_eq!(next, None, "Enter during a turn does not steer");
+        let (turn, queued, composer, next) = press(&mut vcx, Turn::Streaming, "enter");
         assert_eq!(
-            notice.as_deref(),
-            Some("cedian agent is not running; restart it"),
-            "Enter during a turn queues"
+            turn,
+            Turn::Streaming,
+            "Enter during a turn leaves it running"
         );
-        let (_, next) = press(&mut vcx, Turn::Streaming, "cmd-enter");
+        assert_eq!(queued, 1, "Enter during a turn queues the message");
+        assert_eq!(
+            composer, "hello",
+            "the composer keeps it until the agent takes it"
+        );
+        assert_eq!(next, None, "Enter during a turn does not steer");
+        let (_, queued, _, next) = press(&mut vcx, Turn::Streaming, "cmd-enter");
+        assert_eq!(queued, 0, "Cmd+Enter does not queue");
         assert_eq!(
             next.as_deref(),
             Some("hello"),
             "Cmd+Enter steers the running turn"
         );
+        std::fs::remove_dir_all(&state).ok();
     }
 
     /// Settings acts on the workspace window that opened it, even when
@@ -6687,12 +6704,21 @@ mod tests {
             (window, panel)
         };
         let (_front, front_panel) = open(cx).await;
+        let unloaded = {
+            let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+            cx.add_window(|window, cx| workspace::MultiWorkspace::test_new(project, window, cx))
+        };
         let (origin, origin_panel) = open(cx).await;
         let target = |origin: Option<gpui::AnyWindowHandle>, cx: &mut TestAppContext| {
             cx.update(|cx| crate::settings_host::target(origin, cx).map(|(_, _, panel)| panel))
         };
         assert_eq!(target(Some(origin.into()), cx), Some(origin_panel));
         assert_eq!(target(None, cx), Some(front_panel.clone()));
+        assert_eq!(
+            target(Some(unloaded.into()), cx),
+            Some(front_panel.clone()),
+            "a window whose panel has not loaded falls back to the stack"
+        );
         origin
             .update(cx, |_, window, _| window.remove_window())
             .unwrap();
