@@ -82,7 +82,6 @@ Known gaps that no slice exit names yet. Each row has the slice it must be settl
 
 | Follow-up | Found in | Settle before |
 |---|---|---|
-| First login ends with no model until the person picks one in the picker (the agent's `login` fills the auth store but selects nothing, as interactive `/login` does); a post-login default pick in the fork's rpc `login` would make onboarding one click | first-login fix, 2026-10-15 (`~/.cache/cedian-s10/first-login/design.md`) | S10 settings |
 | External MCP: let other local tools (Claude Code, Cursor) connect to cedian with scoped, approved access to its workspace state and host tools (idea from comparing Synara, 2026-10-15) | owner, 2026-10-15 | after S7, if dogfooding shows a need |
 | The live bench's task revisions (`script/cedian-bench/run.sh` B1–B10 `BASE`/`REF`, `B8_BASE`) are hashes of the old docs repository; the history import (ADR-0078) rewrote them, so `run.sh run` cannot check them out. Map each to its imported commit (same subject and date under `cedian/`) | [S10 plan](plans/s10-omp-parity.md#progress), the move | the next benchmark or live pass |
 | The live lanes still start the person's `omp` (`cedian_omp` `driver.rs` ignored tests, `live_omp_config`, `reviewer_sandbox`, `replay_runtime`, `script/cedian-bench/run.sh`); they must run the bundled agent before the next live pass | fork #19 review | the next live pass |
