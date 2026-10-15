@@ -166,7 +166,9 @@ fn omp_turn_completes_under_the_reviewer_profile() {
         .args(["-p", "Reply with exactly: sbx-ok"])
         .current_dir(&f.ws)
         .env_clear()
-        .envs(cedian_omp::scrub_env(std::env::vars()))
+        // The app's reviewer env: agent_env (PI_STATE_DIR) plus the layout's
+        // PI_RUNTIME_DIR, which the agent honours only beside PI_STATE_DIR.
+        .envs(cedian_omp::agent_env(std::env::vars()).unwrap())
         .envs(f.layout.env())
         .stdin(std::process::Stdio::null())
         .output()

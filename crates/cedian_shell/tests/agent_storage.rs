@@ -87,6 +87,7 @@ fn the_bundled_agent_never_touches_the_persons_omp_dir() {
         std::env::set_var("HOME", &home);
     }
     let before = snapshot(&omp);
+    let home_before = snapshot(&home);
 
     let choice = cedian_shell::launch::omp_binary().expect("the stamped build");
     let state = home.join(".local/state/cedian/agent");
@@ -137,6 +138,22 @@ fn the_bundled_agent_never_touches_the_persons_omp_dir() {
     let _ = child.wait();
 
     let after = snapshot(&omp);
+    let cedian_dirs = [
+        home.join(".config/cedian"),
+        home.join(".local/state/cedian"),
+    ];
+    let home_after = snapshot(&home);
+    let elsewhere: Vec<&PathBuf> = home_before
+        .keys()
+        .chain(home_after.keys())
+        .filter(|p| {
+            !cedian_dirs
+                .iter()
+                .any(|d| p.starts_with(d) || d.starts_with(p))
+        })
+        .filter(|p| !p.starts_with(&omp))
+        .filter(|p| home_before.get(*p) != home_after.get(*p))
+        .collect();
     let written = files_under(&home.join(".local/state/cedian"));
     let changed: Vec<&PathBuf> = before
         .keys()
@@ -150,6 +167,10 @@ fn the_bundled_agent_never_touches_the_persons_omp_dir() {
     assert!(
         changed.is_empty(),
         "the agent changed the person's ~/.omp: {changed:#?}"
+    );
+    assert!(
+        elsewhere.is_empty(),
+        "the agent wrote under HOME outside cedian's dirs: {elsewhere:#?}"
     );
     assert!(
         written.iter().any(|p| p.starts_with(state.join("logs"))),
