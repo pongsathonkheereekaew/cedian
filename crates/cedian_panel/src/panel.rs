@@ -883,6 +883,13 @@ impl CedianPanel {
         self.notice.as_deref()
     }
 
+    /// OMP runs and has no model (after a first login, before a pick): a
+    /// prompt would be refused with terminal instructions, so Send is off
+    /// and the picker carries the hint.
+    fn needs_model(&self) -> bool {
+        matches!(self.connection, Connection::Ready { .. }) && self.picker.model.is_none()
+    }
+
     /// Put `text` in the prompt box, as typing would.
     pub fn set_prompt(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.input
@@ -2608,11 +2615,13 @@ impl CedianPanel {
             }
             LinkEvent::PromptFailed(e) => {
                 self.instruments.abandoned();
-                self.end_turn(
-                    Some(format!("cedian agent did not run the prompt: {e}")),
-                    window,
-                    cx,
-                );
+                let reason = if e.starts_with("No model selected") {
+                    self.picker.open = true;
+                    "no model selected: pick a model to start".to_string()
+                } else {
+                    format!("cedian agent did not run the prompt: {e}")
+                };
+                self.end_turn(Some(reason), window, cx);
             }
             LinkEvent::AbortFailed(e) => {
                 if self.turn != Turn::Idle {
@@ -2847,6 +2856,7 @@ impl CedianPanel {
             LinkEvent::PickerChanged(Ok(change)) => {
                 if change.model.is_some() {
                     self.picker.model = change.model;
+                    self.onboarding = None;
                 }
                 if change.thinking.is_some() {
                     self.picker.thinking = change.thinking;
@@ -3019,6 +3029,11 @@ impl CedianPanel {
         let started = Instant::now();
         let text = self.input.read(cx).text(cx);
         if text.trim().is_empty() {
+            return;
+        }
+        if self.needs_model() {
+            self.notice = Some("Pick a model to start".to_string());
+            cx.notify();
             return;
         }
         match self.turn {
@@ -4002,12 +4017,27 @@ impl CedianPanel {
                 .child(Button::new(SharedString::from(id), label))
         };
         let mut panel = v_flex().gap_1().child(
-            div()
-                .debug_selector(|| "cedian-picker-toggle".to_string())
+            h_flex()
+                .gap_2()
                 .child(
-                    Button::new("cedian-picker-toggle", summary)
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_picker(cx))),
-                ),
+                    div()
+                        .debug_selector(|| "cedian-picker-toggle".to_string())
+                        .child(
+                            Button::new("cedian-picker-toggle", summary)
+                                .on_click(cx.listener(|this, _, _, cx| this.toggle_picker(cx))),
+                        ),
+                )
+                .when(self.needs_model(), |row| {
+                    row.child(
+                        div()
+                            .debug_selector(|| "cedian-pick-a-model".to_string())
+                            .child(
+                                Label::new("Pick a model to start")
+                                    .size(LabelSize::Small)
+                                    .color(Color::Warning),
+                            ),
+                    )
+                }),
         );
         if !picker.open {
             return panel.into_any_element();
@@ -5927,7 +5957,7 @@ impl Render for CedianPanel {
                     .child(div().flex_1().child(self.input.clone()))
                     .child(
                         Button::new("cedian-send", "Send")
-                            .disabled(!idle && self.turn != Turn::Streaming)
+                            .disabled((!idle && self.turn != Turn::Streaming) || self.needs_model())
                             .on_click(cx.listener(|this, _, window, cx| this.send(window, cx))),
                     )
                     .when(self.turn == Turn::Streaming, |row| {
@@ -6057,6 +6087,40 @@ mod tests {
     use gpui::{Modifiers, TestAppContext, VisualTestContext};
     use settings::SettingsStore;
     use std::time::{Duration, Instant};
+
+    /// OMP's refusal of a prompt for want of a model names /login and
+    /// /model, terminal commands; the panel opens its picker instead.
+    #[gpui::test]
+    async fn a_no_model_refusal_opens_the_picker(cx: &mut TestAppContext) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        window
+            .update(cx, |panel, window, cx| {
+                panel.set_turn(Turn::Queued);
+                panel.on_link_event(
+                    LinkEvent::PromptFailed(
+                        "No model selected.\n\nUse /login, set an API key environment variable, or create agent.db\n\nThen use /model to select a model.".into(),
+                    ),
+                    window,
+                    cx,
+                );
+                assert_eq!(panel.turn, Turn::Idle);
+                assert_eq!(
+                    panel.notice(),
+                    Some("no model selected: pick a model to start")
+                );
+                assert!(panel.picker.open, "the picker opens");
+
+                panel.set_turn(Turn::Queued);
+                panel.on_link_event(LinkEvent::PromptFailed("busy".into()), window, cx);
+                assert_eq!(
+                    panel.notice(),
+                    Some("cedian agent did not run the prompt: busy")
+                );
+            })
+            .unwrap();
+    }
 
     /// A login ends in the view when OMP cancels its code prompt or the
     /// person presses Cancel; a late result for an earlier login leaves
