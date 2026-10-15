@@ -40,13 +40,13 @@ vendor/omp-rpc         vendored upstream OMP RPC client (pin: vendor/omp-revisio
 cedian/OMP_PARITY.md   the OMP parity ledger, tested against the vendored wire.rs
 cedian/                this README, AGENTS.md and docs/ (the docs repository's history, imported 2026-10-15)
 vendor/cedian-agent    the OMP fork as a submodule; script/cedian-omp-build builds it into target/omp/omp
-script/cedian-check    fmt + clippy + hermetic tests for the cedian crates only
+script/cedian-check    fmt + clippy + hermetic tests for the cedian crates, tests for the upstream crates cedian changes
 script/cedian-bench    the S2 benchmark harness (tasks from this repo's history)
 ```
 
 ```sh
 script/cedian-install-guardrails                          # pre-commit cedian-check, pre-push force guard
-script/cedian-check                                       # fmt, clippy, unit + fake-omp replays (hermetic); the gate, no CI
+script/cedian-check                                       # fmt, clippy, unit + fake-omp replays (hermetic), upstream crates' tests; the gate, no CI
 git submodule update --init vendor/cedian-agent && script/cedian-omp-build   # the bundled agent
 cargo run -p cedian_cli -- prompt "fix it"                # headless turn (needs CEDIAN_WORKDIR)
 cargo run -p cedian_cli -- shell                          # long-lived session

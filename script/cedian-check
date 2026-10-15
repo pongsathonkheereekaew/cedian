@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Format, lint and test the cedian crates only (ADR-0042), so a check never
-# builds all of Zed. `script/cedian-check check` stops after `cargo check`.
+# Format, lint and test the cedian crates, and test the upstream crates cedian
+# changes (ADR-0042), so a check never builds all of Zed.
+# `script/cedian-check check` stops after `cargo check`.
 set -euo pipefail
 # Git sets GIT_DIR when it runs a hook, and with it `rev-parse --show-toplevel`
 # answers the current directory, not the checkout a worktree is. Unset, so the
@@ -21,6 +22,11 @@ for dir in crates/cedian_*; do
 done
 pkgs=()
 for c in "${crates[@]}"; do pkgs+=(-p "$c"); done
+# Upstream crates cedian changes are tested, not linted.
+upstream=()
+for c in settings settings_content settings_ui theme_settings client onboarding; do
+  upstream+=(-p "$c")
+done
 
 files=()
 while IFS= read -r f; do files+=("$f"); done < <(find crates/cedian_* -name '*.rs' -not -path '*/target/*')
@@ -32,7 +38,7 @@ cedian/script/check-adrs
 python3 script/cedian-bench/test_bench.py
 script/cedian-bench/test-watchdog.sh
 if [ "${1:-}" = check ]; then
-  cargo check -j4 --all-targets "${pkgs[@]}"
+  cargo check -j4 --all-targets "${pkgs[@]}" "${upstream[@]}"
   exit 0
 fi
 # Vendored upstream code is built and tested, not linted.
@@ -43,4 +49,4 @@ cargo clippy -j4 --all-targets --no-deps "${lint[@]}" -- -D warnings
 export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
 test_home=$(mktemp -d)
 trap 'rm -rf "$test_home"' EXIT
-HOME="$test_home" cargo test -j4 "${pkgs[@]}"
+HOME="$test_home" cargo test -j4 "${pkgs[@]}" "${upstream[@]}"
