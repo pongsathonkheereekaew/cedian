@@ -66,6 +66,7 @@ pub struct Thread {
     events: Vec<ThreadEvent>,
     streaming: HashMap<String, StreamingMessage>,
     tools: HashMap<String, usize>,
+    revision: u64,
 }
 
 impl Thread {
@@ -76,6 +77,7 @@ impl Thread {
 
     /// Local echo of a user prompt (before OMP admission).
     pub fn push_user(&mut self, text: &str) {
+        self.revision += 1;
         self.events.push(ThreadEvent::User {
             text: text.to_string(),
         });
@@ -83,6 +85,7 @@ impl Thread {
 
     /// Take back the newest user prompt: OMP never ran it.
     pub fn withdraw_user(&mut self) {
+        self.revision += 1;
         if let Some(n) = self
             .events
             .iter()
@@ -94,6 +97,7 @@ impl Thread {
 
     /// Apply one router classification. Pure state transition.
     pub fn apply(&mut self, event: &RouterEvent) {
+        self.revision += 1;
         match event {
             RouterEvent::AgentStart => {}
             RouterEvent::AgentEnd {
@@ -227,6 +231,7 @@ impl Thread {
     /// partial streaming buffers (never render half a message as complete).
     #[allow(clippy::collapsible_match)]
     pub fn on_disconnect(&mut self, interrupted: &[String]) {
+        self.revision += 1;
         self.streaming.clear();
         for entry in self.events.iter_mut() {
             match entry {
@@ -243,6 +248,12 @@ impl Thread {
                 _ => {}
             }
         }
+    }
+
+    /// Bumped by every change, so a view can tell whether its projection
+    /// of the events is still current without comparing them.
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// Ordered snapshot for rendering.
@@ -433,5 +444,27 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn every_change_moves_the_revision() {
+        let mut t = Thread::new();
+        let mut seen = vec![t.revision()];
+        let mut changed = |t: &Thread| {
+            assert!(!seen.contains(&t.revision()), "a change kept the revision");
+            seen.push(t.revision());
+        };
+        t.push_user("hi");
+        changed(&t);
+        t.apply(&delta("m1", DeltaKind::Text));
+        changed(&t);
+        t.apply(&RouterEvent::MessageEnd {
+            message_id: "m1".to_string(),
+        });
+        changed(&t);
+        t.on_disconnect(&[]);
+        changed(&t);
+        t.withdraw_user();
+        changed(&t);
     }
 }

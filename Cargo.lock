@@ -2830,6 +2830,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cedian_bench"
+version = "0.1.0"
+dependencies = [
+ "assets",
+ "cedian_agent",
+ "cedian_agent_ui",
+ "cedian_omp",
+ "criterion",
+ "gpui",
+ "gpui_platform",
+ "settings",
+ "theme",
+ "theme_settings",
+ "ui",
+]
+
+[[package]]
 name = "cedian_cli"
 version = "0.1.0"
 dependencies = [
