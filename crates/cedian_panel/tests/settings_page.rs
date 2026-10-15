@@ -136,9 +136,6 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         json!({"review": "opencode-go/glm-5.3"})
     );
 
-    // Settings > Models writes the same record, typed: a picked model keeps
-    // the role's thinking level, a level is the role's suffix, Remove drops
-    // the role, and the default level is its own key.
     let no_folder = Project::test(fs::RealFs::new(None, cx.executor()), [], cx).await;
     let panel = cx
         .add_window(|window, cx| CedianPanel::new(no_folder, window, cx))

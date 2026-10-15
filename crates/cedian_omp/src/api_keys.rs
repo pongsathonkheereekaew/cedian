@@ -82,7 +82,6 @@ fn ending(key: &str) -> String {
     key[start..].to_string()
 }
 
-/// The agent config dir's `.env`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnvFile {
     path: PathBuf,

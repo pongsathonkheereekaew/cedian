@@ -36,9 +36,7 @@ pub struct OmpSettings {
     value: Entity<Editor>,
     selected: Option<String>,
     _watch: Option<Task<()>>,
-    /// The last write: each waits for the one before, so the agent's file
-    /// ends with the last change made.
-    writes: Option<Task<()>>,
+    write_queue: Option<Task<()>>,
 }
 
 impl OmpSettings {
@@ -74,7 +72,7 @@ impl OmpSettings {
             value,
             selected: None,
             _watch: None,
-            writes: None,
+            write_queue: None,
         };
         // `omp` runs to choose the binary and read its allows: off the UI
         // thread (ADR-0057 decision 4).
@@ -231,9 +229,9 @@ impl OmpSettings {
             return;
         };
         let workdir = self.workdir.clone();
-        let previous = self.writes.take();
+        let previous = self.write_queue.take();
         let (done, outcome) = futures::channel::oneshot::channel();
-        self.writes = Some(cx.background_spawn(async move {
+        self.write_queue = Some(cx.background_spawn(async move {
             if let Some(previous) = previous {
                 previous.await;
             }

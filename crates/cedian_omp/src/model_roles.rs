@@ -72,7 +72,6 @@ impl Thinking {
     }
 }
 
-/// What one role maps to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoleModel {
     /// `provider/model`.
@@ -115,7 +114,6 @@ impl RoleModel {
     }
 }
 
-/// The `modelRoles` record.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModelRoles(BTreeMap<String, RoleModel>);
 

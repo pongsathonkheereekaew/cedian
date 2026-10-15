@@ -1,9 +1,9 @@
 //! Import from OMP (`cedian agent import`, Settings > Account): bring the
 //! person's OMP skills (and, on request, settings and model roles) into
-//! cedian's agent config dir (ADR-0078 decision 5). The source is only read. Only the files named here are
-//! copied, an allow-list: auth (`agent.db`), `.env` and token files never
-//! are. A dry run by default; an existing target is refused without
-//! `--force`, before anything is written.
+//! cedian's agent config dir (ADR-0078 decision 5). The source is only read.
+//! Only the files named here are copied, an allow-list: auth (`agent.db`),
+//! `.env` and token files never are. A dry run by default; an existing
+//! target is refused without `--force`, before anything is written.
 
 use std::path::{Path, PathBuf};
 

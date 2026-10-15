@@ -2641,7 +2641,9 @@ impl CedianPanel {
                 self.forget_subagents();
                 self.onboarding = model.is_none();
                 self.picker.model = model;
-                self.refresh_account();
+                if self.onboarding {
+                    self.refresh_account();
+                }
                 if thinking.is_some() {
                     self.picker.thinking = thinking;
                 }
