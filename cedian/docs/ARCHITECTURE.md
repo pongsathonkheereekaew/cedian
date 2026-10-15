@@ -359,18 +359,18 @@ Planned, not yet created: `cedian_ios/` (S8: simulator, xcodebuild, simctl, wda,
 
 This minimizes upstream merge pain.
 
-**Stack lock: Rust + GPUI only.** No TypeScript/Electron/WebView/Tauri in the cedian process. There is no TypeScript anywhere in cedian's scope: OMP is used as upstream ships it ([ADR-0027](decisions/0027-zero-omp-fork.md)). `gpui-kit` (gpui-base unstyled primitives + gpui-component, Apache-2.0, `github.com/longbridge/gpui-kit`) and `elygpui.com` (Ely GPUI components, MIT/Apache-2.0) are approved UI accelerators: prefer them over hand-rolling panel/composer/tool-card/message/settings/dialog/toast components, but editor/buffer/multibuffer/diff surfaces stay Zed-native. *(→ [ADR-0001](decisions/0001-environment-vs-intelligence.md))*
+**Stack lock: Rust + GPUI only.** No TypeScript/Electron/WebView/Tauri in the cedian process. The only TypeScript in cedian's scope is the narrow OMP fork ([ADR-0075](decisions/0075-narrow-omp-fork.md)). `gpui-kit` (gpui-base unstyled primitives + gpui-component, Apache-2.0, `github.com/longbridge/gpui-kit`) and `elygpui.com` (Ely GPUI components, MIT/Apache-2.0) are approved UI accelerators: prefer them over hand-rolling panel/composer/tool-card/message/settings/dialog/toast components, but editor/buffer/multibuffer/diff surfaces stay Zed-native. *(→ [ADR-0001](decisions/0001-environment-vs-intelligence.md))*
 
-### §8 No OMP Fork
+### §8 A Narrow OMP Fork
 
-cedian runs the pinned upstream OMP and never forks it; only Zed is forked ([ADR-0027](decisions/0027-zero-omp-fork.md)). Everything cedian needs from OMP goes through, in order:
+cedian runs its own narrow fork of OMP, cut from the pinned upstream version and shipped with the app ([ADR-0075](decisions/0075-narrow-omp-fork.md), superseding ADR-0027's "no fork"). Everything cedian needs from OMP goes through, in order:
 
 1. **Host tools + `cedian://` URIs** registered over RPC ([ADR-0022](decisions/0022-host-tool-first.md)) — including `ios` (§32).
 2. **OMP skills** in `.omp/skills/` — playbooks and the project verification profile ([ADR-0025](decisions/0025-playbooks-are-omp-skills.md)).
 3. **Spawn profile** — argv + config overlay ([ADR-0020](decisions/0020-omp-spawn-profile.md)).
 4. **Importing OMP's own effects** — e.g. disk writes from `edit`/`write` become agent transactions (§12).
 
-A real need for an OMP change goes upstream as a PR; until it ships, cedian works around it or does without.
+5. **A patch in the OMP fork**, only when none of the above can give the capability. It is kept small, and upstream comes in by merge at every pin bump.
 
 ---
 

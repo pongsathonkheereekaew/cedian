@@ -139,7 +139,7 @@ Shared foundations that several slice exits depend on. Each is small; build it b
 
 ## OMP changes
 
-None. cedian runs pinned upstream OMP and never forks it ([ADR-0027](decisions/0027-zero-omp-fork.md)). If a real need for an OMP change appears, open an upstream PR and wait; record the workaround (or the cut) as an ADR meanwhile.
+cedian keeps a narrow OMP fork ([ADR-0075](decisions/0075-narrow-omp-fork.md)), `pongsathonkheereekaew/oh-my-pi`, cut from the pinned version. Its first patch is host debug sessions (`set_host_debug`, `host_dap_message`, `host_dap_close`), which retires `cedian_debug` (ADR-0073).
 
 ## Slices
 
@@ -677,7 +677,7 @@ Build:
 
 ```text
 Zed fork builds
-OMP builds from the pinned upstream commit (never forked — [ADR-0027](decisions/0027-zero-omp-fork.md))
+OMP builds from the narrow fork at the pinned version, bundled with the app ([ADR-0075](decisions/0075-narrow-omp-fork.md))
 pinned upstream remotes
 upstream merge cadence + conflict owner (weekly merge, never rebase — [ADR-0069](decisions/0069-upstream-zed-by-weekly-merge.md))
 Zed license audit for redistributed binary (GPL terms)
