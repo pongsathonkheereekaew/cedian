@@ -26,7 +26,7 @@ Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisio
 | S6 PR workspace | 🔜 `gh`, PR baselines, merge Deny-by-default |
 | S7 Local automations | 🔜 cron + history, no cloud ever |
 | S8 iOS track | 🔜 extension track, after v0.1 |
-| S10 OMP parity | ◐ 2026-10-14: 1 of 12 units in the app (U1, the session manager and history); the live pass is spent at 25 of 20 and closed ([ADR-0074](docs/decisions/0074-s1-live-turn-after-the-runaway.md)); [progress](docs/plans/s10-omp-parity.md#progress) |
+| S10 OMP parity | ◐ 2026-10-15: 1 of 12 units in the app (U1, the session manager and history); before v0.1 the app now runs its own bundled agent (the OMP fork), cancelled approvals are audited as cancelled, and cedian is the only name a user sees; the live pass is closed ([ADR-0074](docs/decisions/0074-s1-live-turn-after-the-runaway.md)), S1's own pass spent 2 of 3 ([ADR-0076](docs/decisions/0076-s1-live-cap-three.md)); [progress](docs/plans/s10-omp-parity.md#progress) |
 | S9 Real app | ◐ 2026-10-14, closed as a partial exit ([ADR-0068](docs/decisions/0068-s9-closes-as-a-partial-exit.md)): S9's own exit holds (the app onboards, prompts and answers with no terminal, no parity row is left for S9, inline edit and revert turn work in the editor, the benchmark re-ran on the app, and it names itself cedian), and it closes S4, but S5's worktree attribution waits on OMP; the rest moves to S10; [exit evidence](docs/plans/done/s9-real-app.md#exit-evidence) |
 
 ## Code, build and test
