@@ -31,27 +31,30 @@ Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisio
 
 ## Code, build and test
 
-All code lives in the Zed fork, [`pongsathonkheereekaew/zed`](https://github.com/pongsathonkheereekaew/zed) branch `cedian/s9` ([ADR-0042](docs/decisions/0042-all-code-moves-into-the-fork.md)); this repo holds the docs. In the fork:
+One repository, `cedian`: the Zed fork on branch `main`, with these docs in `cedian/` and the agent (the OMP fork, repository `cedian-agent`) as the submodule `vendor/cedian-agent` ([ADR-0042](docs/decisions/0042-all-code-moves-into-the-fork.md), [ADR-0078](docs/decisions/0078-two-private-repos-one-product.md)). There is no CI: `script/cedian-check` before every commit is the gate, its log travels with the PR, and the owner merges (ADR-0078 decision 3). At the repository root:
 
 ```text
 crates/cedian_*        cedian's crates (headless models, OMP boundary, review, workflow, CLI harness until S9 ends)
 crates/cedian_panel    the GPUI binding (S9)
 vendor/omp-rpc         vendored upstream OMP RPC client (pin: vendor/omp-revision.json)
 cedian/OMP_PARITY.md   the OMP parity ledger, tested against the vendored wire.rs
+cedian/                this README, AGENTS.md and docs/ (the docs repository's history, imported 2026-10-15)
+vendor/cedian-agent    the OMP fork as a submodule; script/cedian-omp-build builds it into target/omp/omp
 script/cedian-check    fmt + clippy + hermetic tests for the cedian crates only
 script/cedian-bench    the S2 benchmark harness (tasks from this repo's history)
 ```
 
 ```sh
 script/cedian-install-guardrails                          # pre-commit cedian-check, pre-push force guard
-script/cedian-check                                       # fmt, clippy, unit + fake-omp replays (hermetic)
+script/cedian-check                                       # fmt, clippy, unit + fake-omp replays (hermetic); the gate, no CI
+git submodule update --init vendor/cedian-agent && script/cedian-omp-build   # the bundled agent
 cargo run -p cedian_cli -- prompt "fix it"                # headless turn (needs CEDIAN_WORKDIR)
 cargo run -p cedian_cli -- shell                          # long-lived session
 cargo test -p cedian_omp --test live_spawn_profile -- --ignored   # live lanes need real omp
 CEDIAN_P2_RECORD=cli cargo test -p cedian_cli --test replay_cli    # re-record a fixture (live)
 ```
 
-In this repo, `script/install-guardrails` installs a pre-push force guard and a pre-commit `script/check-adrs` (duplicate ADR number, `docs/decisions/README.md` out of step with the files).
+For the docs, `cedian/script/install-guardrails` installs a pre-push force guard and a pre-commit `script/check-adrs` (duplicate ADR number, `docs/decisions/README.md` out of step with the files).
 
 Settings: the user's `cedian.toml` only — `$CEDIAN_CONFIG`, else
 `$XDG_CONFIG_HOME/cedian/cedian.toml`, else `~/.config/cedian/cedian.toml`

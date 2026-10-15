@@ -1,3 +1,5 @@
+cedian's rules live in `cedian/AGENTS.md` (its docs in `cedian/docs/`, ADR-0078); the text below is upstream Zed's.
+
 # Rust coding guidelines
 
 * Prioritize code correctness and clarity. Speed and efficiency are secondary priorities unless otherwise specified.

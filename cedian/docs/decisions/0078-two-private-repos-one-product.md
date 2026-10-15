@@ -1,6 +1,6 @@
 # ADR-0078: cedian is one private product in two repos, `cedian` and `cedian-agent`
 
-- **Status:** Proposed (owner's answers 2026-10-15, AskUserQuestion: personal and closed ("ใช้เองแบบปิดส่วนตัวครับ"); two private repos ("ตกลงครับ"); clean up only the two old cedian forks; the shipped app runs only the bundled agent; no GitHub CI, the local check is the gate; v0.1 unsigned; names: cedian only where a user sees it; the agent keeps its own storage; projects' `AGENTS.md` and `.agents/` are read; repo names `cedian` and `cedian-agent` ("Cedian-agent"). Accepted when the owner merges this ADR.)
+- **Status:** Accepted (merged 2026-10-15; owner's answers 2026-10-15, AskUserQuestion: personal and closed ("ใช้เองแบบปิดส่วนตัวครับ"); two private repos ("ตกลงครับ"); clean up only the two old cedian forks; the shipped app runs only the bundled agent; no GitHub CI, the local check is the gate; v0.1 unsigned; names: cedian only where a user sees it; the agent keeps its own storage; projects' `AGENTS.md` and `.agents/` are read; repo names `cedian` and `cedian-agent` ("Cedian-agent"). Accepted when the owner merges this ADR.)
 - **Date:** 2026-10-15
 - **Rule text:** AGENTS.md ("Where things live"); README "Code, build and test"; ARCHITECTURE §7, §8
 - **Builds on:** ADR-0042 (code moved into the Zed fork), ADR-0069 (weekly upstream merge), ADR-0075 (the narrow OMP fork), ADR-0077 (v0.1's gates)

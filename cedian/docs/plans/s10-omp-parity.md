@@ -2,7 +2,7 @@
 
 Exit (ROADMAP S10 is the contract): no row of the fork's `cedian/OMP_PARITY.md` says `deferred: S10`, and the parity test is green on the pin. Each deferred row ends `native`, `gated`, `upstream-blocked` or `unused by decision`; the last needs its ADR ([ADR-0057](../decisions/0057-parity-bar-and-s10.md)). S10 also delivers the two Cursor workflows ROADMAP gives it: Tab completion ([ADR-0068](../decisions/0068-s9-closes-as-a-partial-exit.md)) and the usage meter.
 
-**Where the work happens.** Code lives in the fork (`~/src/zed`, `pongsathonkheereekaew/zed`). Each unit is a `cedian/s10-<unit>` branch off `cedian/s9` and its own PR into `cedian/s9`, merged when CI is green (owner 2026-10-14). This repo keeps the docs.
+**Where the work happens.** Code and docs live in the one repository `cedian` (the Zed fork; these docs under `cedian/`), the agent in its submodule `vendor/cedian-agent` ([ADR-0078](../decisions/0078-two-private-repos-one-product.md), 2026-10-15; before that the fork `pongsathonkheereekaew/zed`, branch `cedian/s9`). Each unit is a `cedian/s10-<unit>` branch off `main` and its own PR into `main`, merged by the owner when `script/cedian-check` is green locally (no CI, ADR-0078 decision 3; before 2026-10-15: when CI was green, owner 2026-10-14).
 
 **Pin.** OMP 18.8.6 (`vendor/omp-revision.json`). A pin bump is its own change with an ADR; it is not part of a unit.
 
