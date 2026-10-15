@@ -58,14 +58,26 @@ pub fn spawn_policy(
     policy
 }
 
+/// The pin file (`vendor/omp-revision.json`).
+fn pin() -> serde_json::Value {
+    serde_json::from_str(include_str!("../../../vendor/omp-revision.json"))
+        .expect("vendor/omp-revision.json is JSON")
+}
+
 /// The OMP version cedian is pinned to (`vendor/omp-revision.json`).
 pub fn pinned_omp_version() -> String {
-    let pin: serde_json::Value =
-        serde_json::from_str(include_str!("../../../vendor/omp-revision.json"))
-            .expect("vendor/omp-revision.json is JSON");
-    pin["spikeVerified"]["ompVersion"]
+    pin()["spikeVerified"]["ompVersion"]
         .as_str()
         .expect("vendor/omp-revision.json names spikeVerified.ompVersion")
+        .to_string()
+}
+
+/// The OMP fork commit the app's bundled build must come from
+/// (`vendor/omp-revision.json`, the `vendor/oh-my-pi` submodule).
+pub fn pinned_omp_commit() -> String {
+    pin()["commit"]
+        .as_str()
+        .expect("vendor/omp-revision.json names commit")
         .to_string()
 }
 
@@ -77,74 +89,84 @@ pub struct OmpChoice {
     pub warning: Option<String>,
 }
 
-/// The OMP binary (ADR-0057 decision 4). A set `CEDIAN_OMP_BINARY` runs as
-/// given, asked `--version` once only for the warning. Otherwise an OMP
-/// bundled next to the running executable (U13: `cedian.app`'s
-/// `Contents/Resources/omp`) runs as the bundle shipped it — off-pin and all,
-/// because a shipped app must not need an `omp` on PATH. Else the first of
-/// PATH's `omp` and `~/.local/bin/omp` whose `--version` is the pin, else the
-/// first found. Off the pin, the warning names both versions. Blocking: call
-/// it off the UI thread.
+/// The OMP binary (ADR-0075 decision 5, ADR-0077). A set
+/// `CEDIAN_OMP_BINARY` runs as given, asked `--version` once only for the
+/// warning. Otherwise the fork build the app ships, verified against its
+/// stamp; else the launch is refused. The person's own `omp` (PATH,
+/// `~/.local/bin`) is never run. Blocking: hashes the binary, so call it off
+/// the UI thread.
 pub fn omp_binary() -> Result<OmpChoice, String> {
     omp_binary_for(std::env::current_exe().ok().as_deref())
 }
 
 /// The resolution, from the executable a bundle lookup starts at
-/// ([`omp_binary`] passes the running one; tests drive a fake `.app` layout,
-/// which `current_exe` cannot be moved to).
+/// ([`omp_binary`] passes the running one; tests drive fake layouts, which
+/// `current_exe` cannot be moved to).
 pub fn omp_binary_for(exe: Option<&Path>) -> Result<OmpChoice, String> {
-    let pinned = pinned_omp_version();
-    let probe = |binary: &Path| cedian_omp::omp_version(binary, Duration::from_secs(3));
     if let Some(binary) = std::env::var_os("CEDIAN_OMP_BINARY").map(PathBuf::from) {
-        let warning = off_pin(&pinned, &binary, probe(&binary));
+        let version = cedian_omp::omp_version(&binary, Duration::from_secs(3));
+        let warning = off_pin(&pinned_omp_version(), &binary, version);
         return Ok(OmpChoice { binary, warning });
     }
-    if let Some(binary) = exe.and_then(bundled_sidecar) {
-        let warning = off_pin(&pinned, &binary, probe(&binary));
-        return Ok(OmpChoice { binary, warning });
-    }
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    candidates
-        .extend(cedian_omp::resolve_on_path("omp", std::env::var("PATH").ok().as_deref()).ok());
-    candidates.extend(
-        std::env::var_os("HOME")
-            .map(|home| PathBuf::from(home).join(".local/bin/omp"))
-            .filter(|path| path.is_file()),
-    );
-    let mut seen = BTreeSet::new();
-    candidates.retain(|path| seen.insert(std::fs::canonicalize(path).unwrap_or(path.clone())));
-    let mut first = None;
-    for binary in candidates {
-        let version = probe(&binary);
-        if version.as_ref().is_ok_and(|v| *v == pinned) {
-            return Ok(OmpChoice {
-                binary,
-                warning: None,
-            });
-        }
-        first.get_or_insert((binary, version));
-    }
-    let (binary, version) =
-        first.ok_or("omp not found in CEDIAN_OMP_BINARY, on PATH or in ~/.local/bin")?;
-    let warning = off_pin(&pinned, &binary, version);
-    Ok(OmpChoice { binary, warning })
+    let binary = exe.and_then(bundled_omp).ok_or_else(|| {
+        format!(
+            "no bundled OMP next to {}: build it with script/cedian-omp-build (or set CEDIAN_OMP_BINARY); cedian does not run the omp on PATH",
+            exe.map_or("the app".into(), |exe| exe.display().to_string())
+        )
+    })?;
+    verify_stamp(&binary)?;
+    Ok(OmpChoice {
+        binary,
+        warning: None,
+    })
 }
 
-/// The OMP a bundle ships: `<exe>`'s `Contents/Resources/omp` when the
-/// executable sits in a bundle's `Contents/MacOS` (U13,
-/// `script/cedian-build-omp`). Any other layout gives nothing, so a
-/// `target/release/cedian` next to a stray `Resources/` is not a bundle.
-fn bundled_sidecar(exe: &Path) -> Option<PathBuf> {
+/// Where the app's OMP sits: `Contents/Resources/omp` when `exe` is in a
+/// bundle's `Contents/MacOS`, else `<dir>/omp/omp` for the first of `exe`'s
+/// three nearest ancestors that has one, which finds `target/omp/omp` from
+/// `target/<profile>/cedian` and from a test's `target/<profile>/deps/<t>`.
+fn bundled_omp(exe: &Path) -> Option<PathBuf> {
     let macos = exe.parent()?;
-    if macos.file_name()? != "MacOS" {
-        return None;
+    if macos.file_name()? == "MacOS" && macos.parent()?.file_name()? == "Contents" {
+        let sidecar = macos.parent()?.join("Resources/omp");
+        return sidecar.is_file().then_some(sidecar);
     }
-    let contents = macos.parent()?;
-    if contents.file_name()? != "Contents" {
-        return None;
+    exe.ancestors()
+        .skip(1)
+        .take(3)
+        .map(|dir| dir.join("omp/omp"))
+        .find(|omp| omp.is_file())
+}
+
+/// The build's `omp.stamp`, written by `script/cedian-omp-build`, must name
+/// the pinned fork commit and the binary's sha256: `omp --version` reads the
+/// same for every build of a version, so it cannot tell the fork's from
+/// upstream's.
+fn verify_stamp(binary: &Path) -> Result<(), String> {
+    use sha2::{Digest as _, Sha256};
+    let rebuild = "rebuild it with script/cedian-omp-build";
+    let path = binary.with_file_name("omp.stamp");
+    let stamp: serde_json::Value = std::fs::read(&path)
+        .map_err(|e| e.to_string())
+        .and_then(|bytes| serde_json::from_slice(&bytes).map_err(|e| e.to_string()))
+        .map_err(|e| format!("{}: {e}; {rebuild}", path.display()))?;
+    let pinned = pinned_omp_commit();
+    let commit = stamp["commit"].as_str().unwrap_or("none");
+    if commit != pinned {
+        return Err(format!(
+            "{} was built from OMP fork commit {commit}, but cedian is pinned to {pinned}; {rebuild}",
+            binary.display()
+        ));
     }
-    let sidecar = contents.join("Resources/omp");
-    sidecar.is_file().then_some(sidecar)
+    let bytes = std::fs::read(binary).map_err(|e| format!("{}: {e}", binary.display()))?;
+    let actual = format!("{:x}", Sha256::digest(bytes));
+    if stamp["sha256"].as_str() != Some(actual.as_str()) {
+        return Err(format!(
+            "{}'s sha256 {actual} is not the one its omp.stamp records; {rebuild}",
+            binary.display()
+        ));
+    }
+    Ok(())
 }
 
 fn off_pin(

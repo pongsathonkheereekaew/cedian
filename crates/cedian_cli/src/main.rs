@@ -161,7 +161,9 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
                 "usage: cedian <prompt|shell|review|state|\
                 palette|workflow|worker> …"
             );
-            eprintln!("env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR, CEDIAN_OMP_BINARY");
+            eprintln!(
+                "env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR, CEDIAN_OMP_BINARY (else the bundled build of script/cedian-omp-build)"
+            );
             Ok(())
         }
     }

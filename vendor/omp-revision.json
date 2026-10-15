@@ -1,10 +1,15 @@
 {
-  "repo": "https://github.com/can1357/oh-my-pi",
-  "commit": "f068751e2f1dbdbc195977776d47a26db8697495",
-  "commitDate": "2026-10-08T18:52:25Z",
-  "subject": "chore: bump version to 18.8.6",
-  "sourceTreeHash": "172e0b54407504d8ab732eaa73bd037ee197710fdc4b580830240947cf94344b",
-  "builder": "pond@CEDIA.local",
+  "repo": "https://github.com/pongsathonkheereekaew/oh-my-pi",
+  "commit": "e27c172a9c4b1984d7a72ecc6e288ce9afe9e6c0",
+  "commitDate": "2026-10-15T08:50:42+07:00",
+  "subject": "Merge pull request #1 from pongsathonkheereekaew/cedian/host-debug",
+  "submodule": "vendor/oh-my-pi",
+  "build": "script/cedian-omp-build -> target/omp/omp + omp.stamp {commit, sha256}; the app runs only a build whose stamp names this commit (ADR-0075 decision 5)",
+  "upstream": {
+    "repo": "https://github.com/can1357/oh-my-pi",
+    "commit": "f068751e2f1dbdbc195977776d47a26db8697495",
+    "version": "18.8.6"
+  },
   "spikeVerified": {
     "ompVersion": "18.8.6",
     "date": "2026-10-11",
@@ -13,6 +18,6 @@
   "vendored": {
     "path": "vendor/omp-rpc",
     "upstream": "sdk/rust/omp-rpc",
-    "staleness": "CI-enforced upstream (`bun check`, `test/rpc-wire`); re-run generation + refresh this pin on bump"
+    "staleness": "src/wire.rs is upstream f068751e2f's byte for byte; the fork adds only the host-debug frames (set_host_debug, host_dap_message, host_dap_close), which cedian does not send yet. Re-run generation from the submodule when cedian uses them or on a pin bump"
   }
 }

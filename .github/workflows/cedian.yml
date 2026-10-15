@@ -2,11 +2,13 @@ name: cedian
 
 on:
   push:
-    paths: ["crates/cedian_**", "vendor/omp-rpc/**", "vendor/omp-revision.json", "script/cedian-*", "cedian/**", "Cargo.lock"]
+    paths: ["crates/cedian_**", "vendor/omp-rpc/**", "vendor/omp-revision.json", "vendor/oh-my-pi", "script/cedian-*", "cedian/**", "Cargo.lock", ".github/workflows/cedian.yml"]
   pull_request:
-    paths: ["crates/cedian_**", "vendor/omp-rpc/**", "vendor/omp-revision.json", "script/cedian-*", "cedian/**", "Cargo.lock"]
+    paths: ["crates/cedian_**", "vendor/omp-rpc/**", "vendor/omp-revision.json", "vendor/oh-my-pi", "script/cedian-*", "cedian/**", "Cargo.lock", ".github/workflows/cedian.yml"]
 
 jobs:
+  # Hermetic: every test runs a fake omp through CEDIAN_OMP_BINARY, so this
+  # job neither checks out nor builds the OMP fork.
   check:
     runs-on: macos-latest
     steps:
@@ -16,3 +18,30 @@ jobs:
           components: clippy, rustfmt
       - name: cedian crates (fmt, clippy, hermetic tests; live lanes never gate)
         run: script/cedian-check
+
+  # The OMP the app bundles (ADR-0075 decision 5). Its output is cached by
+  # the submodule commit and the build script, so only a fork bump pays the
+  # cold native build; a hit makes the script verify the stamp and skip.
+  omp:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - id: pin
+        run: echo "commit=$(git -C vendor/oh-my-pi rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: target/omp
+          key: omp-${{ runner.os }}-${{ runner.arch }}-${{ steps.pin.outputs.commit }}-${{ hashFiles('script/cedian-omp-build') }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: build the fork's omp (skips on a cache hit)
+        run: script/cedian-omp-build
+      - name: the build runs
+        run: target/omp/omp --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omp-${{ steps.pin.outputs.commit }}
+          path: target/omp/

@@ -3,10 +3,11 @@
 #
 # The bundle is built unsigned: it is the owner's own build (ADR-0062), so
 # signing and notarization are for redistributing it, not for running it. A
-# set `CODESIGN_IDENTITY` signs it anyway. `script/cedian-build-omp` builds the
-# pinned OMP sidecar from `vendor/omp-revision.json` (ADR-0003's recorded
-# triple); set `CEDIAN_SKIP_OMP=1` to skip it, and the bundle then needs an
-# `omp` on PATH (the app prefers the sidecar when it is there).
+# set `CODESIGN_IDENTITY` signs it anyway. `script/cedian-omp-build` builds the
+# OMP fork's binary from `vendor/oh-my-pi` (ADR-0075 decision 5), and the
+# bundle carries it with its stamp as `Contents/Resources/omp{,.stamp}`; the
+# app runs no other OMP. `CEDIAN_SKIP_OMP=1` leaves it out, and that bundle
+# then runs only with `CEDIAN_OMP_BINARY` set.
 #
 #   script/cedian-bundle
 #   CODESIGN_IDENTITY="Developer ID Application: …" script/cedian-bundle
@@ -66,9 +67,10 @@ else
 fi
 
 if [ "${CEDIAN_SKIP_OMP:-0}" = 1 ]; then
-  echo "cedian-bundle: CEDIAN_SKIP_OMP=1: no Contents/Resources/omp; cedian then finds an omp on PATH or in ~/.local/bin (ADR-0057 decision 4)" >&2
+  echo "cedian-bundle: CEDIAN_SKIP_OMP=1: no Contents/Resources/omp; this bundle refuses to start OMP unless CEDIAN_OMP_BINARY is set" >&2
 else
-  script/cedian-build-omp
+  script/cedian-omp-build
+  cp target/omp/omp target/omp/omp.stamp "$APP/Contents/Resources/"
 fi
 
 if [ -n "$IDENTITY" ]; then
