@@ -171,7 +171,13 @@ fn value_of<'a>(line: &'a str, var: &str) -> Option<&'a str> {
     let line = line.trim_start();
     let line = line.strip_prefix("export ").unwrap_or(line).trim_start();
     let rest = line.strip_prefix(var)?.trim_start();
-    Some(rest.strip_prefix('=')?.trim())
+    let value = rest.strip_prefix('=')?.trim();
+    Some(
+        ['"', '\'']
+            .iter()
+            .find_map(|quote| value.strip_prefix(*quote)?.strip_suffix(*quote))
+            .unwrap_or(value),
+    )
 }
 
 #[cfg(test)]
@@ -243,6 +249,26 @@ mod tests {
             .map(|entry| entry.file_name())
             .collect();
         assert_eq!(leftovers, [std::ffi::OsString::from(".env")]);
+    }
+
+    #[test]
+    fn a_quoted_key_shows_its_own_ending() {
+        let dir = Dir::new("quoted");
+        std::fs::create_dir_all(&dir.0).unwrap();
+        let env = EnvFile::in_dir(&dir.0);
+        std::fs::write(
+            env.path(),
+            "OPENAI_API_KEY=\"sk-test-4f2a\"\nGEMINI_API_KEY='g-0000'\n",
+        )
+        .unwrap();
+        assert_eq!(
+            env.key_ending("OPENAI_API_KEY").unwrap().as_deref(),
+            Some("4f2a")
+        );
+        assert_eq!(
+            env.key_ending("GEMINI_API_KEY").unwrap().as_deref(),
+            Some("0000")
+        );
     }
 
     #[test]

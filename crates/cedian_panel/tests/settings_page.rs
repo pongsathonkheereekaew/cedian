@@ -178,6 +178,30 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         p.default_thinking() == Some(Thinking::Medium)
     });
     assert_eq!(global(root)["defaultThinkingLevel"], json!("medium"));
+
+    // Closing Settings right after a change does not cancel its write.
+    let closing =
+        cx.add_window(|window, cx| OmpSettings::new(project.clone(), ws.clone(), window, cx));
+    wait(cx, &closing, "the closing page's read", |p| {
+        p.reloads() >= 1 && !p.settings().is_empty()
+    });
+    closing
+        .update(cx, |p, window, cx| {
+            p.set_role("smol", "anthropic/haiku", cx);
+            window.remove_window();
+        })
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while global(root)["modelRoles"].get("smol").is_none() {
+        assert!(
+            Instant::now() < deadline,
+            "the write died with the page: {}",
+            global(root)["modelRoles"]
+        );
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(global(root)["modelRoles"]["smol"], json!("anthropic/haiku"));
 }
 
 /// OMP's global config as fake-omp keeps it.

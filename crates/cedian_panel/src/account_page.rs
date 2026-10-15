@@ -18,6 +18,7 @@ use ui::{Button, ButtonStyle, Checkbox, Divider, Label, ToggleState, prelude::*}
 pub struct ProviderRow {
     pub status: String,
     pub action: ProviderAction,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +27,8 @@ pub enum ProviderAction {
     /// Another login runs, or the agent cannot log in to this provider.
     LogInDisabled,
     LogOut,
+    /// Who is signed in is not read yet, or could not be.
+    LogOutDisabled,
     Cancel,
 }
 
@@ -34,12 +37,12 @@ pub fn provider_row(account: &Account, provider: &omp_rpc::LoginProvider) -> Pro
         return ProviderRow {
             status: "Signing in… Finish in your browser.".to_string(),
             action: ProviderAction::Cancel,
+            error: None,
         };
     }
     if provider.authenticated {
-        let labels: Vec<&str> = account
-            .accounts
-            .get(&provider.id)
+        let accounts = account.accounts.get(&provider.id);
+        let labels: Vec<&str> = accounts
             .into_iter()
             .flatten()
             .map(|account| account.label.as_str())
@@ -50,7 +53,15 @@ pub fn provider_row(account: &Account, provider: &omp_rpc::LoginProvider) -> Pro
                 [] => "Signed in".to_string(),
                 labels => format!("Signed in as {}", labels.join(", ")),
             },
-            action: ProviderAction::LogOut,
+            action: if accounts.is_some() {
+                ProviderAction::LogOut
+            } else {
+                ProviderAction::LogOutDisabled
+            },
+            error: account
+                .account_read_errors
+                .get(&provider.id)
+                .map(|e| format!("Cannot read who is signed in: {e}")),
         };
     }
     ProviderRow {
@@ -60,6 +71,7 @@ pub fn provider_row(account: &Account, provider: &omp_rpc::LoginProvider) -> Pro
         } else {
             ProviderAction::LogInDisabled
         },
+        error: None,
     }
 }
 
@@ -107,7 +119,7 @@ pub struct AccountPage {
     agent_dir: Option<PathBuf>,
     keys: Vec<KeyRow>,
     import: ImportForm,
-    _observe: Subscription,
+    _subscriptions: [Subscription; 2],
 }
 
 impl AccountPage {
@@ -138,7 +150,22 @@ impl AccountPage {
             .collect();
         panel.update(cx, |panel, _| panel.show_account());
         let mut this = Self {
-            _observe: cx.observe(&panel, |_, _, cx| cx.notify()),
+            _subscriptions: [
+                // A restart forgets that the page is open; read again once
+                // the new agent is up.
+                cx.observe(&panel, |_, panel, cx| {
+                    let reopen = {
+                        let panel = panel.read(cx);
+                        matches!(panel.connection(), Connection::Ready { .. })
+                            && !panel.account().shown_in_settings
+                    };
+                    if reopen {
+                        panel.update(cx, |panel, _| panel.show_account());
+                    }
+                    cx.notify()
+                }),
+                cx.on_release(|this, cx| this.panel.update(cx, |panel, _| panel.hide_account())),
+            ],
             panel,
             workspace_window,
             import: ImportForm {
@@ -395,12 +422,15 @@ impl AccountPage {
                         }))
                         .into_any_element()
                 }
-                ProviderAction::LogOut => Button::new(action_id, "Log Out")
-                    .style(ButtonStyle::OutlinedGhost)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.panel.update(cx, |panel, cx| panel.log_out(&id, cx));
-                    }))
-                    .into_any_element(),
+                ProviderAction::LogOut | ProviderAction::LogOutDisabled => {
+                    Button::new(action_id, "Log Out")
+                        .style(ButtonStyle::OutlinedGhost)
+                        .disabled(row.action == ProviderAction::LogOutDisabled)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.panel.update(cx, |panel, cx| panel.log_out(&id, cx));
+                        }))
+                        .into_any_element()
+                }
                 ProviderAction::Cancel => {
                     let link = account
                         .url
@@ -431,7 +461,9 @@ impl AccountPage {
                     provider.name.clone().into(),
                     Some(row.status.into()),
                     None,
-                    None,
+                    row.error
+                        .map(|error| RowState::Error(error.into()))
+                        .as_ref(),
                     control,
                     cx,
                 )
@@ -719,8 +751,10 @@ mod tests {
             provider_row(&account, &anthropic),
             ProviderRow {
                 status: "Signed in".into(),
-                action: ProviderAction::LogOut
-            }
+                action: ProviderAction::LogOutDisabled,
+                error: None
+            },
+            "who to log out is not read yet"
         );
         account.accounts.insert(
             "anthropic".into(),
@@ -734,8 +768,12 @@ mod tests {
             }],
         );
         assert_eq!(
-            provider_row(&account, &anthropic).status,
-            "Signed in as pond@example.com"
+            provider_row(&account, &anthropic),
+            ProviderRow {
+                status: "Signed in as pond@example.com".into(),
+                action: ProviderAction::LogOut,
+                error: None
+            }
         );
 
         let openai = provider("openai", true, false);
@@ -754,7 +792,8 @@ mod tests {
             provider_row(&account, &openai),
             ProviderRow {
                 status: "Signing in… Finish in your browser.".into(),
-                action: ProviderAction::Cancel
+                action: ProviderAction::Cancel,
+                error: None
             }
         );
         assert_eq!(
@@ -866,6 +905,18 @@ mod tests {
             assert_eq!(page.key_ending(var), Some(&Ok(None)))
         })
         .unwrap();
+    }
+
+    #[gpui::test]
+    async fn closing_the_page_stops_reading_who_is_signed_in(cx: &mut gpui::TestAppContext) {
+        let dir =
+            Dir(std::env::temp_dir().join(format!("cedian-account-close-{}", std::process::id())));
+        let (panel, page) = page(cx, dir.0.clone()).await;
+        panel.read_with(cx, |panel, _| assert!(panel.account().shown_in_settings));
+        page.update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+        cx.run_until_parked();
+        panel.read_with(cx, |panel, _| assert!(!panel.account().shown_in_settings));
     }
 
     #[gpui::test]

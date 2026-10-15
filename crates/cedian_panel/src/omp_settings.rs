@@ -9,7 +9,10 @@ use cedian_omp::omp_config::{Entry, Setting, layered, overlay_keys};
 use cedian_omp::{Layer, OmpConfig};
 use collections::HashSet;
 use editor::Editor;
+use futures::FutureExt as _;
 use futures::StreamExt as _;
+use futures::channel::oneshot;
+use futures::future::Shared;
 use gpui::{App, Context, Entity, FocusHandle, Focusable, Render, Task, Window};
 use project::Project;
 use serde_json::Value;
@@ -36,7 +39,9 @@ pub struct OmpSettings {
     value: Entity<Editor>,
     selected: Option<String>,
     _watch: Option<Task<()>>,
-    write_queue: Option<Task<()>>,
+    /// The last write's completion: the next write waits for it. The write
+    /// itself is detached, so closing Settings does not cancel it.
+    last_write: Option<Shared<oneshot::Receiver<()>>>,
 }
 
 impl OmpSettings {
@@ -72,7 +77,7 @@ impl OmpSettings {
             value,
             selected: None,
             _watch: None,
-            write_queue: None,
+            last_write: None,
         };
         // `omp` runs to choose the binary and read its allows: off the UI
         // thread (ADR-0057 decision 4).
@@ -229,14 +234,18 @@ impl OmpSettings {
             return;
         };
         let workdir = self.workdir.clone();
-        let previous = self.write_queue.take();
-        let (done, outcome) = futures::channel::oneshot::channel();
-        self.write_queue = Some(cx.background_spawn(async move {
+        let previous = self.last_write.take();
+        let (done, outcome) = oneshot::channel();
+        let (written, last_write) = oneshot::channel();
+        self.last_write = Some(last_write.shared());
+        cx.background_spawn(async move {
             if let Some(previous) = previous {
-                previous.await;
+                previous.await.ok();
             }
             done.send(op(&config, &workdir)).ok();
-        }));
+            written.send(()).ok();
+        })
+        .detach();
         cx.spawn(async move |this, cx| {
             let Ok(outcome) = outcome.await else {
                 return;
