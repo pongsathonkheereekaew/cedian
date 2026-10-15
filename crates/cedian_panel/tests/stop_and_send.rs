@@ -85,7 +85,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         ready(p) && p.turn() == &Turn::Streaming
     });
     assert_eq!(submit(cx, &window, "two"), Turn::Streaming);
-    wait(cx, &window, "OMP to have the follow-up", |_| {
+    wait(cx, &window, "cedian agent to have the follow-up", |_| {
         ws.join("omp-got-two").exists()
     });
     let turn_one = review_turn(cx, &window);

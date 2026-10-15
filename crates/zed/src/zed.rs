@@ -1528,6 +1528,9 @@ fn initialize_pane(
     });
 }
 
+/// ADR-0078 decision 4: About keeps Zed's and OMP's notices.
+const ABOUT_CREDITS: &str = "Built on Zed (GPL-3.0) and OMP, the cedian agent (MIT).";
+
 fn open_about_window(cx: &mut App) {
     fn about_window_icon() -> Arc<Image> {
         let bytes = include_bytes!("../resources/cedian-icon.png").as_slice();
@@ -1630,7 +1633,12 @@ fn open_about_window(cx: &mut App) {
                                     .color(Color::Muted)
                                     .size(LabelSize::XSmall),
                             )
-                            .child(Label::new(self.full_version.clone()).size(LabelSize::Small)),
+                            .child(Label::new(self.full_version.clone()).size(LabelSize::Small))
+                            .child(
+                                Label::new(ABOUT_CREDITS)
+                                    .color(Color::Muted)
+                                    .size(LabelSize::XSmall),
+                            ),
                     )
                     .child(
                         h_flex()
@@ -2867,6 +2875,13 @@ pub(crate) fn eager_load_active_theme_and_icon_theme(fs: Arc<dyn Fs>, cx: &mut A
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn about_credits_zed_and_omp_with_their_licenses() {
+        for notice in ["Zed", "GPL-3.0", "OMP", "MIT"] {
+            assert!(ABOUT_CREDITS.contains(notice), "{notice}: {ABOUT_CREDITS}");
+        }
+    }
     use assets::Assets;
     use collections::HashSet;
     use editor::{

@@ -37,41 +37,47 @@ pub enum OmpError {
 impl fmt::Display for OmpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Spawn(e) => write!(f, "failed to spawn OMP runtime: {e}"),
-            Self::Handshake(e) => write!(f, "OMP handshake failed: {e}"),
+            Self::Spawn(e) => write!(f, "failed to spawn cedian agent runtime: {e}"),
+            Self::Handshake(e) => write!(f, "cedian agent handshake failed: {e}"),
             Self::Mismatch { expected, got } => {
                 write!(
                     f,
-                    "OMP runtime version mismatch (expected {expected}, got {got})"
+                    "cedian agent runtime version mismatch (expected {expected}, got {got})"
                 )
             }
-            Self::Transport(e) => write!(f, "OMP transport error: {e}"),
+            Self::Transport(e) => write!(f, "cedian agent transport error: {e}"),
             Self::Command {
                 command,
                 error,
                 code: Some(code),
             } => {
-                write!(f, "OMP command {command} failed ({code}): {error}")
+                write!(f, "cedian agent command {command} failed ({code}): {error}")
             }
             Self::Command {
                 command,
                 error,
                 code: None,
             } => {
-                write!(f, "OMP command {command} failed: {error}")
+                write!(f, "cedian agent command {command} failed: {error}")
             }
             Self::Timeout {
                 command,
                 after: Some(after),
-            } => write!(f, "OMP command {command} timed out after {after:?}"),
+            } => write!(
+                f,
+                "cedian agent command {command} timed out after {after:?}"
+            ),
             Self::Timeout {
                 command,
                 after: None,
-            } => write!(f, "OMP command {command} timed out"),
+            } => write!(f, "cedian agent command {command} timed out"),
             Self::StreamEnded { prompt_id } => {
-                write!(f, "OMP stream ended before prompt {prompt_id} completed")
+                write!(
+                    f,
+                    "cedian agent stream ended before prompt {prompt_id} completed"
+                )
             }
-            Self::InvalidSpawnProfile(e) => write!(f, "invalid OMP spawn profile: {e}"),
+            Self::InvalidSpawnProfile(e) => write!(f, "invalid cedian agent spawn profile: {e}"),
         }
     }
 }
@@ -128,12 +134,18 @@ mod tests {
 
     #[test]
     fn client_timeout_never_claims_a_zero_wait() {
-        assert_eq!(client_timeout().to_string(), "OMP command prompt timed out");
+        assert_eq!(
+            client_timeout().to_string(),
+            "cedian agent command prompt timed out"
+        );
     }
 
     #[test]
     fn timeout_names_the_wait_when_the_caller_knows_it() {
         let e = client_timeout().with_timeout(Duration::from_secs(600));
-        assert_eq!(e.to_string(), "OMP command prompt timed out after 600s");
+        assert_eq!(
+            e.to_string(),
+            "cedian agent command prompt timed out after 600s"
+        );
     }
 }

@@ -89,7 +89,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     let pid = window
         .update(cx, |p, _, _| p.omp_pid())
         .unwrap()
-        .expect("OMP pid");
+        .expect("cedian agent pid");
 
     // Crash: OMP is killed from outside.
     let killed = std::process::Command::new("kill")
@@ -97,11 +97,11 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         .status()
         .unwrap();
     assert!(killed.success());
-    let stopped = wait(cx, &window, "the panel to notice OMP died", |c| {
+    let stopped = wait(cx, &window, "the panel to notice cedian agent died", |c| {
         matches!(c, Connection::Stopped(_))
     });
     assert!(
-        matches!(&stopped, Connection::Stopped(why) if why.contains("OMP stopped")),
+        matches!(&stopped, Connection::Stopped(why) if why.contains("cedian agent stopped")),
         "{stopped:?}"
     );
     // The app lives on: the panel still takes input, and refuses the prompt
@@ -114,7 +114,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         })
         .unwrap();
     assert!(
-        status.contains("OMP stopped") && status.contains("restart"),
+        status.contains("cedian agent stopped") && status.contains("restart"),
         "{status}"
     );
 
@@ -135,7 +135,10 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         "{again:?}"
     );
     let new_pid = window.update(cx, |p, _, _| p.omp_pid()).unwrap();
-    assert!(new_pid.is_some_and(|p| p != pid), "a new OMP process");
+    assert!(
+        new_pid.is_some_and(|p| p != pid),
+        "a new cedian agent process"
+    );
 }
 
 fn session_dir(ws: &Path) -> PathBuf {

@@ -91,7 +91,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     let project = Project::test(fs::RealFs::new(None, cx.executor()), [ws.as_path()], cx).await;
     let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
     let mut vcx = VisualTestContext::from_window(window.into(), cx);
-    wait(cx, &window, "OMP ready", |p| {
+    wait(cx, &window, "cedian agent ready", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
 
@@ -190,7 +190,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
             .unwrap(),
         "sent with the prompt"
     );
-    wait(cx, &window, "OMP to start the turn", |p| {
+    wait(cx, &window, "cedian agent to start the turn", |p| {
         p.turn() == &Turn::Streaming
     });
     click(&mut vcx, "cedian-stop");

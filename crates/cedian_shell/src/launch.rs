@@ -103,14 +103,15 @@ pub fn omp_binary() -> Result<OmpChoice, String> {
 /// ([`omp_binary`] passes the running one; tests drive fake layouts, which
 /// `current_exe` cannot be moved to).
 pub fn omp_binary_for(exe: Option<&Path>) -> Result<OmpChoice, String> {
-    if let Some(binary) = std::env::var_os("CEDIAN_OMP_BINARY").map(PathBuf::from) {
+    let set = std::env::var_os("CEDIAN_OMP_BINARY");
+    if let Some(binary) = binary_override(HONOR_BINARY_OVERRIDE, set) {
         let version = cedian_omp::omp_version(&binary, Duration::from_secs(3));
         let warning = off_pin(&pinned_omp_version(), &binary, version);
         return Ok(OmpChoice { binary, warning });
     }
     let binary = exe.and_then(bundled_omp).ok_or_else(|| {
         format!(
-            "no bundled OMP next to {}: build it with script/cedian-omp-build (or set CEDIAN_OMP_BINARY); cedian does not run the omp on PATH",
+            "no bundled cedian agent next to {}: build it with script/cedian-omp-build (or, in a dev build, set CEDIAN_OMP_BINARY); cedian does not run the omp on PATH",
             exe.map_or("the app".into(), |exe| exe.display().to_string())
         )
     })?;
@@ -121,14 +122,33 @@ pub fn omp_binary_for(exe: Option<&Path>) -> Result<OmpChoice, String> {
     })
 }
 
-/// Where the app's OMP sits: `Contents/Resources/omp` when `exe` is in a
+/// Whether `CEDIAN_OMP_BINARY` is honored: in debug builds only (ADR-0078
+/// decision 5). `debug_assertions` rather than the release channel, because
+/// the channel is a runtime value a person can change with an env var or
+/// file, while this is fixed when the binary is compiled: every `cargo test`
+/// and dev build honors it, and the release build the bundle ships cannot.
+const HONOR_BINARY_OVERRIDE: bool = cfg!(debug_assertions);
+
+fn binary_override(honor: bool, set: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    set.filter(|_| honor).map(PathBuf::from)
+}
+
+/// `<binary>.stamp` beside the binary: `omp.stamp` in a dev build,
+/// `cedian-agent.stamp` in the bundle.
+fn stamp_path(binary: &Path) -> PathBuf {
+    let mut name = binary.file_name().unwrap_or_default().to_os_string();
+    name.push(".stamp");
+    binary.with_file_name(name)
+}
+
+/// Where the app's agent sits: `Contents/Resources/cedian-agent` when `exe` is in a
 /// bundle's `Contents/MacOS`, else `<dir>/omp/omp` for the first of `exe`'s
 /// three nearest ancestors that has one, which finds `target/omp/omp` from
 /// `target/<profile>/cedian` and from a test's `target/<profile>/deps/<t>`.
 fn bundled_omp(exe: &Path) -> Option<PathBuf> {
     let macos = exe.parent()?;
     if macos.file_name()? == "MacOS" && macos.parent()?.file_name()? == "Contents" {
-        let sidecar = macos.parent()?.join("Resources/omp");
+        let sidecar = macos.parent()?.join("Resources/cedian-agent");
         return sidecar.is_file().then_some(sidecar);
     }
     exe.ancestors()
@@ -145,7 +165,7 @@ fn bundled_omp(exe: &Path) -> Option<PathBuf> {
 fn verify_stamp(binary: &Path) -> Result<(), String> {
     use sha2::{Digest as _, Sha256};
     let rebuild = "rebuild it with script/cedian-omp-build";
-    let path = binary.with_file_name("omp.stamp");
+    let path = stamp_path(binary);
     let stamp: serde_json::Value = std::fs::read(&path)
         .map_err(|e| e.to_string())
         .and_then(|bytes| serde_json::from_slice(&bytes).map_err(|e| e.to_string()))
@@ -154,7 +174,7 @@ fn verify_stamp(binary: &Path) -> Result<(), String> {
     let commit = stamp["commit"].as_str().unwrap_or("none");
     if commit != pinned {
         return Err(format!(
-            "{} was built from OMP fork commit {commit}, but cedian is pinned to {pinned}; {rebuild}",
+            "{} was built from cedian agent commit {commit}, but cedian is pinned to {pinned}; {rebuild}",
             binary.display()
         ));
     }
@@ -162,7 +182,7 @@ fn verify_stamp(binary: &Path) -> Result<(), String> {
     let actual = format!("{:x}", Sha256::digest(bytes));
     if stamp["sha256"].as_str() != Some(actual.as_str()) {
         return Err(format!(
-            "{}'s sha256 {actual} is not the one its omp.stamp records; {rebuild}",
+            "{}'s sha256 {actual} is not the one its stamp records; {rebuild}",
             binary.display()
         ));
     }
@@ -176,11 +196,11 @@ fn off_pin(
 ) -> Option<String> {
     let found = match version {
         Ok(version) if version == pinned => return None,
-        Ok(version) => format!("OMP {version}"),
-        Err(e) => format!("an OMP whose version cannot be read ({e})"),
+        Ok(version) => format!("cedian agent {version}"),
+        Err(e) => format!("a cedian agent whose version cannot be read ({e})"),
     };
     Some(format!(
-        "cedian is pinned to OMP {pinned} but found {found} at {}; it runs that one",
+        "cedian is pinned to cedian agent {pinned} but found {found} at {}; it runs that one",
         binary.display()
     ))
 }
@@ -220,7 +240,7 @@ pub fn omp_policy_badge(binary: &Path, workdir: &Path) -> String {
     });
     let _ = std::fs::remove_dir(&empty);
     format!(
-        "◆ OMP policy — approvals and computer from your OMP config (approvalMode: {mode}; computer: {computer})"
+        "◆ agent policy — approvals and computer from your agent config (approvalMode: {mode}; computer: {computer})"
     )
 }
 
@@ -230,10 +250,12 @@ pub fn omp_policy_badge(binary: &Path, workdir: &Path) -> String {
 pub fn config_allows(binary: &Path, workdir: &Path) -> Result<BTreeSet<String>, String> {
     let record =
         cedian_omp::omp_config_get(binary, workdir, "tools.approval", Duration::from_secs(10))
-            .map_err(|e| format!("cannot read OMP's tools.approval, so cannot pin it: {e}"))?;
+            .map_err(|e| {
+                format!("cannot read cedian agent's tools.approval, so cannot pin it: {e}")
+            })?;
     let record = record
         .as_object()
-        .ok_or("OMP's tools.approval is not a record")?;
+        .ok_or("cedian agent's tools.approval is not a record")?;
     Ok(record
         .iter()
         .filter(|(_, v)| v.as_str() == Some("allow"))
@@ -244,6 +266,45 @@ pub fn config_allows(binary: &Path, workdir: &Path) -> Result<BTreeSet<String>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR-0078 decision 5: a shipped (release) app ignores
+    /// `CEDIAN_OMP_BINARY`; dev and test builds honor it.
+    #[test]
+    fn release_build_ignores_the_binary_override() {
+        let set = Some(std::ffi::OsString::from("/tmp/fake-omp"));
+        assert_eq!(binary_override(false, set.clone()), None);
+        assert_eq!(
+            binary_override(true, set),
+            Some(PathBuf::from("/tmp/fake-omp"))
+        );
+        assert_eq!(binary_override(true, None), None);
+        assert!(HONOR_BINARY_OVERRIDE, "test builds are debug builds");
+    }
+
+    /// ADR-0078 decision 4: the bundle carries the agent as
+    /// `Contents/Resources/cedian-agent`, with `cedian-agent.stamp` beside it.
+    #[test]
+    fn bundled_agent_is_named_cedian_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        let contents = dir.path().join("cedian.app/Contents");
+        std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+        std::fs::create_dir_all(contents.join("Resources")).unwrap();
+        let exe = contents.join("MacOS/cedian");
+        assert_eq!(bundled_omp(&exe), None);
+        std::fs::write(contents.join("Resources/cedian-agent"), "").unwrap();
+        assert_eq!(
+            bundled_omp(&exe),
+            Some(contents.join("Resources/cedian-agent"))
+        );
+        assert_eq!(
+            stamp_path(&contents.join("Resources/cedian-agent")),
+            contents.join("Resources/cedian-agent.stamp")
+        );
+        assert_eq!(
+            stamp_path(Path::new("target/omp/omp")),
+            PathBuf::from("target/omp/omp.stamp")
+        );
+    }
 
     #[test]
     fn opt_in_hands_approvals_to_omp_but_keeps_denies() {

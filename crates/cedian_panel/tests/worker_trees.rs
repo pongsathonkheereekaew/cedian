@@ -101,7 +101,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     let project = Project::test(fs::RealFs::new(None, cx.executor()), [ws.as_path()], cx).await;
     let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
     let mut vcx = VisualTestContext::from_window(window.into(), cx);
-    wait(cx, &window, "OMP ready", |p| {
+    wait(cx, &window, "cedian agent ready", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
 
@@ -187,7 +187,11 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     );
     assert_eq!(row.state.path, ws.join(".worktrees/w1"));
     let head = row.head.expect("the request recorded a registry row");
-    assert_eq!(head.status, WorkerStatus::Running, "OMP just started it");
+    assert_eq!(
+        head.status,
+        WorkerStatus::Running,
+        "cedian agent just started it"
+    );
     assert_eq!(head.task_title, "fix the casing");
     assert_eq!(head.timebox_min, 15.0, "the brief's timebox is the row's");
     assert!(!row.stuck);

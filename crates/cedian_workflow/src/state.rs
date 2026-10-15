@@ -360,7 +360,7 @@ impl WorkflowState {
                 "already a gate"
             };
             return Err(format!(
-                "gate {:?} is {whose}; OMP may only add new gates",
+                "gate {:?} is {whose}; cedian agent may only add new gates",
                 gate.id
             ));
         }

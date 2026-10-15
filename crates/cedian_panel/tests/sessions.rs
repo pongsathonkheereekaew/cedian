@@ -103,7 +103,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     let project = Project::test(fs::RealFs::new(None, cx.executor()), [ws.as_path()], cx).await;
     let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
     let mut vcx = VisualTestContext::from_window(window.into(), cx);
-    wait(cx, &window, "OMP ready", |p| {
+    wait(cx, &window, "cedian agent ready", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
 
@@ -139,7 +139,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
             (B.to_string(), Some("flaky test hunt".to_string())),
             (A.to_string(), Some("release checklist".to_string())),
         ],
-        "newest first, with OMP's titles"
+        "newest first, with cedian agent's titles"
     );
     click(&mut vcx, "cedian-open-session-92ebbd2e");
     wait(
@@ -192,7 +192,10 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         .update(cx, |p, _, _| p.sessions().history.clone())
         .unwrap();
     assert_eq!(history.lines[24], "bash: $ echo a-25 → a-25");
-    assert_eq!(history.next, None, "OMP gave no cursor after the last page");
+    assert_eq!(
+        history.next, None,
+        "cedian agent gave no cursor after the last page"
+    );
     click(&mut vcx, "cedian-history-all");
     wait(cx, &window, "every message", |p| p.sessions().history.all);
     assert_eq!(
@@ -220,7 +223,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
             .update(cx, |p, _, _| p.sessions().history.last_reply.clone())
             .unwrap(),
         Some(None),
-        "OMP answers {{}} when the session has no reply"
+        "cedian agent answers {{}} when the session has no reply"
     );
     assert!(rendered(&mut vcx, "cedian-last-reply-text").is_some());
 
@@ -270,7 +273,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         !ws.join(format!("{A}.html")).exists(),
         "nothing lands in the project"
     );
-    wait(cx, &window, "OMP's own title", |p| {
+    wait(cx, &window, "cedian agent's own title", |p| {
         p.sessions().title.as_deref() == Some("Release checklist, as OMP titled it")
     });
 

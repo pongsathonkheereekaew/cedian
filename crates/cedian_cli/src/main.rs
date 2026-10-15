@@ -162,7 +162,7 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
                 palette|workflow|worker> …"
             );
             eprintln!(
-                "env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR, CEDIAN_OMP_BINARY (else the bundled build of script/cedian-omp-build)"
+                "env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR, CEDIAN_OMP_BINARY (dev builds only; else the bundled cedian agent)"
             );
             Ok(())
         }
@@ -255,7 +255,7 @@ fn end_workflow_turn(workdir: &Path) -> Result<(), String> {
     } else {
         ("BLOCKED", "`cedian workflow resume` to continue")
     };
-    println!("[!] workflow {word}: the agent claimed done with required gates unmet");
+    println!("[!] workflow {word}: cedian agent claimed done with required gates unmet");
     for m in &missing {
         println!("    - {m}");
     }
@@ -350,7 +350,7 @@ fn spawn(
         let p = &settings.permissions;
         if [p.safe, p.project_write, p.dangerous].contains(&cedian_shell::Verdict::Ask) {
             println!(
-                "note: [permissions] ask tiers do not apply under policy = \"omp\" (OMP decides); deny tiers still do"
+                "note: [permissions] ask tiers do not apply under policy = \"omp\" (cedian agent decides); deny tiers still do"
             );
         }
     }
@@ -576,7 +576,7 @@ pub(crate) fn run_turn(
             && cedian_omp::spawn_profile::EXEC_TOOLS.contains(&card.name.as_str())
             && card.status == cedian_agent_ui::ToolCardStatus::Done
         {
-            " · approved by OMP"
+            " · approved by cedian agent"
         } else {
             ""
         };

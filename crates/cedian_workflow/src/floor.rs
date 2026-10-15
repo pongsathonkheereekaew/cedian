@@ -76,7 +76,7 @@ impl GateFloor {
                 }
                 if role.contains('/') {
                     return Err(format!(
-                        "floor rule {}: review_roles names a model id {role:?}; use an OMP role name (ADR-0039)",
+                        "floor rule {}: review_roles names a model id {role:?}; use a cedian agent role name (ADR-0039)",
                         n + 1
                     ));
                 }

@@ -115,7 +115,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     let project = Project::test(fs::RealFs::new(None, cx.executor()), [ws.as_path()], cx).await;
     let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
     let mut vcx = VisualTestContext::from_window(window.into(), cx);
-    wait(cx, &window, "OMP ready", |p| {
+    wait(cx, &window, "cedian agent ready", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
 
@@ -250,7 +250,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     window
         .update(cx, |p, window, cx| p.restart(window, cx))
         .unwrap();
-    wait(cx, &window, "the new OMP", |p| {
+    wait(cx, &window, "the new cedian agent", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
     let (rows, steer_box, note) = window
@@ -265,7 +265,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     assert_eq!(
         (rows, steer_box, note),
         (0, false, false),
-        "the old OMP's subagents went"
+        "the old cedian agent's subagents went"
     );
     assert!(rendered(&mut vcx, "cedian-subagent-sa-3").is_none());
 
@@ -281,14 +281,19 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         .status()
         .unwrap();
     assert!(killed.success());
-    wait(cx, &window, "OMP gone and its subagent ended", |p| {
-        matches!(p.connection(), Connection::Stopped(_))
-            && statuses(p) == [("sa-4", SubagentStatus::Aborted)]
-    });
+    wait(
+        cx,
+        &window,
+        "cedian agent gone and its subagent ended",
+        |p| {
+            matches!(p.connection(), Connection::Stopped(_))
+                && statuses(p) == [("sa-4", SubagentStatus::Aborted)]
+        },
+    );
     for control in ["cedian-subagent-sa-4-cancel", "cedian-subagent-sa-4-steer"] {
         assert!(
             rendered(&mut vcx, control).is_none(),
-            "{control} after OMP died"
+            "{control} after cedian agent died"
         );
     }
     window
@@ -302,7 +307,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
             .any(|row| {
                 row["item"]["tool"] == "cancel_subagent"
                     && row["item"]["command"] == "sa-4"
-                    && row["item"]["error"] == "OMP is not running"
+                    && row["item"]["error"] == "cedian agent is not running"
             })
     };
     assert!(
@@ -312,7 +317,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     wait(
         cx,
         &window,
-        "a Cancel with OMP gone to be an audit row",
+        "a Cancel with cedian agent gone to be an audit row",
         |_| audited(),
     );
 }

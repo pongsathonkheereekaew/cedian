@@ -631,7 +631,7 @@ fn classify_agent_event(event: &RpcAgentEvent) -> RouterEvent {
         // The event carries no warnings; OMP lists them in its own UI.
         RpcAgentEvent::ConfigWarningsChanged(_) => RouterEvent::Toast(Toast {
             level: ToastLevel::Warning,
-            text: "OMP's config warnings changed (retry fallback chains); run omp to see them"
+            text: "cedian agent's config warnings changed (retry fallback chains); run omp to see them"
                 .to_string(),
         }),
         RpcAgentEvent::TtsrTriggered(event) => {
@@ -642,7 +642,7 @@ fn classify_agent_event(event: &RpcAgentEvent) -> RouterEvent {
                 .collect();
             RouterEvent::Toast(Toast {
                 level: ToastLevel::Info,
-                text: format!("OMP rule triggered mid-stream: {}", names.join(", ")),
+                text: format!("cedian agent rule triggered mid-stream: {}", names.join(", ")),
             })
         }
         RpcAgentEvent::QueueUpdate(queue) => RouterEvent::Queue {

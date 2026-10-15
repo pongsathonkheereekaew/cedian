@@ -348,11 +348,11 @@ impl Render for Onboarding {
                                         h_flex().gap_4().child(CedianMark::new(rems(2.5))).child(
                                             v_flex()
                                                 .child(
-                                                    Headline::new("Welcome to Zed")
+                                                    Headline::new("Welcome to cedian")
                                                         .size(HeadlineSize::Small),
                                                 )
                                                 .child(
-                                                    Label::new("The editor for what's next")
+                                                    Label::new("An editor that shows its work")
                                                         .color(Color::Muted)
                                                         .size(LabelSize::Small)
                                                         .italic(),

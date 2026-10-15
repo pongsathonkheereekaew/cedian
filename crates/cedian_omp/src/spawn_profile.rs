@@ -212,7 +212,7 @@ impl SpawnPolicy {
             check_tool_name(tool)?;
             if EXEC_TOOLS.contains(&tool.as_str()) {
                 return Err(OmpError::InvalidSpawnProfile(format!(
-                    "host tool {tool:?} shadows an OMP exec tool"
+                    "host tool {tool:?} shadows a cedian agent exec tool"
                 )));
             }
             record.insert(tool.clone(), json!(ToolPolicy::Allow.as_str()));
@@ -662,7 +662,7 @@ mod tests {
 
     fn profile() -> SpawnProfile {
         SpawnProfile {
-            binary_path: PathBuf::from("/Applications/cedian.app/Contents/Resources/omp"),
+            binary_path: PathBuf::from("/Applications/cedian.app/Contents/Resources/cedian-agent"),
             session_dir: PathBuf::from("/tmp/t1"),
             sessions: Sessions::InSessionDir,
             cwd: PathBuf::from("/Users/u/work"),
@@ -699,7 +699,7 @@ mod tests {
         assert_eq!(
             plan.argv,
             [
-                "/Applications/cedian.app/Contents/Resources/omp",
+                "/Applications/cedian.app/Contents/Resources/cedian-agent",
                 "--mode",
                 "rpc-ui",
                 "--cwd",
@@ -818,16 +818,16 @@ mod tests {
         let approval = &overlay["tools"]["approval"];
         assert_eq!(
             approval["cedian_debug"], "allow",
-            "cedian's own gate asks, so OMP must not ask again (ADR-0073)"
+            "cedian's own gate asks, so cedian agent must not ask again (ADR-0073)"
         );
         assert_eq!(approval["cedian_worktree_request"], "allow");
         assert!(
             approval.get("debug").is_none(),
-            "OMP's own debug stays as OMP ships it (ADR-0048 staging)"
+            "cedian agent's own debug stays as cedian agent ships it (ADR-0048 staging)"
         );
         assert!(
             overlay.get("debug").is_none(),
-            "OMP's debug is never switched off"
+            "cedian agent's debug is never switched off"
         );
         assert!(!EXEC_TOOLS.contains(&"cedian_debug"));
     }
@@ -938,7 +938,7 @@ mod tests {
         .unwrap();
         assert!(
             omp.get("task").is_none(),
-            "policy = \"omp\": the user's OMP config decides"
+            "policy = \"omp\": the user's cedian agent config decides"
         );
     }
 
@@ -1029,7 +1029,7 @@ mod tests {
                 "/usr/bin/sandbox-exec",
                 "-f",
                 "/tmp/t1/reviewer.sbpl",
-                "/Applications/cedian.app/Contents/Resources/omp"
+                "/Applications/cedian.app/Contents/Resources/cedian-agent"
             ]
         );
         let after = |flag: &str| {

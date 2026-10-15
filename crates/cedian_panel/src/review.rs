@@ -86,7 +86,7 @@ impl std::fmt::Display for ReviewError {
             }
             Self::Importing { path } => write!(
                 f,
-                "OMP is writing {}; try again when the call ends",
+                "cedian agent is writing {}; try again when the call ends",
                 path.display()
             ),
         }

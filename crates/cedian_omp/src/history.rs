@@ -30,7 +30,7 @@ pub fn message_line(message: &AgentMessage) -> String {
         AgentMessage::User(m) => ("you", content(m.content.as_ref())),
         AgentMessage::Developer(m) => ("developer", content(m.content.as_ref())),
         AgentMessage::Assistant(m) => (
-            "OMP",
+            "cedian agent",
             m.content
                 .iter()
                 .flatten()
@@ -109,7 +109,7 @@ mod tests {
     fn the_pins_empty_answer_is_no_text() {
         assert!(
             omp_rpc::wire::GetLastAssistantTextCommand::decode(Some(json!({}))).is_err(),
-            "the generated decoder refuses OMP's empty answer"
+            "the generated decoder refuses cedian agent's empty answer"
         );
         assert_eq!(
             LastAssistantTextCommand::decode(Some(json!({}))).unwrap(),

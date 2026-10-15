@@ -105,7 +105,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path, ws: &Path, lldb_dap: std
         })
         .unwrap();
     let mut vcx = VisualTestContext::from_window(window.into(), cx);
-    wait(cx, &panel, "OMP ready", |p| {
+    wait(cx, &panel, "cedian agent ready", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
     cx.update_window(window.into(), |_, window, cx| {
@@ -152,7 +152,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path, ws: &Path, lldb_dap: std
     };
     // ADR-0073 decision 4: which tool the model picks is measured here.
     println!(
-        "tool picked: cedian_debug calls {}, OMP's own debug {}",
+        "tool picked: cedian_debug calls {}, cedian agent's own debug {}",
         tools("cedian_debug"),
         tools("debug")
     );

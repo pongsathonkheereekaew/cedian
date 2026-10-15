@@ -91,7 +91,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         opened.elapsed()
     );
     let mut vcx = VisualTestContext::from_window(window.into(), cx);
-    wait(cx, &window, "OMP ready", |p| {
+    wait(cx, &window, "cedian agent ready", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
     // 0. OMP has no model: the panel onboards. It lists OMP's login
@@ -104,7 +104,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     assert!(rendered(&mut vcx, "cedian-onboarding").is_some());
     assert!(rendered(&mut vcx, "cedian-login-openai-codex").is_some());
     click(&mut vcx, "cedian-login-anthropic");
-    wait(cx, &window, "OMP's code prompt", |p| {
+    wait(cx, &window, "cedian agent's code prompt", |p| {
         p.dialog_ids() == ["login-code"]
     });
     assert_eq!(
@@ -190,7 +190,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     wait(
         cx,
         &window,
-        "cycle_thinking_level, then OMP's events",
+        "cycle_thinking_level, then cedian agent's events",
         |p| p.picker().model.as_deref() == Some("openai/gpt-y") && level(p) == Some("medium"),
     );
     assert!(rendered(&mut vcx, "cedian-model-anthropic/claude-x").is_some());
@@ -213,7 +213,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         .update(cx, |p, _, _| p.review().current_turn())
         .unwrap();
     submit(cx, &window, "work");
-    wait(cx, &window, "OMP retrying", |p| p.retrying());
+    wait(cx, &window, "cedian agent retrying", |p| p.retrying());
     assert!(
         rendered(&mut vcx, "cedian-session-note-6").is_some(),
         "notes render"
@@ -284,9 +284,9 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     window
         .update(cx, |p, window, cx| p.restart(window, cx))
         .unwrap();
-    wait(cx, &window, "the OMP policy badge", |p| {
+    wait(cx, &window, "the agent policy badge", |p| {
         p.omp_policy_badge()
-            .is_some_and(|b| b.contains("OMP policy") && b.contains("approvalMode: write"))
+            .is_some_and(|b| b.contains("agent policy") && b.contains("approvalMode: write"))
     });
     assert!(
         rendered(&mut vcx, "cedian-omp-policy").is_some(),

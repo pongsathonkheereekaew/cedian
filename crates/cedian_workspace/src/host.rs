@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// What a code-intelligence read answers without Zed's project.
-pub const HEADLESS_LSP: &str = "served by the cedian app from Zed's language servers; \
-     headless, use OMP's own lsp tool";
+pub const HEADLESS_LSP: &str = "served by the cedian app from the editor's language servers; \
+     headless, use cedian agent's own lsp tool";
 
 /// Normalize any key-shaped path to canonical `/rel` form (leading `/`
 /// enforced, `.` components kept — keys never touch disk by themselves).
@@ -418,7 +418,7 @@ mod tests {
                     path: "a.rs:0:0".into(),
                 })
                 .unwrap_err();
-            assert!(e.to_string().contains("OMP's own lsp tool"), "{e}");
+            assert!(e.to_string().contains("cedian agent's own lsp tool"), "{e}");
         }
         // Missing buffer: visible error.
         assert!(

@@ -165,7 +165,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         })
         .unwrap();
     let mut vcx = VisualTestContext::from_window(window.into(), cx);
-    wait(cx, &panel, "OMP ready", |p| {
+    wait(cx, &panel, "cedian agent ready", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
     cx.update_window(window.into(), |_, window, cx| {
@@ -190,7 +190,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         }
         assert!(
             Instant::now() < deadline,
-            "stuck after {omp} OMP dialogs, {asked} cedian dialogs, {stops} stops: {}",
+            "stuck after {omp} cedian agent dialogs, {asked} cedian dialogs, {stops} stops: {}",
             panel.read_with(cx, |p, _| format!(
                 "{:?} · {:?}",
                 p.connection(),

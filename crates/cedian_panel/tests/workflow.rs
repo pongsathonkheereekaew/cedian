@@ -98,7 +98,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
 
     let project = Project::test(fs::RealFs::new(None, cx.executor()), [ws.as_path()], cx).await;
     let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
-    wait(cx, &window, "OMP ready", |p| {
+    wait(cx, &window, "cedian agent ready", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
 
@@ -125,14 +125,18 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     let read_call = workflow["evidence"]["e1"]["provenance"]["attributed"]["tool_call_id"]
         .as_str()
         .unwrap_or_else(|| panic!("e1 bound to the read call:\n{raw}"));
-    assert_eq!(read_call, first_read_call(), "e1 bound to OMP's read");
+    assert_eq!(
+        read_call,
+        first_read_call(),
+        "e1 bound to cedian agent's read"
+    );
 
     let unreviewable = window
         .update(cx, |p, _, _| p.review().unreviewable().to_vec())
         .unwrap();
     assert!(
         unreviewable.is_empty(),
-        "OMP's xd:// device writes are host tool calls, not files: {unreviewable:?}"
+        "cedian agent's xd:// device writes are host tool calls, not files: {unreviewable:?}"
     );
 
     // 2. The refused claim blocks at the turn's end.

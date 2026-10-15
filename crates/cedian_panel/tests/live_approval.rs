@@ -132,7 +132,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path, record: bool, warm: usiz
     let project = Project::test(fs::RealFs::new(None, cx.executor()), [ws.as_path()], cx).await;
     let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
     let mut vcx = VisualTestContext::from_window(window.into(), cx);
-    wait(cx, &window, "OMP ready", |p| {
+    wait(cx, &window, "cedian agent ready", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
 
@@ -143,7 +143,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path, record: bool, warm: usiz
         })
         .unwrap();
     if dialog {
-        wait(cx, &window, "OMP's approval", |p| {
+        wait(cx, &window, "cedian agent's approval", |p| {
             !p.dialog_ids().is_empty()
         });
     } else {
@@ -223,7 +223,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path, record: bool, warm: usiz
     } else {
         assert!(
             gates.is_empty(),
-            "OMP's own approval mode asks nothing: {gates:?}"
+            "cedian agent's own approval mode asks nothing: {gates:?}"
         );
     }
     let connection = window.update(cx, |p, _, _| p.connection().clone()).unwrap();
@@ -259,7 +259,10 @@ async fn scenario(cx: &mut TestAppContext, root: &Path, record: bool, warm: usiz
         part("total_ms"),
         "{turn}"
     );
-    assert!(part("omp_ms") > 0, "OMP's time is measured: {turn}");
+    assert!(
+        part("omp_ms") > 0,
+        "cedian agent's time is measured: {turn}"
+    );
     let frames = rows(&root.join("frames.jsonl"));
     assert!(!frames.is_empty(), "a frames row for the run: {frames:?}");
     let ms = |k: &str| {

@@ -156,7 +156,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     let transcript = window.update(cx, |p, _, _| p.transcript()).unwrap();
     assert!(
         !transcript.iter().any(|l| l.contains("never")),
-        "OMP never ran it: {transcript:?}"
+        "cedian agent never ran it: {transcript:?}"
     );
 
     // 2. While a turn runs, the Steer button sends `steer` and Send queues
@@ -184,21 +184,21 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
             .iter()
             .any(|l| l.ends_with("queued: faster / "))
     });
-    assert_eq!(prompt(cx, &window), "", "OMP took the steer");
+    assert_eq!(prompt(cx, &window), "", "cedian agent took the steer");
     let (turn, notice) = submit(cx, &window, "two");
     assert_eq!(
         (turn, notice.as_str()),
         (Turn::Streaming, ""),
         "turn one still runs"
     );
-    wait(cx, &window, "OMP to have the follow-up", |_| {
+    wait(cx, &window, "cedian agent to have the follow-up", |_| {
         ws.join("omp-got-two").exists()
     });
     click(&mut vcx, "cedian-stop");
     assert_eq!(
         window.update(cx, |p, _, _| p.turn().clone()).unwrap(),
         Turn::Stopping,
-        "Stopping at once, though OMP has not answered the follow-up yet"
+        "Stopping at once, though cedian agent has not answered the follow-up yet"
     );
     set_prompt(cx, &window, "typed meanwhile");
     wait(cx, &window, "turn one to stop", |p| p.turn() == &Turn::Idle);
@@ -252,21 +252,24 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
             let hold = panel.hold_omp();
             panel.set_prompt("four", window, cx);
             panel.submit(window, cx);
-            assert!(panel.prompt_queued(), "the old OMP holds four in its queue");
+            assert!(
+                panel.prompt_queued(),
+                "the old cedian agent holds four in its queue"
+            );
             let old = panel.omp_pid().unwrap();
-            assert!(alive(old), "the old OMP runs");
+            assert!(alive(old), "the old cedian agent runs");
             panel.restart(window, cx);
             drop(hold);
             old
         })
         .unwrap();
-    wait(cx, &window, "the restarted OMP", ready);
+    wait(cx, &window, "the restarted cedian agent", ready);
     assert!(
         !ws.join("old-omp-got-four").exists(),
-        "the old OMP sent the queued prompt"
+        "the old cedian agent sent the queued prompt"
     );
 
-    assert!(!alive(old), "the old OMP ended");
+    assert!(!alive(old), "the old cedian agent ended");
 
     // 6. Stop, then Restart while the old OMP winds down holding the
     // session file: one abort (fixture 2 records a second as a file).
@@ -281,9 +284,12 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
             panel.restart(window, cx);
         })
         .unwrap();
-    wait(cx, &window, "the session after the slow OMP", |p| {
-        !matches!(p.connection(), Connection::Starting)
-    });
+    wait(
+        cx,
+        &window,
+        "the session after the slow cedian agent",
+        |p| !matches!(p.connection(), Connection::Starting),
+    );
     assert_ready(cx, &window);
     assert!(
         !ws.join("old-omp-got-two-aborts").exists(),
@@ -316,12 +322,15 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     let transcript = window.update(cx, |p, _, _| p.transcript()).unwrap();
     assert!(
         !transcript.iter().any(|l| l.contains("queued:")),
-        "the old OMP's queue died with it: {transcript:?}"
+        "the old cedian agent's queue died with it: {transcript:?}"
     );
     assert_eq!(prompt(cx, &window), "later");
-    wait(cx, &window, "the session after the hung OMP", |p| {
-        !matches!(p.connection(), Connection::Starting)
-    });
+    wait(
+        cx,
+        &window,
+        "the session after the hung cedian agent",
+        |p| !matches!(p.connection(), Connection::Starting),
+    );
     assert_ready(cx, &window);
     set_prompt(cx, &window, "");
 
@@ -329,7 +338,10 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     // the session settling (the fixture pauses there).
     submit(cx, &window, "own");
     wait(cx, &window, "the own turn to end", |p| {
-        assert!(!p.omp_runs_unprompted(), "our own turn shows as OMP's");
+        assert!(
+            !p.omp_runs_unprompted(),
+            "our own turn shows as cedian agent's"
+        );
         p.turn() == &Turn::Idle && p.transcript().iter().any(|l| l == "User: own")
     });
     assert_ready(cx, &window);
@@ -355,11 +367,14 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         window.update(cx, |p, _, _| p.turn().clone()).unwrap(),
         Turn::Stopping
     );
-    wait(cx, &window, "OMP's own run, shown as running", |p| {
-        p.turn() == &Turn::Streaming && p.omp_runs_unprompted()
-    });
+    wait(
+        cx,
+        &window,
+        "cedian agent's own run, shown as running",
+        |p| p.turn() == &Turn::Streaming && p.omp_runs_unprompted(),
+    );
     click(&mut vcx, "cedian-stop");
-    wait(cx, &window, "OMP's own run to be aborted", |p| {
+    wait(cx, &window, "cedian agent's own run to be aborted", |p| {
         ws.join("own-run-aborted").exists() && p.turn() == &Turn::Idle
     });
     let notice = window
@@ -388,7 +403,7 @@ async fn record_scenario(cx: &mut TestAppContext, root: &Path) {
     let project = Project::test(fs::RealFs::new(None, cx.executor()), [ws.as_path()], cx).await;
     let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
     let mut vcx = VisualTestContext::from_window(window.into(), cx);
-    wait(cx, &window, "OMP ready", ready);
+    wait(cx, &window, "cedian agent ready", ready);
 
     submit(
         cx,
@@ -426,7 +441,7 @@ async fn record_scenario(cx: &mut TestAppContext, root: &Path) {
         Path::new(LIVE),
     );
     let broken = queue_order(&std::fs::read_to_string(LIVE).unwrap());
-    assert!(broken.is_empty(), "OMP's own order: {broken:#?}");
+    assert!(broken.is_empty(), "cedian agent's own order: {broken:#?}");
 }
 
 /// The order the hand-ordered fixtures rely on, checked in each fixture and

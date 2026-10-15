@@ -121,7 +121,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
             })
         })
         .unwrap();
-    wait(cx, &panel, "OMP ready", |p| {
+    wait(cx, &panel, "cedian agent ready", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
     // Not through the workspace's own update: the panel reads the workspace.
