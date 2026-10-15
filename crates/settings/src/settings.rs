@@ -218,3 +218,19 @@ pub fn initial_debug_tasks_content() -> Cow<'static, str> {
 pub fn initial_local_debug_tasks_content() -> Cow<'static, str> {
     asset_str::<SettingsAssets>("settings/initial_local_debug_tasks.json")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initial_user_settings_name_the_default_themes() {
+        let content: SettingsContent =
+            parse_json_with_comments(&initial_user_settings_content()).unwrap();
+        let Some(ThemeSelection::Dynamic { light, dark, .. }) = content.theme.theme else {
+            panic!("initial user settings must set a light/dark theme pair");
+        };
+        assert_eq!(light.0.as_ref(), DEFAULT_LIGHT_THEME);
+        assert_eq!(dark.0.as_ref(), DEFAULT_DARK_THEME);
+    }
+}

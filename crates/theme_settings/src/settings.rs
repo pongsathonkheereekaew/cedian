@@ -803,11 +803,12 @@ mod tests {
 
         let registry = ::theme::ThemeRegistry::global(cx);
         let selection = &ThemeSettings::get_global(cx).theme;
-        for (appearance, name) in [
-            (Appearance::Light, "cedian Light"),
-            (Appearance::Dark, "cedian Dark"),
+        for (appearance, name, default_name) in [
+            (Appearance::Light, "cedian Light", ::settings::DEFAULT_LIGHT_THEME),
+            (Appearance::Dark, "cedian Dark", ::settings::DEFAULT_DARK_THEME),
         ] {
             assert_eq!(selection.name(appearance).0.as_ref(), name);
+            assert_eq!(selection.name(appearance).0.as_ref(), default_name);
             assert_eq!(registry.get(name).unwrap().appearance, appearance);
         }
     }
