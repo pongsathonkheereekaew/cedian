@@ -46,7 +46,7 @@ impl OmpSettings {
     ) -> Self {
         let filter = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Filter OMP settings…", window, cx);
+            editor.set_placeholder_text("Filter agent settings…", window, cx);
             editor
         });
         cx.subscribe(&filter, |_, _, event: &editor::EditorEvent, cx| {
@@ -156,7 +156,9 @@ impl OmpSettings {
                         this.settings = settings;
                         this.defaults = Some(defaults);
                     }
-                    Err(e) => this.message = Some(format!("cannot read OMP's settings: {e}")),
+                    Err(e) => {
+                        this.message = Some(format!("cannot read cedian agent's settings: {e}"))
+                    }
                 }
                 this.reloads += 1;
                 cx.notify();
@@ -209,15 +211,15 @@ impl OmpSettings {
                 this.message = Some(match outcome {
                     Ok(out) => match out.overridden_by {
                         Some(layer) => format!(
-                            "saved to OMP's global config, but the {layer} layer still wins (now {})",
+                            "saved to cedian agent's global config, but the {layer} layer still wins (now {})",
                             out.value
                         ),
                         None => format!("saved: {}", out.value),
                     },
                     Err(cedian_omp::OmpError::Command { error, .. }) => {
-                        format!("OMP refused: {error}")
+                        format!("cedian agent refused: {error}")
                     }
-                    Err(e) => format!("cannot reach OMP's config: {e}"),
+                    Err(e) => format!("cannot reach cedian agent's config: {e}"),
                 });
                 this.reload(cx);
             })
@@ -382,9 +384,11 @@ impl Render for OmpSettings {
                 })
                 .when(!editable, |row| {
                     row.child(
-                        Label::new("records and lists are read-only here; edit them in OMP")
-                            .size(LabelSize::Small)
-                            .color(Color::Muted),
+                        Label::new(
+                            "records and lists are read-only here; edit them in cedian agent",
+                        )
+                        .size(LabelSize::Small)
+                        .color(Color::Muted),
                     )
                 })
         });
@@ -393,9 +397,11 @@ impl Render for OmpSettings {
             .size_full()
             .gap_2()
             .child(
-                Label::new("OMP settings · read and written through OMP · layers are derived")
-                    .size(LabelSize::Small)
-                    .color(Color::Muted),
+                Label::new(
+                    "agent settings · read and written through cedian agent · layers are derived",
+                )
+                .size(LabelSize::Small)
+                .color(Color::Muted),
             )
             .children(
                 self.message

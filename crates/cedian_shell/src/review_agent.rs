@@ -125,12 +125,12 @@ pub fn role_model(record: &Value, role: &str) -> (Option<String>, Option<String>
         (None, Some(model)) => (
             Some(model),
             Some(format!(
-                "no `{role}` model role in OMP's modelRoles: the reviewer runs on `default`"
+                "no `{role}` model role in cedian agent's modelRoles: the reviewer runs on `default`"
             )),
         ),
         (None, None) => (
             None,
-            Some("OMP's modelRoles names no model: the reviewer runs on OMP's routing".to_string()),
+            Some("cedian agent's modelRoles names no model: the reviewer runs on cedian agent's routing".to_string()),
         ),
     }
 }
@@ -297,7 +297,7 @@ fn refuse_review(
     let mut audit = crate::audit::AuditLog::open(state_dir, Approvals::Reviewer)?;
     audit.review_refused(&files)?;
     let mut reply = format!(
-        "no reviewer ran: the workspace carries OMP system-prompt files that would rewrite what \
+        "no reviewer ran: the workspace carries agent system-prompt files that would rewrite what \
          the reviewer is told ({}). Move them out of the tree to get a review. The review is \
          inconclusive (ADR-0053).",
         files.join(", ")
@@ -382,7 +382,7 @@ pub fn run_review(
         Ok(record) => select_panel_slots(&panel, &record),
         Err(e) => {
             notes.push(format!(
-                "cannot read OMP's modelRoles ({e}): each panel role runs on OMP's routing"
+                "cannot read cedian agent's modelRoles ({e}): each panel role runs on cedian agent's routing"
             ));
             select_panel_slots(&panel, &json!({}))
         }

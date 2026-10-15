@@ -757,7 +757,7 @@ fn the_persons_input_wins(root: &std::path::Path) {
     std::thread::sleep(pause);
     assert!(
         !host.state().preempted,
-        "OMP's own input is not the person's"
+        "cedian agent's own input is not the person's"
     );
 
     std::thread::sleep(Duration::from_millis(1100));
@@ -766,7 +766,7 @@ fn the_persons_input_wins(root: &std::path::Path) {
     send(&mut omp, 4, "Page.navigate");
     assert!(
         reply(&mut omp, 4, Duration::from_millis(500)).is_none(),
-        "OMP's next browser call is held"
+        "cedian agent's next browser call is held"
     );
     host.resume();
     assert!(
@@ -997,15 +997,18 @@ async fn exit(cx: &mut TestAppContext, root: &Path) {
     assert_eq!(
         overlay["browser"],
         json!({"cdpUrl": host.url(), "relay": false}),
-        "OMP is pointed at the app's browser"
+        "cedian agent is pointed at the app's browser"
     );
-    assert!(!host.state().running, "nothing starts before OMP connects");
+    assert!(
+        !host.state().running,
+        "nothing starts before cedian agent connects"
+    );
 
     let version: Value = serde_json::from_str(&get(&host.url(), "/json/version").unwrap()).unwrap();
     assert!(version["webSocketDebuggerUrl"].is_string());
     assert!(
         host.state().running,
-        "OMP's first connection started the browser"
+        "cedian agent's first connection started the browser"
     );
 
     window.update(cx, |p, _, cx| p.capture_browser(cx)).unwrap();
@@ -1180,7 +1183,7 @@ fn omps_browser_call_is_gate_evidence(
         }
         assert!(
             Instant::now() < deadline,
-            "no evidence for the ui gate from OMP's browser call: {:?}",
+            "no evidence for the ui gate from cedian agent's browser call: {:?}",
             state.evidence
         );
         std::thread::sleep(Duration::from_millis(20));
@@ -1223,10 +1226,13 @@ fn wait_ready(cx: &mut TestAppContext, window: &WindowHandle<CedianPanel>) {
         let connection = window.update(cx, |p, _, _| p.connection().clone()).unwrap();
         match connection {
             Connection::Ready { .. } => return,
-            Connection::Stopped(e) => panic!("OMP stopped: {e}"),
+            Connection::Stopped(e) => panic!("cedian agent stopped: {e}"),
             _ => {}
         }
-        assert!(Instant::now() < deadline, "timed out waiting for OMP");
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for cedian agent"
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
 }

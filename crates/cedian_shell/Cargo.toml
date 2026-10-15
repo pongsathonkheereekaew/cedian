@@ -21,3 +21,6 @@ toml = "0.8"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

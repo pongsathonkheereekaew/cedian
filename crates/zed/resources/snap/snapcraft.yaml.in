@@ -1,11 +1,11 @@
 name: zed
-title: Zed
+title: cedian
 base: core24
 version: "$RELEASE_VERSION"
-summary: The editor for what's next
+summary: An editor that shows its work
 description: |
-  Zed is a modern open-source code editor, built from the ground up in Rust with
-  a GPU-accelerated renderer. We help you build software faster than ever before.
+  cedian is an agentic code editor built on Zed and the cedian agent (OMP):
+  an editor that shows its work.
 grade: stable
 confinement: classic
 compression: lzo

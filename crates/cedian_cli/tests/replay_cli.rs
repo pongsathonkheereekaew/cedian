@@ -1134,7 +1134,7 @@ fn s2_blocked_scenario(record: bool, floor: bool) {
     let fixture = std::fs::read_to_string(S2_FIXTURE).unwrap();
     assert!(
         fixture.contains("bug-fix/SKILL.md") || fixture.contains("skill://bug-fix"),
-        "OMP read the skill"
+        "cedian agent read the skill"
     );
     // cedian wrote nothing under .omp/ besides the test's own copy.
     let omp: Vec<_> = walk(&root.join("ws/.omp"));
@@ -1231,7 +1231,7 @@ fn p8_scenario(record: bool, deny: bool) {
     let overlay = overlay(&sessions);
     assert!(
         overlay.get("computer").is_none() && overlay["tools"].get("approvalMode").is_none(),
-        "opt-in overlay leaves approvals and computer to OMP: {overlay}"
+        "opt-in overlay leaves approvals and computer to cedian agent: {overlay}"
     );
     assert!(
         !out.contains("refused (no UI to approve)"),
@@ -1245,7 +1245,7 @@ fn p8_scenario(record: bool, deny: bool) {
         .filter_map(|f| f["frame"]["method"].as_str().map(str::to_string))
         .filter(|m| ["select", "confirm", "input", "editor", "ask"].contains(&m.as_str()))
         .collect();
-    assert!(dialogs.is_empty(), "OMP asked nobody: {dialogs:?}");
+    assert!(dialogs.is_empty(), "cedian agent asked nobody: {dialogs:?}");
     let rows = audit(&root);
     assert!(
         !rows.is_empty() && rows.iter().all(|r| r["item"]["decision_source"] == "omp"),
@@ -1274,9 +1274,12 @@ fn p8_scenario(record: bool, deny: bool) {
                 && r["item"]["is_error"] == false
         });
         assert!(bash_end, "bash audited: {rows:?}");
-        assert!(out.contains("approved by OMP"), "card label:\n{out}");
         assert!(
-            out.contains("◆ OMP policy")
+            out.contains("approved by cedian agent"),
+            "card label:\n{out}"
+        );
+        assert!(
+            out.contains("◆ agent policy")
                 && out.contains("approvalMode: yolo from the project's .omp/config.yml")
                 && out.contains("computer: off"),
             "badge names the project layer:\n{out}"

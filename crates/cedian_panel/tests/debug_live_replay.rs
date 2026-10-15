@@ -162,7 +162,7 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         })
         .unwrap();
     let mut vcx = VisualTestContext::from_window(window.into(), cx);
-    wait(cx, &panel, "OMP ready", |p| {
+    wait(cx, &panel, "cedian agent ready", |p| {
         matches!(p.connection(), Connection::Ready { .. })
     });
     cx.update_window(window.into(), |_, window, cx| {

@@ -173,7 +173,7 @@ pub fn other_drivers_of(
     own: Option<u32>,
     must_see: bool,
 ) -> Result<Vec<u32>, String> {
-    let own = own.ok_or("OMP's process id is unknown")?;
+    let own = own.ok_or("cedian agent's process id is unknown")?;
     if must_see && !files.iter().any(|f| f.exists()) {
         return Err("none of the session's files could be found".to_string());
     }
@@ -329,7 +329,7 @@ setTimeout(() => { a.kill(); b.kill(); process.exit(0); }, 3000);"#,
         assert_eq!(
             held,
             [pids[0]],
-            "only OMP itself, not its children {:?}",
+            "only cedian agent itself, not its children {:?}",
             &pids[1..]
         );
     }
@@ -362,7 +362,7 @@ setTimeout(() => { a.kill(); b.kill(); process.exit(0); }, 3000);"#,
         assert_eq!(
             other_drivers_of(&files, Some(holder.id()), true).unwrap(),
             Vec::<u32>::new(),
-            "its own OMP"
+            "its own cedian agent"
         );
         holder.kill().ok();
         holder.wait().ok();

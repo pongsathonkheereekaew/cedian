@@ -112,9 +112,9 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         p.set_value("compaction.enabled", "maybe", cx)
     })
     .unwrap();
-    wait(cx, &page, "OMP's refusal", |p| {
+    wait(cx, &page, "cedian agent's refusal", |p| {
         p.message()
-            .is_some_and(|m| m.contains("OMP refused: Invalid boolean value: maybe"))
+            .is_some_and(|m| m.contains("cedian agent refused: Invalid boolean value: maybe"))
     });
 
     // One model role, written as an entry of the whole record.

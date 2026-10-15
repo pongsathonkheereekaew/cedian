@@ -480,7 +480,7 @@ impl Render for WelcomePage {
                             .child(CedianMark::new(rems_from_px(45_f32)))
                             .child(
                                 v_flex().child(Headline::new(welcome_label)).child(
-                                    Label::new("The editor for what's next")
+                                    Label::new("An editor that shows its work")
                                         .size(LabelSize::Small)
                                         .color(Color::Muted)
                                         .italic(),

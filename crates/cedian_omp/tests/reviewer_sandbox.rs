@@ -179,7 +179,7 @@ fn omp_turn_completes_under_the_reviewer_profile() {
     );
     assert!(
         f.layout.run().join("state/omp/run").is_dir(),
-        "OMP kept its run state in the reviewer's own directory"
+        "cedian agent kept its run state in the reviewer's own directory"
     );
     cleanup(&f.root);
 }

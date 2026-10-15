@@ -42,7 +42,7 @@ use std::{
 /// How to find the `omp` binary. Bundled path in product; PATH fallback in dev.
 #[derive(Debug, Clone)]
 pub enum OmpBinary {
-    /// Exact bundled path (`cedian.app/Contents/Resources/omp`).
+    /// Exact bundled path (`cedian.app/Contents/Resources/cedian-agent`).
     Bundled(PathBuf),
     /// Resolve via `PATH` (dev only — never in product).
     Path(String),
@@ -319,7 +319,9 @@ impl OmpRuntime {
                 .as_deref()
                 .and_then(|file| std::path::Path::new(file).parent())
                 .map(PathBuf::from)
-                .ok_or_else(|| OmpError::Spawn("OMP reported no session file".to_string())),
+                .ok_or_else(|| {
+                    OmpError::Spawn("cedian agent reported no session file".to_string())
+                }),
         }
     }
 

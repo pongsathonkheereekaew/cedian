@@ -1,7 +1,7 @@
 //! ADR-0075 decision 5 and ADR-0077: the app runs the OMP fork's build it
 //! ships. A set `CEDIAN_OMP_BINARY` runs as given (tests, dev); else the
-//! bundled build (`cedian.app/Contents/Resources/omp`, or `target/omp/omp` in
-//! a dev build) runs only when its `omp.stamp` names the pinned fork commit
+//! bundled build (`cedian.app/Contents/Resources/cedian-agent`, or `target/omp/omp` in
+//! a dev build) runs only when its stamp names the pinned fork commit
 //! and the binary's sha256; else the launch is refused. The person's own
 //! `omp` on PATH or in `~/.local/bin` is never run. One test: it sets the
 //! process environment.
@@ -11,8 +11,12 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 fn fake(dir: &Path, version: &str) -> PathBuf {
+    fake_named(dir, "omp", version)
+}
+
+fn fake_named(dir: &Path, name: &str, version: &str) -> PathBuf {
     std::fs::create_dir_all(dir).unwrap();
-    let path = dir.join("omp");
+    let path = dir.join(name);
     std::fs::write(&path, format!("#!/bin/sh\necho omp/{version}\n")).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
@@ -21,7 +25,8 @@ fn fake(dir: &Path, version: &str) -> PathBuf {
 fn stamp(omp: &Path, commit: &str) {
     let sha = format!("{:x}", Sha256::digest(std::fs::read(omp).unwrap()));
     let body = serde_json::json!({ "commit": commit, "sha256": sha });
-    std::fs::write(omp.with_file_name("omp.stamp"), body.to_string()).unwrap();
+    let name = format!("{}.stamp", omp.file_name().unwrap().to_str().unwrap());
+    std::fs::write(omp.with_file_name(name), body.to_string()).unwrap();
 }
 
 fn refused(exe: &Path) -> String {
@@ -56,12 +61,15 @@ fn the_app_runs_only_the_stamped_fork_build() {
     let error = refused(&exe);
     assert!(
         error.contains("script/cedian-omp-build"),
-        "no bundled OMP: refused with the fix, PATH's pinned omp is not run: {error}"
+        "no bundled agent: refused with the fix, PATH's pinned omp is not run: {error}"
     );
 
-    let sidecar = fake(&app.join("Contents/Resources"), "18.8.6");
+    let sidecar = fake_named(&app.join("Contents/Resources"), "cedian-agent", "18.8.6");
     let error = refused(&exe);
-    assert!(error.contains("omp.stamp"), "no stamp: refused: {error}");
+    assert!(
+        error.contains("cedian-agent.stamp"),
+        "no stamp: refused: {error}"
+    );
 
     stamp(&sidecar, &pinned);
     let choice = cedian_shell::launch::omp_binary_for(Some(&exe)).unwrap();

@@ -159,14 +159,16 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     // 3. A driver appears before the next prompt.
     let holder = hold(&held);
     until_held(&held, &holder);
-    let (turn, _) = submit(cx, &window, "must not reach OMP");
+    let (turn, _) = submit(cx, &window, "must not reach cedian agent");
     assert_eq!(turn, Turn::Queued, "the panel did not know yet");
     wait(cx, &window, "the prompt to be refused", |p| {
         matches!(p.connection(), Connection::Taken { .. }) && p.turn() == &Turn::Idle
     });
     let transcript = window.update(cx, |p, _, _| p.transcript()).unwrap();
     assert!(
-        !transcript.iter().any(|l| l.contains("must not reach OMP")),
+        !transcript
+            .iter()
+            .any(|l| l.contains("must not reach cedian agent")),
         "a refused prompt is not shown as sent: {transcript:?}"
     );
 

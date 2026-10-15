@@ -116,7 +116,7 @@ pub(crate) fn serve<Q: 'static, A: 'static>(
                 let answer = futures::select_biased! {
                     answer = task => answer,
                     _ = timeout => Err(format!(
-                        "no answer from Zed within {}s for {what}",
+                        "no answer from the editor within {}s for {what}",
                         APP_TIMEOUT.as_secs(),
                     )),
                 };
@@ -237,7 +237,7 @@ pub(crate) fn inside(
             match entry_private(rel, cx) {
                 Some(false) => {}
                 Some(true) => return Err(format!("{file} is private (private_files)")),
-                None => return Err(format!("{file} is not in the folder Zed has open")),
+                None => return Err(format!("{file} is not in the folder cedian has open")),
             }
         }
         Ok(path)

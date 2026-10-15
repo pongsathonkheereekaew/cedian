@@ -155,7 +155,7 @@ pub enum LinkEvent {
     WorktreeWithdrawn { request: u64 },
 }
 
-const NOT_RUNNING: &str = "OMP is not running";
+const NOT_RUNNING: &str = "cedian agent is not running";
 
 /// What OMP offers and runs now, for the model and thinking-level picker.
 #[derive(Debug, Clone, PartialEq)]
@@ -615,7 +615,7 @@ pub fn cancel_without_omp(workdir: &Path, id: &str) -> Result<(), String> {
     let choice = settings.policy_for(workdir, RunKind::Interactive);
     let policy = cedian_shell::launch::spawn_policy(&settings, choice.policy, &[]);
     let mut audit = AuditLog::open(&cedian_shell::state::dir(workdir)?, policy.approvals)?;
-    audit.subagent_cancel(id, &Err("OMP is not running".to_string()))
+    audit.subagent_cancel(id, &Err("cedian agent is not running".to_string()))
 }
 
 /// Why [`OmpLink::answer`] failed.
@@ -819,7 +819,7 @@ impl TakenBack {
         let mut parts = Vec::new();
         if !self.gone.is_empty() {
             parts.push(format!(
-                "OMP had already taken these into a run, so they are not given back: {}",
+                "cedian agent had already taken these into a run, so they are not given back: {}",
                 self.gone.join(" · ")
             ));
         }
@@ -831,13 +831,13 @@ impl TakenBack {
         }
         if self.images_dropped {
             parts.push(
-                "OMP dropped the images of the queue it gave back (its answer was over the frame limit)"
+                "cedian agent dropped the images of the queue it gave back (its answer was over the frame limit)"
                     .to_string(),
             );
         }
         if !self.truncated.is_empty() {
             parts.push(format!(
-                "OMP's answer was over the frame limit, so only the first queued messages came back; these may have run: {}",
+                "cedian agent's answer was over the frame limit, so only the first queued messages came back; these may have run: {}",
                 self.truncated.join(" · ")
             ));
         }
@@ -845,7 +845,7 @@ impl TakenBack {
             && !self.restored.is_empty()
         {
             parts.push(format!(
-                "OMP did not answer taking these back, so it may still run them; the text is back in the composer: {} ({})",
+                "cedian agent did not answer taking these back, so it may still run them; the text is back in the composer: {} ({})",
                 self.restored.join(" · "),
                 error
             ));
@@ -885,7 +885,11 @@ enum Phase {
 
 impl Gate {
     fn send(&self, reply: ExtensionUiResponse) -> Result<(), String> {
-        let control = self.control.lock().clone().ok_or("OMP is not running")?;
+        let control = self
+            .control
+            .lock()
+            .clone()
+            .ok_or("cedian agent is not running")?;
         control.respond(reply).map_err(|e| e.to_string())
     }
 
@@ -1131,7 +1135,7 @@ impl GateState {
         send: impl FnOnce(ExtensionUiResponse) -> Result<(), String>,
     ) -> Result<(), AnswerError> {
         let request = self.open.get(request_id).ok_or_else(|| {
-            AnswerError::NotSent("OMP no longer waits on that dialog".to_string())
+            AnswerError::NotSent("cedian agent no longer waits on that dialog".to_string())
         })?;
         let (reply, record) = cedian_omp::user_answer(request, answer).ok_or_else(|| {
             AnswerError::NotSent("that answer does not fit the dialog".to_string())
@@ -1324,7 +1328,7 @@ impl OmpLink {
     fn command(&self, command: Command) -> Result<(), String> {
         self.commands
             .send(command)
-            .map_err(|_| "OMP is not running".to_string())
+            .map_err(|_| "cedian agent is not running".to_string())
     }
 
     /// OMP's process id, once it has started.
@@ -1341,7 +1345,7 @@ impl OmpLink {
             text: text.clone(),
             reason,
         };
-        let not_running = refused(&text, "OMP is not running".to_string());
+        let not_running = refused(&text, "cedian agent is not running".to_string());
         self.off_thread(not_running, move |control| {
             let Some(_sending) = gate.admit(epoch) else {
                 return refused(&text, "Stop came first; it stays here".to_string());
@@ -1366,7 +1370,7 @@ impl OmpLink {
     pub fn steer_subagent(&self, id: String, message: String) {
         let not_running = LinkEvent::SubagentSteered {
             id: id.clone(),
-            result: Err("OMP is not running".to_string()),
+            result: Err("cedian agent is not running".to_string()),
         };
         self.off_thread(not_running, move |control| LinkEvent::SubagentSteered {
             result: control
@@ -1384,7 +1388,7 @@ impl OmpLink {
         std::thread::spawn(move || {
             let result = match control {
                 Some(control) => control.cancel_subagent(&id).map_err(|e| e.to_string()),
-                None => Err("OMP is not running".to_string()),
+                None => Err("cedian agent is not running".to_string()),
             };
             let recorded = match &mut gate.state.lock().audit {
                 Some(audit) => audit.subagent_cancel(&id, &result),
@@ -1800,7 +1804,7 @@ fn run(
         }
         Err(e) => {
             let _ = events.unbounded_send(LinkEvent::Failed(format!(
-                "OMP not started, nothing could be audited: {e}"
+                "cedian agent not started, nothing could be audited: {e}"
             )));
             return;
         }
@@ -1816,7 +1820,9 @@ fn run(
     }) {
         Ok(runtime) => runtime,
         Err(e) => {
-            let _ = events.unbounded_send(LinkEvent::Failed(format!("OMP did not start: {e}")));
+            let _ = events.unbounded_send(LinkEvent::Failed(format!(
+                "cedian agent did not start: {e}"
+            )));
             return;
         }
     };
@@ -1825,7 +1831,7 @@ fn run(
         && let Err(e) = runtime.set_host_tools(spec.tools)
     {
         let _ = events.unbounded_send(LinkEvent::Failed(format!(
-            "OMP refused cedian's host tools: {e}"
+            "cedian agent refused cedian's host tools: {e}"
         )));
         let own = runtime.pid();
         shutdown(runtime, &gate, own);
@@ -1835,7 +1841,7 @@ fn run(
         && let Err(e) = runtime.set_host_uris(spec.uris)
     {
         let _ = events.unbounded_send(LinkEvent::Failed(format!(
-            "OMP refused cedian:// context: {e}"
+            "cedian agent refused cedian:// context: {e}"
         )));
         let own = runtime.pid();
         shutdown(runtime, &gate, own);
@@ -1843,7 +1849,7 @@ fn run(
     }
     if let Err(e) = runtime.subscribe_subagents() {
         let _ = events.unbounded_send(LinkEvent::Failed(format!(
-            "OMP refused the subagent subscription: {e}"
+            "cedian agent refused the subagent subscription: {e}"
         )));
         let own = runtime.pid();
         shutdown(runtime, &gate, own);
@@ -1891,7 +1897,7 @@ fn run(
         },
         Err(e) => {
             let _ = events.unbounded_send(LinkEvent::Failed(format!(
-                "OMP's session did not open: {e}"
+                "cedian agent's session did not open: {e}"
             )));
             shutdown(runtime, &gate, own);
             return;
@@ -1990,14 +1996,14 @@ fn run(
                         taken(&session).unwrap_or_else(|| ready(&session, Some(state)))
                     }
                     Ok(NewSession::Unknown(e)) => LinkEvent::Failed(format!(
-                        "OMP switched sessions but did not say which: {e}"
+                        "cedian agent switched sessions but did not say which: {e}"
                     )),
-                    Ok(NewSession::Declined) => {
-                        LinkEvent::SwitchRefused("OMP kept the current session".to_string())
-                    }
-                    Err(e) => {
-                        LinkEvent::SwitchRefused(format!("OMP kept the current session: {e}"))
-                    }
+                    Ok(NewSession::Declined) => LinkEvent::SwitchRefused(
+                        "cedian agent kept the current session".to_string(),
+                    ),
+                    Err(e) => LinkEvent::SwitchRefused(format!(
+                        "cedian agent kept the current session: {e}"
+                    )),
                 };
                 let _ = events.unbounded_send(event);
             }
@@ -2035,10 +2041,10 @@ fn run(
                         ready(&session, Some(state))
                     }
                     Ok(NewSession::Unknown(e)) => LinkEvent::Failed(format!(
-                        "OMP started a new session but did not say which: {e}"
+                        "cedian agent started a new session but did not say which: {e}"
                     )),
                     Ok(NewSession::Declined) => {
-                        refused("OMP declined to start a new session".to_string())
+                        refused("cedian agent declined to start a new session".to_string())
                     }
                     Err(e) => refused(format!("a new session did not start: {e}")),
                 };
@@ -2306,7 +2312,7 @@ mod tests {
             matches!(result, Err(AnswerError::Unaudited(_))),
             "{result:?}"
         );
-        assert_eq!(sent.borrow().len(), 1, "OMP got the answer");
+        assert_eq!(sent.borrow().len(), 1, "cedian agent got the answer");
         assert!(gate.open.is_empty(), "nothing left to answer twice");
     }
 
@@ -2448,7 +2454,7 @@ mod tests {
         assert_eq!(
             (taken.to_composer(), taken.gone),
             (vec!["again".to_string()], vec!["again".to_string()]),
-            "one came back, the other OMP had already taken"
+            "one came back, the other cedian agent had already taken"
         );
     }
 
@@ -2459,7 +2465,11 @@ mod tests {
         // OMP's own text for a template comes back where the typed one is
         // not: the typed message came back under it, so it is not gone.
         let taken = reconciled(&gate, answer(&["/review shown"], &[]));
-        assert_eq!(taken.to_composer(), ["/review shown"], "OMP's own text");
+        assert_eq!(
+            taken.to_composer(),
+            ["/review shown"],
+            "cedian agent's own text"
+        );
         assert_eq!(
             taken.gone,
             Vec::<String>::new(),
@@ -2478,7 +2488,11 @@ mod tests {
         });
         gate.accepted("/review typed", true);
         let taken = reconciled(&gate, answer(&["/review shown"], &[]));
-        assert_eq!(taken.to_composer(), ["/review shown"], "OMP's own text");
+        assert_eq!(
+            taken.to_composer(),
+            ["/review shown"],
+            "cedian agent's own text"
+        );
         assert!(
             taken.gone.is_empty(),
             "one message under two texts, and it came back"
@@ -2510,13 +2524,13 @@ mod tests {
         assert_eq!(
             taken.gone,
             ["kept"],
-            "OMP drained it into the run before Stop"
+            "cedian agent drained it into the run before Stop"
         );
         assert!(taken.to_composer().is_empty());
         let notice = taken.notice().unwrap();
         assert!(
             notice.contains(
-                "OMP had already taken these into a run, so they are not given back: kept"
+                "cedian agent had already taken these into a run, so they are not given back: kept"
             ),
             "{notice}"
         );
@@ -2574,7 +2588,7 @@ mod tests {
         let notice = taken.notice().unwrap();
         assert!(
             notice.contains(
-                "OMP dropped the images of the queue it gave back (its answer was over the frame limit)"
+                "cedian agent dropped the images of the queue it gave back (its answer was over the frame limit)"
             ),
             "{notice}"
         );
@@ -2596,7 +2610,7 @@ mod tests {
             ..TakenBack::default()
         };
         assert_eq!(failed.to_composer(), ["faster", "two"]);
-        assert!(failed.gone.is_empty(), "OMP never answered");
+        assert!(failed.gone.is_empty(), "cedian agent never answered");
         let notice = failed.notice().unwrap();
         assert!(
             notice.contains("did not answer")
@@ -2615,7 +2629,7 @@ mod tests {
         gate.observe_run(&RouterEvent::AgentStart);
         assert!(
             gate.turn.lock().unprompted,
-            "after Settled a run is OMP's own"
+            "after Settled a run is cedian agent's own"
         );
     }
 
@@ -2627,7 +2641,10 @@ mod tests {
         gate.observe_run(&RouterEvent::AgentStart);
         assert!(!gate.turn.lock().unprompted, "our own run read late");
         gate.observe_run(&RouterEvent::AgentStart);
-        assert!(gate.turn.lock().unprompted, "the next one is OMP's");
+        assert!(
+            gate.turn.lock().unprompted,
+            "the next one is cedian agent's"
+        );
     }
 
     #[test]
@@ -2712,7 +2729,7 @@ mod tests {
                 .collect();
         assert_eq!(rows.len(), 1, "{rows:?}");
         assert_eq!(rows[0]["command"], "sa-1");
-        assert_eq!(rows[0]["error"], "OMP is not running");
+        assert_eq!(rows[0]["error"], "cedian agent is not running");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2732,7 +2749,7 @@ mod tests {
                     _ => {}
                 }
             }
-            panic!("OMP thread ended without a session")
+            panic!("cedian agent thread ended without a session")
         })
     }
 
@@ -2786,13 +2803,13 @@ mod tests {
         let link = OmpLink::start(spec(), tx, None);
         let (first, resumed, file) = ready(&mut rx);
         assert!(!resumed);
-        let file = PathBuf::from(file.expect("OMP names the session file"));
+        let file = PathBuf::from(file.expect("cedian agent names the session file"));
         let agent = cedian_omp::OmpConfig::new(spec().binary.unwrap())
             .dir(&root)
             .unwrap();
         assert!(
             file.starts_with(agent.join("sessions")),
-            "in OMP's own store: {}",
+            "in cedian agent's own store: {}",
             file.display()
         );
         link.send(Prompt {
@@ -2865,7 +2882,7 @@ mod tests {
                 }
             }
         });
-        let (id, approve) = asked.expect("OMP asked to approve its eval tool");
+        let (id, approve) = asked.expect("cedian agent asked to approve its eval tool");
         link.answer(&id, UserAnswer::Choice(approve))
             .expect("answer the eval approval");
         futures::executor::block_on(async {

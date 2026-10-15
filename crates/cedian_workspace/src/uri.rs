@@ -75,7 +75,7 @@ impl std::fmt::Display for UriError {
         match self {
             Self::WrongScheme { got } => write!(f, "not a cedian:// URL: {got}"),
             Self::BadShape { url } => write!(f, "bad cedian:// shape: {url}"),
-            Self::Reserved { scheme } => write!(f, "scheme reserved by OMP: {scheme}://"),
+            Self::Reserved { scheme } => write!(f, "scheme reserved by cedian agent: {scheme}://"),
         }
     }
 }

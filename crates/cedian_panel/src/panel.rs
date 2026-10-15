@@ -578,7 +578,7 @@ impl CedianPanel {
     pub fn new(project: Entity<Project>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Ask OMP…", window, cx);
+            editor.set_placeholder_text("Ask cedian agent…", window, cx);
             editor
         });
         let rename_input = cx.new(|cx| {
@@ -794,7 +794,7 @@ impl CedianPanel {
     ) {
         match &self.link {
             Some(link) => link.set(setting),
-            None => self.notice = Some("OMP is not running".to_string()),
+            None => self.notice = Some("cedian agent is not running".to_string()),
         }
         cx.notify();
     }
@@ -939,7 +939,7 @@ impl CedianPanel {
         }
         let Some(link) = &self.link else {
             self.subagent_notes
-                .insert(id.to_string(), "OMP is not running".to_string());
+                .insert(id.to_string(), "cedian agent is not running".to_string());
             cx.notify();
             return;
         };
@@ -974,7 +974,7 @@ impl CedianPanel {
                     }
                 })
                 .detach();
-                "OMP is not running"
+                "cedian agent is not running"
             }
         };
         self.subagent_notes.insert(id.to_string(), note.to_string());
@@ -1034,7 +1034,11 @@ impl CedianPanel {
     /// Park OMP's thread until the sender is dropped.
     #[cfg(any(test, feature = "test-support"))]
     pub fn hold_omp(&self) -> std::sync::mpsc::Sender<()> {
-        self.link.as_ref().expect("OMP runs").hold().unwrap()
+        self.link
+            .as_ref()
+            .expect("cedian agent runs")
+            .hold()
+            .unwrap()
     }
 
     /// The review's latest turn number, and whether it is still open.
@@ -1363,7 +1367,7 @@ impl CedianPanel {
             self.workflow_channel.clone(),
             self.launch_settings.clone(),
         ) else {
-            self.notice = Some("start OMP before asking for a review".to_string());
+            self.notice = Some("start cedian agent before asking for a review".to_string());
             cx.notify();
             return;
         };
@@ -1567,7 +1571,8 @@ impl CedianPanel {
         };
         self.omp_warning = None;
         self.omp_policy = (spec.policy_source == cedian_shell::Policy::Omp).then(|| {
-            "◆ OMP policy — approvals and computer from your OMP config (reading it…)".to_string()
+            "◆ agent policy — approvals and computer from your agent config (reading it…)"
+                .to_string()
         });
         spec.unsaved.lock().extend(
             self.unsaved
@@ -2306,7 +2311,8 @@ impl CedianPanel {
             .and_then(|f| f.parent())
             .map(Path::to_path_buf)
         else {
-            self.sessions.list_error = Some("OMP has not named its session file".to_string());
+            self.sessions.list_error =
+                Some("cedian agent has not named its session file".to_string());
             return;
         };
         let listed = cx
@@ -2418,7 +2424,7 @@ impl CedianPanel {
     /// The old OMP's subagents and queue die with it: their rows go, and
     /// what was queued goes back (`take_back`).
     fn forget_old_omp(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.disarm("OMP restarted", window, cx);
+        self.disarm("cedian agent restarted", window, cx);
         self.after_stop = None;
         self.forget_subagents();
         let queued = self.queued();
@@ -2602,7 +2608,11 @@ impl CedianPanel {
             }
             LinkEvent::PromptFailed(e) => {
                 self.instruments.abandoned();
-                self.end_turn(Some(format!("OMP did not run the prompt: {e}")), window, cx);
+                self.end_turn(
+                    Some(format!("cedian agent did not run the prompt: {e}")),
+                    window,
+                    cx,
+                );
             }
             LinkEvent::AbortFailed(e) => {
                 if self.turn != Turn::Idle {
@@ -2629,14 +2639,15 @@ impl CedianPanel {
                 self.thread = Thread::new();
                 self.sessions.history = Default::default();
                 self.session_notes.push(
-                    "OMP handed the conversation off: its summary now opens the session".into(),
+                    "cedian agent handed the conversation off: its summary now opens the session"
+                        .into(),
                 );
                 if let Some(link) = &self.link {
                     link.history(None);
                 }
             }
             LinkEvent::HandedOff(Ok(None)) => {
-                self.notice = Some("OMP produced no handoff".to_string());
+                self.notice = Some("cedian agent produced no handoff".to_string());
             }
             LinkEvent::HandedOff(Err(e)) => self.notice = Some(format!("hand off: {e}")),
             LinkEvent::Renamed { name, result } => match result {
@@ -2741,7 +2752,11 @@ impl CedianPanel {
             }
             LinkEvent::Event(RouterEvent::Disconnected) => {
                 self.thread.apply(&RouterEvent::Disconnected);
-                self.stop("OMP stopped: its process exited".to_string(), window, cx);
+                self.stop(
+                    "cedian agent stopped: its process exited".to_string(),
+                    window,
+                    cx,
+                );
             }
             LinkEvent::Event(RouterEvent::Unknown { frame_type })
                 if frame_type == "config_update" =>
@@ -2752,7 +2767,7 @@ impl CedianPanel {
             }
             LinkEvent::Setting(result) => self.push_note(match result {
                 Ok(note) => note,
-                Err(e) => format!("OMP refused the setting: {e}"),
+                Err(e) => format!("cedian agent refused the setting: {e}"),
             }),
             LinkEvent::Promoted { text, result } => {
                 let asked = self
@@ -2769,13 +2784,15 @@ impl CedianPanel {
                     (refused, Some(i)) => {
                         self.follow_ups[i].promoting = false;
                         let why = refused.err().unwrap_or_else(|| "not queued".to_string());
-                        self.add_notice(format!("OMP did not steer with {text:?} now: {why}"));
+                        self.add_notice(format!(
+                            "cedian agent did not steer with {text:?} now: {why}"
+                        ));
                     }
                     (Ok(false), None) => self.add_notice(format!(
-                        "OMP ran {text:?} as its own turn before it could steer"
+                        "cedian agent ran {text:?} as its own turn before it could steer"
                     )),
                     (Err(why), None) => {
-                        self.add_notice(format!("OMP did not steer with {text:?}: {why}"))
+                        self.add_notice(format!("cedian agent did not steer with {text:?}: {why}"))
                     }
                 }
             }
@@ -2948,14 +2965,16 @@ impl CedianPanel {
             .map(|block| block.pending = None);
         self.notice = Some(match (edit, block) {
             (Some(_), Some(())) => {
-                format!("OMP did not queue the inline edit: {reason}; it stays in its block")
+                format!(
+                    "cedian agent did not queue the inline edit: {reason}; it stays in its block"
+                )
             }
             (Some(edit), None) => format!(
-                "OMP did not queue the inline edit {}: {reason}; instruction: {}",
+                "cedian agent did not queue the inline edit {}: {reason}; instruction: {}",
                 edit.label(cx),
                 edit.instruction
             ),
-            (None, _) => format!("OMP did not queue it: {reason}"),
+            (None, _) => format!("cedian agent did not queue it: {reason}"),
         });
     }
 
@@ -3107,12 +3126,12 @@ impl CedianPanel {
             self.start(window, cx);
         }
         match (&self.connection, &self.link) {
-            (Connection::Stopped(reason), _) => Err(format!("{reason}; restart OMP")),
+            (Connection::Stopped(reason), _) => Err(format!("{reason}; restart cedian agent")),
             (Connection::Taken { reason, .. }, _) => {
                 Err(format!("{reason}; start a new session or retry"))
             }
             (_, Some(link)) => link.send(prompt),
-            (_, None) => Err("OMP is not running; restart it".to_string()),
+            (_, None) => Err("cedian agent is not running; restart it".to_string()),
         }
     }
 
@@ -3145,7 +3164,7 @@ impl CedianPanel {
             }
             Turn::Streaming => {
                 let Some(link) = &self.link else {
-                    self.notice = Some("OMP is not running; restart it".to_string());
+                    self.notice = Some("cedian agent is not running; restart it".to_string());
                     cx.notify();
                     return false;
                 };
@@ -3223,7 +3242,7 @@ impl CedianPanel {
         };
         let input = cx.new(|cx| {
             let mut input = Editor::single_line(window, cx);
-            input.set_placeholder_text("Tell OMP how to edit the selection", window, cx);
+            input.set_placeholder_text("Tell cedian agent how to edit the selection", window, cx);
             input
         });
         let panel = cx.entity().downgrade();
@@ -3424,7 +3443,7 @@ impl CedianPanel {
         if drained.len() > 1 {
             let turn = self.review.begin_turn();
             self.add_notice(format!(
-                "OMP ran {} queued messages as one turn (turn {turn})",
+                "cedian agent ran {} queued messages as one turn (turn {turn})",
                 drained.len()
             ));
         } else if let Some(edit) = drained.pop().and_then(|q| q.edit) {
@@ -3449,7 +3468,7 @@ impl CedianPanel {
             return;
         }
         let Some(link) = &self.link else {
-            self.notice = Some("OMP is not running; restart it".to_string());
+            self.notice = Some("cedian agent is not running; restart it".to_string());
             cx.notify();
             return;
         };
@@ -3849,7 +3868,7 @@ impl CedianPanel {
                         .child(
                             Label::new(match reply {
                                 Some(text) => format!("last reply: {text}"),
-                                None => "OMP has no reply in this session yet".to_string(),
+                                None => "cedian agent has no reply in this session yet".to_string(),
                             })
                             .size(LabelSize::Small),
                         ),
@@ -4064,12 +4083,12 @@ impl CedianPanel {
                 }
                 Err(e) => self.push_toast(cedian_omp::Toast {
                     level: cedian_omp::ToastLevel::Warning,
-                    text: format!("OMP's login: {e}"),
+                    text: format!("cedian agent's login: {e}"),
                 }),
             },
             _ => self.push_toast(cedian_omp::Toast {
                 level: cedian_omp::ToastLevel::Info,
-                text: format!("OMP asks to open {}", request.url),
+                text: format!("cedian agent asks to open {}", request.url),
             }),
         }
     }
@@ -4144,7 +4163,7 @@ impl CedianPanel {
                 .debug_selector(|| "cedian-onboarding".to_string())
                 .gap_1()
                 .child(Label::new(
-                    "OMP has no model to use yet: log in to a provider.",
+                    "cedian agent has no model to use yet: log in to a provider.",
                 ))
                 .child(h_flex().flex_wrap().gap_1().children(providers))
                 .when(running.is_some(), |panel| {
@@ -4357,7 +4376,9 @@ impl CedianPanel {
         }
         let sent = match &self.link {
             Some(link) => link.answer(id, answer),
-            None => Err(AnswerError::NotSent("OMP is not running".to_string())),
+            None => Err(AnswerError::NotSent(
+                "cedian agent is not running".to_string(),
+            )),
         };
         match sent {
             Ok(()) => {
@@ -4669,7 +4690,7 @@ impl CedianPanel {
                 .debug_selector(|| "cedian-worktree-ask".to_string())
                 .gap_1()
                 .child(
-                    Label::new(format!("OMP asks for a worktree \"{id}\": {goal}"))
+                    Label::new(format!("cedian agent asks for a worktree \"{id}\": {goal}"))
                         .size(LabelSize::Small),
                 )
                 .child(
@@ -5164,12 +5185,12 @@ impl CedianPanel {
             let id = tool_call_id.as_str();
             let lost_read = |why: &str| {
                 format!(
-                    "OMP's call {id} may have written it before cedian read it, and no text \
+                    "cedian agent's call {id} may have written it before cedian read it, and no text \
                      from before the call is left ({why}); nothing was imported"
                 )
             };
             let moved = format!(
-                "OMP's call {id} moved it, and OMP's text from before the call is the move's \
+                "cedian agent's call {id} moved it, and cedian agent's text from before the call is the move's \
                  source, so cedian has no baseline for this path; nothing was imported"
             );
             let mut marks = Vec::new();
@@ -5198,15 +5219,15 @@ impl CedianPanel {
                         } else {
                             (text != start).then(|| {
                                 format!(
-                                    "OMP's call {id} wrote it before cedian marked it (Zed had \
+                                    "cedian agent's call {id} wrote it before cedian marked it (the editor had \
                                      already reloaded it); nothing was imported"
                                 )
                             })
                         }
                     }
                     _ if call.bash.is_some() => None,
-                    Some(TextBefore::Pruned) => Some(lost_read("OMP dropped it past 32 KiB")),
-                    _ => Some(lost_read("OMP's result reports none")),
+                    Some(TextBefore::Pruned) => Some(lost_read("cedian agent dropped it past 32 KiB")),
+                    _ => Some(lost_read("cedian agent's result reports none")),
                 };
                 if let Some(mut why) = why {
                     if mark.read_disk() {
@@ -5236,9 +5257,9 @@ impl CedianPanel {
                     }
                     Some(TextBefore::NewFile) => (Some(String::new()), None),
                     Some(TextBefore::Pruned) => {
-                        (read, Some(lost_read("OMP dropped it past 32 KiB")))
+                        (read, Some(lost_read("cedian agent dropped it past 32 KiB")))
                     }
-                    None => (read, Some(lost_read("OMP's result reports none"))),
+                    None => (read, Some(lost_read("cedian agent's result reports none"))),
                 };
                 let opened = project
                     .update(cx, |p, cx| p.open_local_buffer(path.clone(), cx))
@@ -5302,7 +5323,7 @@ impl CedianPanel {
                                 this.review.could_not_review(
                                     path(),
                                     format!(
-                                        "it was open with your own edits when OMP wrote it \
+                                        "it was open with your own edits when cedian agent wrote it \
                                          (call {tool_call_id}); nothing was imported"
                                     ),
                                 );
@@ -5546,7 +5567,7 @@ impl CedianPanel {
                     .child(Label::new(path.display().to_string()).size(LabelSize::Small))
                     .child(
                         Label::new(format!(
-                            "OMP wrote this file; it could not be reviewed: {reason}"
+                            "cedian agent wrote this file; it could not be reviewed: {reason}"
                         ))
                         .size(LabelSize::Small)
                         .color(Color::Warning),
@@ -5677,8 +5698,8 @@ impl Render for CedianPanel {
             });
         }
         let connection = match &self.connection {
-            Connection::NotStarted => "OMP not started".to_string(),
-            Connection::Starting => "starting OMP…".to_string(),
+            Connection::NotStarted => "cedian agent not started".to_string(),
+            Connection::Starting => "starting cedian agent…".to_string(),
             Connection::Checking => {
                 "checking whether another process drives the session…".to_string()
             }
@@ -5687,11 +5708,11 @@ impl Render for CedianPanel {
                 resumed,
                 policy_note,
             } => format!(
-                "OMP ready, session {} ({}){}",
+                "cedian agent ready, session {} ({}){}",
                 session_id.get(..8).unwrap_or(session_id),
                 if *resumed { "resumed" } else { "new" },
                 if policy_note.is_some() {
-                    " · OMP policy"
+                    " · agent policy"
                 } else {
                     ""
                 }
@@ -5805,7 +5826,7 @@ impl Render for CedianPanel {
                             if self.show_settings {
                                 "Back to chat"
                             } else {
-                                "OMP settings"
+                                "agent settings"
                             },
                         )
                         .on_click(
@@ -5975,7 +5996,7 @@ impl Render for CedianPanel {
                     })
                     .when(stopped, |row| {
                         row.child(
-                            Button::new("cedian-restart", "Restart OMP").on_click(
+                            Button::new("cedian-restart", "Restart cedian agent").on_click(
                                 cx.listener(|this, _, window, cx| this.restart(window, cx)),
                             ),
                         )
@@ -6066,7 +6087,7 @@ mod tests {
                 assert_eq!(
                     panel.onboarding.as_ref().unwrap().running,
                     None,
-                    "OMP cancelled"
+                    "cedian agent cancelled"
                 );
 
                 panel.onboarding = Some(running("anthropic"));
@@ -6217,7 +6238,7 @@ mod tests {
                     assert_eq!(
                         panel.prompt_text(cx),
                         "next",
-                        "due, and refused without OMP"
+                        "due, and refused without cedian agent"
                     );
                     assert!(
                         panel.notice().is_some_and(|n| n.contains("not sent")),
@@ -7169,7 +7190,7 @@ mod tests {
         f.window
             .update(cx, |panel, window, cx| {
                 panel.set_state_dir(dir.clone());
-                panel.stop("OMP exited".to_string(), window, cx);
+                panel.stop("cedian agent exited".to_string(), window, cx);
             })
             .unwrap();
         let status = cedian_shell::workflow_store::load(&dir).unwrap().status;
@@ -7778,12 +7799,18 @@ mod tests {
         feed_worktree_ask(&f, cx, &mut rx);
         f.window
             .update(cx, |panel, window, cx| {
-                panel.stop("OMP exited".to_string(), window, cx);
-                assert!(panel.worktree_ask.is_none(), "the bar closes with OMP");
+                panel.stop("cedian agent exited".to_string(), window, cx);
+                assert!(
+                    panel.worktree_ask.is_none(),
+                    "the bar closes with cedian agent"
+                );
                 panel.answer_worktree(true, cx);
             })
             .unwrap();
-        assert!(!handle.join().unwrap(), "a stopped OMP makes no worktree");
+        assert!(
+            !handle.join().unwrap(),
+            "a stopped cedian agent makes no worktree"
+        );
         assert_eq!(
             worktree_rows(&dir),
             [("abstain".to_string(), "cedian".to_string())]
@@ -8107,7 +8134,7 @@ mod tests {
                 assert_eq!(panel.review.current_turn(), before + 1, "no second turn");
                 assert_eq!(
                     panel.notice(),
-                    Some("OMP ran \"later\" as its own turn before it could steer")
+                    Some("cedian agent ran \"later\" as its own turn before it could steer")
                 );
             })
             .unwrap();
@@ -8178,7 +8205,7 @@ mod tests {
         let (f, _buffer) = fixture(cx).await;
         f.window
             .update(cx, |panel, window, cx| {
-                panel.omp_policy = Some("OMP policy (reading it…)".to_string());
+                panel.omp_policy = Some("agent policy (reading it…)".to_string());
                 panel.omp_warning = Some("omp 18.7.0, pin 18.6.1".to_string());
                 panel.on_link_event(LinkEvent::Failed("no omp".to_string()), window, cx);
                 assert_eq!(panel.omp_policy_badge(), None);
@@ -8372,7 +8399,7 @@ mod tests {
                 assert_eq!(panel.review.turn_label(2), None);
                 assert_eq!(
                     panel.notice(),
-                    Some("OMP ran 2 queued messages as one turn (turn 2)")
+                    Some("cedian agent ran 2 queued messages as one turn (turn 2)")
                 );
             })
             .unwrap();
@@ -8476,7 +8503,7 @@ mod tests {
         );
         assert_eq!(
             notice(&f, &mut vcx).as_deref(),
-            Some("OMP did not queue the inline edit: pipe; it stays in its block")
+            Some("cedian agent did not queue the inline edit: pipe; it stays in its block")
         );
         f.window
             .update(&mut vcx, |p, window, cx| {
@@ -8742,7 +8769,7 @@ mod tests {
         let (workspace, editor) = open_in_workspace(&f, &buffer, cx);
         f.window
             .update(cx, |panel, _, _| {
-                panel.connection = Connection::Stopped("OMP stopped".to_string());
+                panel.connection = Connection::Stopped("cedian agent stopped".to_string());
             })
             .unwrap();
         let mut vcx = VisualTestContext::from_window(workspace.into(), cx);
@@ -8765,7 +8792,7 @@ mod tests {
         vcx.run_until_parked();
         assert_eq!(
             notice(&f, &mut vcx).as_deref(),
-            Some("OMP stopped; restart OMP")
+            Some("cedian agent stopped; restart cedian agent")
         );
         let open = f
             .window
@@ -8971,14 +8998,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             notice(&f, cx).as_deref(),
-            Some("OMP is writing ws/notes.txt; try again when the call ends")
+            Some("cedian agent is writing ws/notes.txt; try again when the call ends")
         );
         assert_eq!(
             buffer.read_with(cx, |b, _| b.text()),
             "alpha\nB!ETA\ngamma\n",
             "the keystroke is kept"
         );
-        let refused = Some("OMP is writing ws/notes.txt; try again when the call ends");
+        let refused = Some("cedian agent is writing ws/notes.txt; try again when the call ends");
         f.window
             .update(cx, |panel, _, cx| {
                 panel.notice = None;
@@ -9222,7 +9249,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             notice(&f, cx).as_deref(),
-            Some("OMP is writing ws/notes.txt; try again when the call ends")
+            Some("cedian agent is writing ws/notes.txt; try again when the call ends")
         );
         assert_eq!(
             buffer.read_with(cx, |b, _| b.text()),
@@ -9326,7 +9353,11 @@ mod tests {
         assert!(!call_id.is_empty(), "keyed by tool_call_id");
 
         buffer.update(cx, |b, cx| {
-            assert_eq!(b.text(), "alpha\nBETA\ngamma\n", "buffer shows OMP's write");
+            assert_eq!(
+                b.text(),
+                "alpha\nBETA\ngamma\n",
+                "buffer shows cedian agent's write"
+            );
             assert!(!b.is_dirty());
             b.undo(cx);
             assert_eq!(

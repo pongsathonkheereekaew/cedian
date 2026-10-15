@@ -18,7 +18,7 @@ pub struct PaletteAction {
 pub const ACTIONS: &[PaletteAction] = &[
     PaletteAction {
         id: "prompt",
-        title: "Ask OMP",
+        title: "Ask cedian agent",
         hint: "new turn with ambient context",
     },
     PaletteAction {

@@ -5,9 +5,10 @@
 # signing and notarization are for redistributing it, not for running it. A
 # set `CODESIGN_IDENTITY` signs it anyway. `script/cedian-omp-build` builds the
 # OMP fork's binary from `vendor/cedian-agent` (ADR-0075 decision 5), and the
-# bundle carries it with its stamp as `Contents/Resources/omp{,.stamp}`; the
-# app runs no other OMP. `CEDIAN_SKIP_OMP=1` leaves it out, and that bundle
-# then runs only with `CEDIAN_OMP_BINARY` set.
+# bundle carries it with its stamp as `Contents/Resources/cedian-agent{,.stamp}`
+# (ADR-0078: the user sees one product); the app runs no other OMP.
+# `CEDIAN_SKIP_OMP=1` leaves it out, and that bundle cannot start an agent:
+# a release build ignores `CEDIAN_OMP_BINARY`.
 #
 #   script/cedian-bundle
 #   CODESIGN_IDENTITY="Developer ID Application: …" script/cedian-bundle
@@ -67,10 +68,11 @@ else
 fi
 
 if [ "${CEDIAN_SKIP_OMP:-0}" = 1 ]; then
-  echo "cedian-bundle: CEDIAN_SKIP_OMP=1: no Contents/Resources/omp; this bundle refuses to start OMP unless CEDIAN_OMP_BINARY is set" >&2
+  echo "cedian-bundle: CEDIAN_SKIP_OMP=1: no Contents/Resources/cedian-agent; this bundle cannot start the agent (a release build ignores CEDIAN_OMP_BINARY)" >&2
 else
   script/cedian-omp-build
-  cp target/omp/omp target/omp/omp.stamp "$APP/Contents/Resources/"
+  cp target/omp/omp "$APP/Contents/Resources/cedian-agent"
+  cp target/omp/omp.stamp "$APP/Contents/Resources/cedian-agent.stamp"
 fi
 
 if [ -n "$IDENTITY" ]; then
