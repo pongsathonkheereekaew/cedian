@@ -20,7 +20,10 @@
 //! 4. Under `policy = "omp"` the panel shows the OMP policy badge.
 //!
 //! Step 0 runs first: OMP has no model, so the panel onboards through
-//! `get_login_providers` and `login` (ADR-0057 decision 3). Its login
+//! `get_login_providers` and `login` (ADR-0057 decision 3); the fake's
+//! post-login `get_state` answers `model: null` like the real agent did
+//! before cedian-agent #3, so the panel's own no-model state (Send off,
+//! a hint, the picker) is what is tested, not the agent's pick. Its login
 //! frames are hand-made and stay so (ADR-0058 decision 6): recording them
 //! takes a real OAuth login in the person's browser, which no record lane
 //! makes for them.
@@ -123,9 +126,37 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         })
         .unwrap();
     click(&mut vcx, "cedian-dialog-login-code-Submit");
-    wait(cx, &window, "the login to finish", |p| {
+    // The login succeeded and OMP still has no model (the real agent's
+    // post-login state, ~/.cache/cedian-s10/post-login/repro.log): the
+    // provider shows signed in, Send is off with a hint, and a prompt goes
+    // nowhere until a model is picked.
+    wait(cx, &window, "the signed-in provider", |p| {
+        p.onboarding()
+            .is_some_and(|o| o.running.is_none() && o.providers.iter().any(|p| p.authenticated))
+    });
+    assert!(
+        rendered(&mut vcx, "cedian-pick-a-model").is_some(),
+        "the hint next to the picker"
+    );
+    submit(cx, &window, "hello");
+    cx.run_until_parked();
+    let (turn, notice) = window
+        .update(cx, |p, _, _| {
+            (p.turn().clone(), p.notice().map(str::to_string))
+        })
+        .unwrap();
+    assert_eq!(turn, Turn::Idle, "no turn starts without a model");
+    assert_eq!(notice.as_deref(), Some("Pick a model to start"));
+    click(&mut vcx, "cedian-picker-toggle");
+    wait(cx, &window, "the picker's models", |p| {
+        p.picker().models.len() == 2
+    });
+    click(&mut vcx, "cedian-model-anthropic/claude-x");
+    wait(cx, &window, "the picked model", |p| {
         p.onboarding().is_none() && p.picker().model.is_some()
     });
+    click(&mut vcx, "cedian-picker-toggle");
+    assert!(rendered(&mut vcx, "cedian-pick-a-model").is_none());
     assert_picker(cx, &window, "anthropic/claude-x", "high");
     let progress = window.update(cx, |p, _, _| p.toasts().to_vec()).unwrap();
     assert!(

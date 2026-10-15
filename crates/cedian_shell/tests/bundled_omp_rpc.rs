@@ -195,3 +195,130 @@ fn the_bundled_fork_build_starts_with_an_empty_agent_dir_and_lists_login_provide
     assert!(!root.join("home/.omp").exists(), "wrote into ~/.omp");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// After the person logs in through the panel (the `login` command), the agent
+/// must have a model, or the person is told to run /login and /model in a
+/// terminal. The login runs against a provider an extension registers with a
+/// network-free login and a model on a dead port, so no provider is called.
+#[test]
+#[ignore = "needs script/cedian-omp-build"]
+fn the_bundled_fork_build_has_a_model_after_a_login() {
+    let _env = ENV.lock().unwrap();
+    let root =
+        std::env::temp_dir().join(format!("cedian-bundled-omp-login-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("home")).unwrap();
+    std::fs::create_dir_all(root.join("ws")).unwrap();
+    let extension = root.join("fake-oauth-provider.ts");
+    std::fs::write(
+        &extension,
+        r#"export default function (pi) {
+    pi.registerProvider("fakeoauth", {
+        baseUrl: "http://127.0.0.1:9/v1",
+        api: "openai-completions",
+        models: [{
+            id: "fake-model",
+            name: "Fake Model",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 128000,
+            maxTokens: 8192,
+        }],
+        oauth: {
+            name: "Fake OAuth",
+            async login(callbacks) {
+                callbacks.onAuth({ url: "https://example.invalid/authorize" });
+                return { type: "oauth", access: "fake-access", refresh: "fake-refresh", expires: Date.now() + 3600_000 };
+            },
+            getApiKey(credentials) { return credentials.access; },
+        },
+    });
+}
+"#,
+    )
+    .unwrap();
+    unsafe {
+        // SAFETY: `ENV` is held, so no other test reads or writes the env.
+        for name in [
+            "CEDIAN_OMP_BINARY",
+            "CEDIAN_STATE_DIR",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+        ] {
+            std::env::remove_var(name);
+        }
+        std::env::set_var("HOME", root.join("home"));
+    }
+
+    let choice = cedian_shell::launch::omp_binary().expect("the stamped build");
+    let plan = cedian_omp::SpawnProfile {
+        binary_path: choice.binary,
+        session_dir: root.join("session"),
+        sessions: cedian_omp::Sessions::InSessionDir,
+        cwd: root.join("ws"),
+        policy: cedian_omp::SpawnPolicy::default(),
+    }
+    .prepare()
+    .unwrap();
+    let mut argv = plan.argv.clone();
+    argv.extend([
+        "--trusted-extension".to_string(),
+        extension.to_string_lossy().into_owned(),
+    ]);
+    println!("argv: {argv:?}");
+    let mut child = Command::new(&argv[0])
+        .args(&argv[1..])
+        .env_clear()
+        .envs(plan.env)
+        .current_dir(root.join("ws"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for line in [
+        r#"{"id":"1","type":"login","providerId":"fakeoauth"}"#,
+        r#"{"id":"2","type":"get_state"}"#,
+    ] {
+        writeln!(stdin, "{line}").unwrap();
+    }
+    let mut answers = std::collections::BTreeMap::new();
+    let mut model_changed = false;
+    for line in BufReader::new(child.stdout.take().unwrap()).lines() {
+        let line = line.unwrap();
+        let frame: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(frame) => frame,
+            Err(_) => continue,
+        };
+        if frame["type"] == "model_changed" {
+            model_changed = true;
+        }
+        if frame["type"] == "response" {
+            println!("response: {}", &line[..line.len().min(300)]);
+            answers.insert(frame["id"].as_str().unwrap_or("").to_string(), frame);
+            if answers.len() == 2 {
+                break;
+            }
+        }
+    }
+    drop(stdin);
+    if answers.len() < 2 {
+        let status = child.wait().unwrap();
+        panic!("cedian agent exited before answering: {status}, answers {answers:?}");
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(answers["1"]["success"], true, "{}", answers["1"]);
+    assert_eq!(answers["2"]["success"], true, "{}", answers["2"]);
+    assert_eq!(
+        answers["2"]["data"]["model"]["provider"], "fakeoauth",
+        "after a login the agent has the provider's model: {}",
+        answers["2"]
+    );
+    assert_eq!(answers["2"]["data"]["model"]["id"], "fake-model");
+    assert!(model_changed, "the host hears model_changed");
+    assert!(!root.join("home/.omp").exists(), "wrote into ~/.omp");
+    let _ = std::fs::remove_dir_all(&root);
+}
