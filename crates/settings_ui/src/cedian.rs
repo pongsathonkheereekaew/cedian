@@ -16,6 +16,7 @@ use super::*;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum SidebarGroup {
     Personal,
+    Agent,
     Workspace,
     System,
 }
@@ -24,6 +25,7 @@ impl SidebarGroup {
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Personal => "PERSONAL",
+            Self::Agent => "AGENT",
             Self::Workspace => "WORKSPACE",
             Self::System => "SYSTEM",
         }
@@ -87,6 +89,20 @@ pub(crate) const SIDEBAR: &[SidebarPage] = {
             IconName::Keyboard,
             Personal,
             Some("Change, add or remove the shortcut for every command."),
+            false,
+        ),
+        page(
+            "Account",
+            IconName::Person,
+            Agent,
+            Some("Sign in to the providers the agent uses, and bring your setup from OMP."),
+            false,
+        ),
+        page(
+            "Models",
+            IconName::Sparkle,
+            Agent,
+            Some("Which models the agent uses, by role."),
             false,
         ),
         page("Editor", IconName::Pencil, Workspace, None, false),
@@ -156,7 +172,7 @@ pub(crate) fn sidebar_page(title: &str) -> Option<&'static SidebarPage> {
 
 /// Where a row's value lives, shown as a chip after its label.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum ScopeBadge {
+pub enum ScopeBadge {
     /// One value per machine.
     User,
     /// Pinned by cedian's spawn overlay; read-only.
@@ -166,7 +182,7 @@ pub(crate) enum ScopeBadge {
 }
 
 impl ScopeBadge {
-    pub(crate) fn label(self) -> SharedString {
+    pub fn label(self) -> SharedString {
         match self {
             Self::User => "User".into(),
             Self::SetByCedian => "Set by cedian".into(),
@@ -175,7 +191,7 @@ impl ScopeBadge {
     }
 }
 
-pub(crate) fn render_scope_badge(badge: ScopeBadge, cx: &App) -> AnyElement {
+pub fn render_scope_badge(badge: ScopeBadge, cx: &App) -> AnyElement {
     let colors = cx.theme().colors();
     let chip = Chip::new(badge.label())
         .label_size(LabelSize::XSmall)
@@ -193,11 +209,7 @@ pub(crate) fn render_scope_badge(badge: ScopeBadge, cx: &App) -> AnyElement {
 
 /// The fixed vocabulary of row states (spec, Shell > States).
 #[derive(Clone, PartialEq, Debug)]
-#[allow(
-    dead_code,
-    reason = "the vocabulary the agent-backed rows of SET-2..4 use"
-)]
-pub(crate) enum RowState {
+pub enum RowState {
     /// The value is being read; the control is disabled.
     Loading,
     /// A list with nothing in it: one line and the primary action's label.
@@ -211,7 +223,7 @@ pub(crate) enum RowState {
 }
 
 impl RowState {
-    pub(crate) fn disables_control(&self) -> bool {
+    pub fn disables_control(&self) -> bool {
         matches!(
             self,
             Self::Loading | Self::DisabledChild | Self::Unavailable(_)
@@ -220,7 +232,7 @@ impl RowState {
 }
 
 /// The line under a row for `state`, if the state has one.
-pub(crate) fn render_row_state(state: &RowState, cx: &App) -> Option<AnyElement> {
+pub fn render_row_state(state: &RowState, cx: &App) -> Option<AnyElement> {
     let line = |icon: IconName, text: SharedString, color: Color| {
         h_flex()
             .gap_1()
@@ -276,10 +288,33 @@ pub(crate) fn render_cedian_row(
     cx: &mut Context<SettingsWindow>,
 ) -> Stateful<Div> {
     let state = row.state.and_then(|state| state(cx));
-    let dimmed = state.as_ref().is_some_and(RowState::disables_control);
     let control = (row.control)(settings_window, window, cx);
+    render_row(
+        row.title,
+        row.title.into(),
+        (!row.description.is_empty()).then(|| row.description.into()),
+        row.badge,
+        state.as_ref(),
+        control,
+        cx,
+    )
+}
+
+/// One row as every cedian row looks: title with its scope badge, the muted
+/// description, the state line under them, and the control on the right,
+/// dimmed while the state disables it.
+pub fn render_row(
+    id: impl Into<ElementId>,
+    title: SharedString,
+    description: Option<SharedString>,
+    badge: Option<ScopeBadge>,
+    state: Option<&RowState>,
+    control: AnyElement,
+    cx: &App,
+) -> Stateful<Div> {
+    let dimmed = state.is_some_and(RowState::disables_control);
     h_flex()
-        .id(row.title)
+        .id(id)
         .min_w_0()
         .justify_between()
         .gap_4()
@@ -291,21 +326,21 @@ pub(crate) fn render_cedian_row(
                 .child(
                     h_flex()
                         .gap_1p5()
-                        .child(Label::new(row.title))
-                        .when_some(row.badge, |this, badge| {
+                        .child(Label::new(title))
+                        .when_some(badge, |this, badge| {
                             this.child(render_scope_badge(badge, cx))
                         }),
                 )
-                .when(!row.description.is_empty(), |this| {
+                .when_some(description, |this, description| {
                     this.child(
-                        Label::new(row.description)
+                        Label::new(description)
                             .size(LabelSize::Small)
                             .color(Color::Muted)
                             .render_code_spans(),
                     )
                 })
                 .when_some(
-                    state.as_ref().and_then(|state| render_row_state(state, cx)),
+                    state.and_then(|state| render_row_state(state, cx)),
                     |this, line| this.child(line),
                 ),
         )
@@ -354,6 +389,55 @@ pub struct CedianHost {
     pub agent_settings: fn(Option<AnyWindowHandle>, &mut Window, &mut App) -> Option<AnyView>,
     /// Restart the agent of the workspace window that opened Settings.
     pub restart_agent: fn(Option<AnyWindowHandle>, &mut App),
+    /// The Account or Models page for the workspace window that opened
+    /// Settings, built for `window`.
+    pub agent_page:
+        fn(AgentPage, Option<AnyWindowHandle>, &mut Window, &mut App) -> Option<AnyView>,
+}
+
+/// A page the agent panel draws, in Settings' row style.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AgentPage {
+    Account,
+    Models,
+}
+
+/// A page item the host draws: its rows change with the agent (one per
+/// provider, one per role), so they are not fixed `CedianRow`s.
+#[derive(PartialEq)]
+pub(crate) struct CedianView {
+    pub title: &'static str,
+    pub keywords: &'static str,
+    pub page: AgentPage,
+}
+
+pub(crate) fn agent_page_view(
+    page: AgentPage,
+    origin: Option<AnyWindowHandle>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<AnyView> {
+    (host(cx)?.agent_page)(page, origin, window, cx)
+}
+
+pub(crate) fn render_cedian_view(
+    view: &CedianView,
+    settings_window: &SettingsWindow,
+    window: &mut Window,
+    cx: &mut Context<SettingsWindow>,
+) -> AnyElement {
+    let origin = settings_window.original_window.map(Into::into);
+    match agent_page_view(view.page, origin, window, cx) {
+        Some(view) => div().w_full().child(view).into_any_element(),
+        None => render_row_state(
+            &RowState::Unavailable(
+                "Open a project with the agent panel to change the agent's account and models."
+                    .into(),
+            ),
+            cx,
+        )
+        .unwrap_or_else(|| div().into_any_element()),
+    }
 }
 
 impl Global for CedianHost {}
@@ -403,6 +487,22 @@ pub(crate) fn arrange(zed: Vec<SettingsPage>) -> Vec<SettingsPage> {
     general.extend(zed_general);
     by_title.insert("General", general);
 
+    by_title.insert(
+        "Account",
+        vec![SettingsPageItem::CedianView(CedianView {
+            title: "Providers",
+            keywords: "account sign in log in log out login logout api key import omp skills",
+            page: AgentPage::Account,
+        })],
+    );
+    by_title.insert(
+        "Models",
+        vec![SettingsPageItem::CedianView(CedianView {
+            title: "Model Roles",
+            keywords: "default model thinking level roles smol slow plan advisor",
+            page: AgentPage::Models,
+        })],
+    );
     by_title.insert("Notifications", notification_items());
     by_title.insert(
         "Privacy",
@@ -1174,6 +1274,9 @@ mod tests {
                     "Appearance",
                     "Notifications",
                     "Keyboard Shortcuts",
+                    "AGENT",
+                    "Account",
+                    "Models",
                     "WORKSPACE",
                     "Editor",
                     "Languages & Tools",
@@ -1385,6 +1488,49 @@ mod tests {
                 item,
                 SettingsPageItem::SectionHeader("Feature Flags" | "Instrumentation")
             )));
+        });
+    }
+
+    #[gpui::test]
+    fn agent_pages_show_the_hosts_view_or_say_the_agent_is_missing(cx: &mut TestAppContext) {
+        struct Hosted(AgentPage);
+        impl Render for Hosted {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let (window, cx) = open_window(cx);
+        window.read_with(cx, |window, _| {
+            for (title, which) in [
+                ("Account", AgentPage::Account),
+                ("Models", AgentPage::Models),
+            ] {
+                let view = page(window, title)
+                    .items
+                    .iter()
+                    .find_map(|item| match item {
+                        SettingsPageItem::CedianView(view) => Some(view),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("{title} has no agent view"));
+                assert_eq!(view.page, which);
+            }
+        });
+        cx.update(|window, cx| {
+            assert!(agent_page_view(AgentPage::Models, None, window, cx).is_none());
+            set_host(
+                CedianHost {
+                    agent_settings: |_, _, _| None,
+                    restart_agent: |_, _| {},
+                    agent_page: |page, _, _, cx| Some(cx.new(|_| Hosted(page)).into()),
+                },
+                cx,
+            );
+            let view = agent_page_view(AgentPage::Models, None, window, cx).unwrap();
+            assert_eq!(
+                view.downcast::<Hosted>().unwrap().read(cx).0,
+                AgentPage::Models
+            );
         });
     }
 
