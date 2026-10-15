@@ -209,7 +209,7 @@ fn worktree_tool(
 struct NoPerson;
 
 impl cedian_worker::WorktreeGate for NoPerson {
-    fn allow(&self, _id: &str, _goal: &str) -> bool {
+    fn allow(&self, _id: &str, _goal: &str, _is_cancelled: &dyn Fn() -> bool) -> bool {
         false
     }
 
@@ -1100,7 +1100,12 @@ mod tests {
             "under ask the tool is registered"
         );
         let gate = NoPerson;
-        assert!(!cedian_worker::WorktreeGate::allow(&gate, "w1", "try it"));
+        assert!(!cedian_worker::WorktreeGate::allow(
+            &gate,
+            "w1",
+            "try it",
+            &|| false
+        ));
         assert_eq!(
             cedian_worker::WorktreeGate::refused(&gate, "w1"),
             "no worktree w1: no person is at the keyboard"

@@ -149,6 +149,10 @@ pub enum LinkEvent {
         id: String,
         goal: String,
     },
+    /// The host-tool thread behind worktree request `request` stopped
+    /// waiting (its call was cancelled or its wait ran out) before anyone
+    /// answered: the panel closes the bar and audits it abstained.
+    WorktreeWithdrawn { request: u64 },
 }
 
 const NOT_RUNNING: &str = "OMP is not running";
@@ -486,7 +490,7 @@ pub struct WorktreeAsk {
     /// The link's event channel, set once the panel has it (`wire`).
     events: OnceLock<UnboundedSender<LinkEvent>>,
     /// Blocked host-tool threads, by request id.
-    pending: Mutex<HashMap<u64, mpsc::Sender<bool>>>,
+    pub(crate) pending: Mutex<HashMap<u64, mpsc::Sender<bool>>>,
     next: AtomicU64,
     /// How long `ask` blocks: the dialog lease plus a margin, so the
     /// panel's expiry answers first. A test shortens it (the seam).
@@ -510,8 +514,10 @@ impl WorktreeAsk {
     }
 
     /// Ask the person and block until they answer, the panel's lease runs
-    /// out, or `wait` passes. A timeout or a dropped channel is a denial.
-    pub fn ask(&self, id: &str, goal: &str) -> bool {
+    /// out, the call is cancelled, or `wait` passes. Anything but an answer
+    /// is a denial. Whoever removes the request from `pending` first decides:
+    /// the panel's answer, or this thread's withdrawal.
+    pub fn ask(&self, id: &str, goal: &str, is_cancelled: &dyn Fn() -> bool) -> bool {
         let request = self.next.fetch_add(1, Ordering::Relaxed);
         let (reply, answer) = mpsc::channel();
         self.pending.lock().insert(request, reply);
@@ -524,16 +530,32 @@ impl WorktreeAsk {
                 })
                 .is_ok()
         });
-        let answer = if sent {
-            answer.recv_timeout(self.wait)
-        } else {
-            Err(mpsc::RecvTimeoutError::Disconnected)
-        };
-        if answer.is_err() {
-            // Nobody answered: fail closed, and let a late answer find none.
-            self.pending.lock().remove(&request);
+        if sent {
+            let deadline = Instant::now() + self.wait;
+            loop {
+                match answer.recv_timeout(Duration::from_millis(50)) {
+                    Ok(allow) => return allow,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(mpsc::RecvTimeoutError::Timeout)
+                        if is_cancelled() || Instant::now() >= deadline =>
+                    {
+                        break;
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                }
+            }
         }
-        answer.unwrap_or(false)
+        if self.pending.lock().remove(&request).is_none() {
+            // The panel answered first; its answer is already sent.
+            return answer.try_recv().unwrap_or(false);
+        }
+        // Withdrawn: fail closed, and the panel closes the bar.
+        if let Some(events) = self.events.get() {
+            events
+                .unbounded_send(LinkEvent::WorktreeWithdrawn { request })
+                .ok();
+        }
+        false
     }
 
     /// Answer a pending request. False when it expired or was already
@@ -552,8 +574,8 @@ struct AskWorktree {
 }
 
 impl cedian_worker::WorktreeGate for AskWorktree {
-    fn allow(&self, id: &str, goal: &str) -> bool {
-        self.ask.ask(id, goal)
+    fn allow(&self, id: &str, goal: &str, is_cancelled: &dyn Fn() -> bool) -> bool {
+        self.ask.ask(id, goal, is_cancelled)
     }
 }
 
@@ -2146,7 +2168,7 @@ mod tests {
         let (tx, mut rx) = futures::channel::mpsc::unbounded();
         ask.wire(tx);
         let asking = Arc::clone(ask);
-        let handle = std::thread::spawn(move || asking.ask("w1", "try it"));
+        let handle = std::thread::spawn(move || asking.ask("w1", "try it", &|| false));
         let event = futures::executor::block_on(rx.next()).expect("the ask sends its event");
         match event {
             LinkEvent::WorktreeAsked { request, id, goal } => {
@@ -2186,7 +2208,7 @@ mod tests {
 
     #[test]
     fn an_unwired_ask_fails_closed() {
-        assert!(!WorktreeAsk::new(Duration::from_secs(30)).ask("w1", "try it"));
+        assert!(!WorktreeAsk::new(Duration::from_secs(30)).ask("w1", "try it", &|| false));
     }
 
     #[test]

@@ -17,7 +17,9 @@ pub const WORKTREE_REQUEST_TOOL: &str = "cedian_worktree_request";
 /// (ADR-0012). `ask` blocks its caller, which is a host-tool thread of its
 /// own; a timeout or a dropped channel is a denial.
 pub trait WorktreeGate: Send + Sync {
-    fn allow(&self, id: &str, goal: &str) -> bool;
+    /// Ask whether worker `id` may be made. `is_cancelled` turns true when
+    /// the tool call is cancelled; a gate that waits stops then and refuses.
+    fn allow(&self, id: &str, goal: &str, is_cancelled: &dyn Fn() -> bool) -> bool;
 
     /// The refusal OMP sees for a denied request. The default names the
     /// person a panel asked; a headless caller says nobody was there.
@@ -30,7 +32,7 @@ pub trait WorktreeGate: Send + Sync {
 struct AlwaysAllow;
 
 impl WorktreeGate for AlwaysAllow {
-    fn allow(&self, _id: &str, _goal: &str) -> bool {
+    fn allow(&self, _id: &str, _goal: &str, _is_cancelled: &dyn Fn() -> bool) -> bool {
         true
     }
 }
@@ -121,10 +123,11 @@ fn request_with_gate(
     state: &Path,
     gate: &dyn WorktreeGate,
     args: &Map<String, Value>,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
     let id = args.get("id").and_then(Value::as_str).unwrap_or("");
     let brief = checked_brief(id, args)?;
-    if !gate.allow(id, &brief.goal) {
+    if !gate.allow(id, &brief.goal, is_cancelled) {
         return Err(gate.refused(id));
     }
     request_worktree(repo, state, args)
@@ -180,8 +183,8 @@ pub fn worktree_request_tool_with_gate(
          parallel worker, with its brief (goal, scope.write, acceptance, verify, timebox_min); \
          never run `git worktree add` yourself. Returns the worktree id and path.",
         params,
-        move |args, _ctx| {
-            request_with_gate(&repo, &state, &*gate, &args)
+        move |args, ctx| {
+            request_with_gate(&repo, &state, &*gate, &args, &|| ctx.is_cancelled())
                 .map(Into::into)
                 .map_err(Into::into)
         },
@@ -374,7 +377,7 @@ mod tests {
     }
 
     impl WorktreeGate for RecordingGate {
-        fn allow(&self, _id: &str, _goal: &str) -> bool {
+        fn allow(&self, _id: &str, _goal: &str, _is_cancelled: &dyn Fn() -> bool) -> bool {
             self.asked
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.allow
@@ -385,7 +388,8 @@ mod tests {
     fn a_gate_that_allows_makes_the_tree_and_row() {
         let repo = fixture();
         let gate = RecordingGate::new(true);
-        let out = request_with_gate(&repo, &state(&repo), &gate, &args(brief("w1"))).unwrap();
+        let out =
+            request_with_gate(&repo, &state(&repo), &gate, &args(brief("w1")), &|| false).unwrap();
         assert!(out.contains("branch cedian-worker/w1"), "{out}");
         assert!(repo.join(".worktrees/w1/a.txt").exists());
         assert!(Registry::open(&state(&repo)).unwrap().0.get("w1").is_some());
@@ -396,7 +400,8 @@ mod tests {
     fn a_gate_that_denies_names_the_id_and_makes_nothing() {
         let repo = fixture();
         let gate = RecordingGate::new(false);
-        let err = request_with_gate(&repo, &state(&repo), &gate, &args(brief("w1"))).unwrap_err();
+        let err = request_with_gate(&repo, &state(&repo), &gate, &args(brief("w1")), &|| false)
+            .unwrap_err();
         assert!(err.contains("w1"), "{err}");
         assert!(!repo.join(".worktrees/w1").exists());
         assert!(Registry::open(&state(&repo)).unwrap().0.get("w1").is_none());
@@ -412,6 +417,7 @@ mod tests {
             &state(&repo),
             &gate,
             &args(json!({"id": "bare", "goal": "no brief"})),
+            &|| false,
         )
         .unwrap_err();
         assert!(

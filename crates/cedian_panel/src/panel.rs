@@ -356,6 +356,14 @@ pub enum Connection {
 /// The app's task: its review, its workflow evidence and its correction rows.
 pub const TASK_ID: &str = "panel";
 
+/// cedian's own Ask on a `cedian_debug` call: where the person's answer
+/// goes, the flag the call and the click race to set, and the audit label.
+type LocalAsk = (
+    std::sync::mpsc::Sender<bool>,
+    Arc<std::sync::atomic::AtomicBool>,
+    String,
+);
+
 pub struct CedianPanel {
     focus_handle: FocusHandle,
     project: Entity<Project>,
@@ -432,7 +440,7 @@ pub struct CedianPanel {
     agent_sessions: Rc<RefCell<HashSet<u32>>>,
     /// cedian's own Asks among `dialogs` (a `cedian_debug` start or run
     /// control), by dialog id: who waits on the answer, and the audit label.
-    local_asks: HashMap<String, (std::sync::mpsc::Sender<bool>, String)>,
+    local_asks: HashMap<String, LocalAsk>,
     next_local_ask: u64,
     /// The workspace's state dir (ADR-0044), once known.
     state_dir: Option<PathBuf>,
@@ -1537,13 +1545,12 @@ impl CedianPanel {
 
     /// Start (or restart) OMP for the open folder.
     fn start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.withdraw_worktree();
         let previous = self.link.take();
         self.notice = None;
         self.forget_old_omp(window, cx);
         self.dialogs.clear();
         self.abstain_local_asks();
-        self.worktree_ask = None;
-        self._worktree_expiry = None;
         self.release_in_flight(cx);
         self.set_turn(Turn::Idle);
         let Some(root) = self.workspace_root(cx) else {
@@ -2687,6 +2694,19 @@ impl CedianPanel {
                 }));
                 cx.notify();
             }
+            LinkEvent::WorktreeWithdrawn { request } => {
+                if self
+                    .worktree_ask
+                    .as_ref()
+                    .is_some_and(|(asked, _, _)| *asked == request)
+                    && let Some(id) = self.withdraw_worktree()
+                {
+                    self.notice = Some(format!(
+                        "the worktree request for {id} was cancelled before an answer"
+                    ));
+                }
+                cx.notify();
+            }
             LinkEvent::Event(RouterEvent::UiRequest(ExtensionUiRequest::Cancel(cancel))) => {
                 self.dialogs.shift_remove(&cancel.target_id);
                 if let Some(onboarding) = &mut self.onboarding
@@ -2954,6 +2974,8 @@ impl CedianPanel {
     }
 
     fn stop(&mut self, reason: String, window: &mut Window, cx: &mut Context<Self>) {
+        // Audited while the link is still here to write the row.
+        self.withdraw_worktree();
         self.disarm(&reason, window, cx);
         self.after_stop = None;
         self.link = None;
@@ -4286,6 +4308,7 @@ impl CedianPanel {
         let closed = self.link.as_ref().map(OmpLink::close_dialogs);
         self.dialogs.clear();
         self.abstain_local_asks();
+        self.withdraw_worktree();
         match closed {
             Some(Err(e)) => self.audit_failed(e, cx),
             _ => self.cancel(),
@@ -4317,15 +4340,17 @@ impl CedianPanel {
     /// Answer dialog `id` as its buttons do. An answer OMP did not get
     /// leaves the dialog open with the reason on it.
     pub fn answer(&mut self, id: &str, answer: UserAnswer, cx: &mut Context<Self>) {
-        if let Some((reply, label)) = self.local_asks.remove(id) {
+        if let Some((reply, settled, label)) = self.local_asks.remove(id) {
             let allow = answer == UserAnswer::Choice(APPROVE.to_string());
-            let decision = if allow {
-                GateDecision::Allow
-            } else {
-                GateDecision::Deny
+            // The call already withdrew, or stopped waiting: nothing acts
+            // on this answer.
+            let delivered = crate::debug_tool::Ask::settle(&settled) && reply.send(allow).is_ok();
+            let (decision, by) = match (delivered, allow) {
+                (false, _) => (GateDecision::Abstain, Answerer::Cedian),
+                (true, true) => (GateDecision::Allow, Answerer::User),
+                (true, false) => (GateDecision::Deny, Answerer::User),
             };
-            self.debug_decision(label, decision, Answerer::User);
-            reply.send(allow).ok();
+            self.debug_decision(label, decision, by);
             self.dialogs.shift_remove(id);
             cx.notify();
             return;
@@ -4357,7 +4382,7 @@ impl CedianPanel {
         let Some(dialog) = self.dialogs.shift_remove(id) else {
             return;
         };
-        if let Some((reply, label)) = self.local_asks.remove(id) {
+        if let Some((reply, _, label)) = self.local_asks.remove(id) {
             // Nobody answered cedian's own Ask: a denial (ADR-0013).
             self.debug_decision(label, GateDecision::Abstain, Answerer::Cedian);
             reply.send(false).ok();
@@ -4439,10 +4464,24 @@ impl CedianPanel {
                     cx.background_executor().timer(DIALOG_TIMEOUT).await;
                     this.update(cx, |this, cx| this.expire(&expiring, cx)).ok();
                 }));
-                self.local_asks.insert(id.clone(), (reply, label));
+                let (asking, withdrawn) = futures::channel::oneshot::channel::<()>();
+                let withdrawing = id.clone();
+                cx.spawn(async move |this, cx| {
+                    withdrawn.await.ok();
+                    this.update(cx, |this, cx| this.withdraw(&withdrawing, cx))
+                        .ok();
+                })
+                .detach();
+                let settled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                self.local_asks
+                    .insert(id.clone(), (reply, Arc::clone(&settled), label));
                 self.dialogs.insert(id, dialog);
                 cx.notify();
-                Verdict::Ask(answer)
+                Verdict::Ask(crate::debug_tool::Ask {
+                    answer,
+                    settled,
+                    asking,
+                })
             }
         }
     }
@@ -4454,9 +4493,27 @@ impl CedianPanel {
         }
     }
 
+    /// The call behind cedian's own Ask `id` stopped waiting (its turn was
+    /// cancelled, or it gave up): close the dialog and audit the ask as
+    /// abstained, so a late click finds nothing to answer. A no-op when the
+    /// person answered first.
+    fn withdraw(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some((_reply, _, label)) = self.local_asks.remove(id) else {
+            return;
+        };
+        self.debug_decision(label, GateDecision::Abstain, Answerer::Cedian);
+        if let Some(dialog) = self.dialogs.shift_remove(id) {
+            self.notice = Some(format!(
+                "\"{}\" was cancelled before an answer",
+                dialog.title()
+            ));
+        }
+        cx.notify();
+    }
+
     /// cedian's own Asks closed with the dialogs: each is a denial, audited.
     fn abstain_local_asks(&mut self) {
-        for (_, (_, label)) in std::mem::take(&mut self.local_asks) {
+        for (_, (_, _, label)) in std::mem::take(&mut self.local_asks) {
             self.debug_decision(label, GateDecision::Abstain, Answerer::Cedian);
         }
     }
@@ -4470,11 +4527,14 @@ impl CedianPanel {
             cx.notify();
             return;
         };
+        // The host-tool thread may have stopped waiting: then nothing acts
+        // on this answer, and the row says nobody's answer counted.
+        let delivered = self
+            .worktree_gate
+            .as_ref()
+            .is_some_and(|gate| gate.answer(request, allow));
         if let Some(link) = &self.link {
-            link.worktree_decision(&id, &goal, allow, false);
-        }
-        if let Some(gate) = &self.worktree_gate {
-            gate.answer(request, allow);
+            link.worktree_decision(&id, &goal, allow, !delivered);
         }
         self._worktree_expiry = None;
         cx.notify();
@@ -4483,21 +4543,29 @@ impl CedianPanel {
     /// The worktree request's lease ran out: cedian denies it, resolves the
     /// blocked host-tool thread, and says nobody answered (§63, ADR-0013).
     fn expire_worktree(&mut self, cx: &mut Context<Self>) {
-        let Some((request, id, goal)) = self.worktree_ask.take() else {
+        let Some(id) = self.withdraw_worktree() else {
             return;
         };
-        if let Some(link) = &self.link {
-            link.worktree_decision(&id, &goal, false, true);
-        }
-        if let Some(gate) = &self.worktree_gate {
-            gate.answer(request, false);
-        }
-        self._worktree_expiry = None;
         self.notice = Some(format!(
             "the worktree request for {id} got no answer in {} minutes; cedian denied it",
             DIALOG_TIMEOUT.as_secs() / 60
         ));
         cx.notify();
+    }
+
+    /// Close the worktree bar with nobody's answer counted (the lease ran
+    /// out, the turn stopped, OMP stopped): refuse the blocked thread and
+    /// audit `abstain` by cedian once. The worker id, if a bar was up.
+    fn withdraw_worktree(&mut self) -> Option<String> {
+        let (request, id, goal) = self.worktree_ask.take()?;
+        self._worktree_expiry = None;
+        if let Some(gate) = &self.worktree_gate {
+            gate.answer(request, false);
+        }
+        if let Some(link) = &self.link {
+            link.worktree_decision(&id, &goal, false, true);
+        }
+        Some(id)
     }
 
     fn submit_dialog(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -7416,11 +7484,16 @@ mod tests {
 
     /// The worktree tool's gate rows `(decision, answered_by)` in `dir`.
     fn worktree_rows(dir: &Path) -> Vec<(String, String)> {
+        gate_rows(dir, "cedian_worktree_request")
+    }
+
+    /// `tool`'s gate rows `(decision, answered_by)` in `dir`.
+    fn gate_rows(dir: &Path, tool: &str) -> Vec<(String, String)> {
         std::fs::read_to_string(dir.join(cedian_shell::audit::AUDIT_FILE))
             .unwrap_or_default()
             .lines()
             .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap()["item"].clone())
-            .filter(|item| item["tool"] == "cedian_worktree_request")
+            .filter(|item| item["tool"] == tool)
             .map(|item| {
                 (
                     item["decision"].as_str().unwrap().to_string(),
@@ -7484,7 +7557,7 @@ mod tests {
         let dir = worktree_dir("worktree-allow");
         let (ask, mut rx) = panel_worktree(cx, &f, &dir);
         let asking = Arc::clone(&ask);
-        let handle = std::thread::spawn(move || asking.ask("w1", "try it"));
+        let handle = std::thread::spawn(move || asking.ask("w1", "try it", &|| false));
         feed_worktree_ask(&f, cx, &mut rx);
 
         let mut vcx = VisualTestContext::from_window(f.window.into(), cx);
@@ -7505,7 +7578,7 @@ mod tests {
         let dir = worktree_dir("worktree-deny");
         let (ask, mut rx) = panel_worktree(cx, &f, &dir);
         let asking = Arc::clone(&ask);
-        let handle = std::thread::spawn(move || asking.ask("w1", "try it"));
+        let handle = std::thread::spawn(move || asking.ask("w1", "try it", &|| false));
         feed_worktree_ask(&f, cx, &mut rx);
 
         let mut vcx = VisualTestContext::from_window(f.window.into(), cx);
@@ -7526,7 +7599,7 @@ mod tests {
         let dir = worktree_dir("worktree-expire");
         let (ask, mut rx) = panel_worktree(cx, &f, &dir);
         let asking = Arc::clone(&ask);
-        let handle = std::thread::spawn(move || asking.ask("w1", "try it"));
+        let handle = std::thread::spawn(move || asking.ask("w1", "try it", &|| false));
         feed_worktree_ask(&f, cx, &mut rx);
 
         f.window
@@ -7549,7 +7622,7 @@ mod tests {
         let dir = worktree_dir("worktree-late");
         let (ask, mut rx) = panel_worktree(cx, &f, &dir);
         let asking = Arc::clone(&ask);
-        let handle = std::thread::spawn(move || asking.ask("w1", "try it"));
+        let handle = std::thread::spawn(move || asking.ask("w1", "try it", &|| false));
         feed_worktree_ask(&f, cx, &mut rx);
         f.window
             .update(cx, |panel, _, cx| panel.expire_worktree(cx))
@@ -7566,6 +7639,291 @@ mod tests {
         assert_eq!(
             worktree_rows(&dir),
             [("abstain".to_string(), "cedian".to_string())]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The host-tool thread gave up before the person clicked: the click
+    /// runs nothing, so it is no allow row.
+    #[gpui::test]
+    async fn a_worktree_allow_after_the_asker_gave_up_is_not_an_allow(cx: &mut TestAppContext) {
+        let (f, _buffer) = fixture(cx).await;
+        let dir = worktree_dir("worktree-gave-up");
+        let (ask, mut rx) = panel_worktree(cx, &f, &dir);
+        let asking = Arc::clone(&ask);
+        let handle = std::thread::spawn(move || asking.ask("w1", "try it", &|| false));
+        feed_worktree_ask(&f, cx, &mut rx);
+        f.window
+            .update(cx, |panel, _, _| {
+                let (request, _, _) = panel.worktree_ask.as_ref().unwrap();
+                // What the thread's own wait running out does.
+                ask.pending.lock().remove(request);
+            })
+            .unwrap();
+        f.window
+            .update(cx, |panel, _, cx| panel.answer_worktree(true, cx))
+            .unwrap();
+        assert!(!handle.join().unwrap(), "the asker gave up");
+        assert_eq!(
+            worktree_rows(&dir),
+            [("abstain".to_string(), "cedian".to_string())]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A `cedian_debug start` Ask whose call is cancelled (the turn
+    /// aborted): its dialog closes, the audit says cedian abstained, and a
+    /// late Approve finds nothing to answer, so no allow row and no launch.
+    #[gpui::test]
+    async fn a_cancelled_debug_ask_closes_and_a_late_approve_is_not_an_allow(
+        cx: &mut TestAppContext,
+    ) {
+        let (f, _buffer) = fixture(cx).await;
+        // The call waits on its own thread, as on OMP's reader thread.
+        cx.executor().allow_parking();
+        let dir = worktree_dir("debug-cancelled");
+        let (tx, _rx) = mpsc::unbounded::<LinkEvent>();
+        let link =
+            OmpLink::audit_only(tx, &dir, cedian_omp::SpawnPolicy::default().approvals).unwrap();
+        let verdict = f
+            .window
+            .update(cx, |panel, window, cx| {
+                panel.link = Some(link);
+                panel.debug_verdict(
+                    "cedian_debug Start".to_string(),
+                    crate::debug_tool::Gate::Ask("Start the debug scenario \"main\"?".into()),
+                    window,
+                    cx,
+                )
+            })
+            .unwrap();
+        let crate::debug_tool::Verdict::Ask(ask) = verdict else {
+            panic!("an Ask opens a dialog");
+        };
+        let id = f
+            .window
+            .update(cx, |panel, _, _| panel.dialog_ids())
+            .unwrap()
+            .pop()
+            .expect("the Ask's dialog is open");
+
+        let waiting = std::thread::spawn(move || crate::debug_tool::person_allows(ask, || true));
+        while !waiting.is_finished() {
+            cx.run_until_parked();
+            std::thread::yield_now();
+        }
+        assert!(!waiting.join().unwrap(), "a cancelled call is not allowed");
+        cx.run_until_parked();
+
+        let mut vcx = VisualTestContext::from_window(f.window.into(), cx);
+        assert!(
+            vcx.debug_bounds(Box::leak(format!("cedian-dialog-{id}").into_boxed_str()))
+                .is_none(),
+            "the cancelled Ask's dialog is closed"
+        );
+        assert_eq!(
+            gate_rows(&dir, crate::debug_tool::TOOL),
+            [("abstain".to_string(), "cedian".to_string())]
+        );
+
+        f.window
+            .update(cx, |panel, _, cx| {
+                panel.answer(&id, UserAnswer::Choice(APPROVE.to_string()), cx)
+            })
+            .unwrap();
+        assert_eq!(
+            gate_rows(&dir, crate::debug_tool::TOOL),
+            [("abstain".to_string(), "cedian".to_string())],
+            "a late Approve writes no allow row"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A worktree ask is pending when the person presses Stop: the bar
+    /// closes, the ask is audited abstain by cedian once, and the blocked
+    /// thread is refused, so a late Allow makes nothing.
+    #[gpui::test]
+    async fn stop_withdraws_a_pending_worktree_ask(cx: &mut TestAppContext) {
+        let (f, _buffer) = fixture(cx).await;
+        let dir = worktree_dir("worktree-stop-turn");
+        let (ask, mut rx) = panel_worktree(cx, &f, &dir);
+        let asking = Arc::clone(&ask);
+        let handle = std::thread::spawn(move || asking.ask("w1", "try it", &|| false));
+        feed_worktree_ask(&f, cx, &mut rx);
+        f.window
+            .update(cx, |panel, _, cx| {
+                panel.set_turn(Turn::Streaming);
+                panel.stop_turn(cx);
+                assert!(panel.worktree_ask.is_none(), "Stop closes the bar");
+                panel.answer_worktree(true, cx);
+            })
+            .unwrap();
+        assert!(!handle.join().unwrap(), "a stopped turn makes no worktree");
+        assert_eq!(
+            worktree_rows(&dir),
+            [("abstain".to_string(), "cedian".to_string())]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// OMP stops (the session ends) with a worktree ask pending: the ask is
+    /// audited before the link goes, and the thread is refused.
+    #[gpui::test]
+    async fn omp_stop_withdraws_a_pending_worktree_ask(cx: &mut TestAppContext) {
+        let (f, _buffer) = fixture(cx).await;
+        let dir = worktree_dir("worktree-omp-stop");
+        let (ask, mut rx) = panel_worktree(cx, &f, &dir);
+        let asking = Arc::clone(&ask);
+        let handle = std::thread::spawn(move || asking.ask("w1", "try it", &|| false));
+        feed_worktree_ask(&f, cx, &mut rx);
+        f.window
+            .update(cx, |panel, window, cx| {
+                panel.stop("OMP exited".to_string(), window, cx);
+                assert!(panel.worktree_ask.is_none(), "the bar closes with OMP");
+                panel.answer_worktree(true, cx);
+            })
+            .unwrap();
+        assert!(!handle.join().unwrap(), "a stopped OMP makes no worktree");
+        assert_eq!(
+            worktree_rows(&dir),
+            [("abstain".to_string(), "cedian".to_string())]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// OMP cancels the tool call with no Stop in the panel: the thread
+    /// withdraws, the bar closes, and a late Allow is no allow row.
+    #[gpui::test]
+    async fn a_cancelled_worktree_call_withdraws_its_ask(cx: &mut TestAppContext) {
+        let (f, _buffer) = fixture(cx).await;
+        let dir = worktree_dir("worktree-cancelled");
+        let (ask, mut rx) = panel_worktree(cx, &f, &dir);
+        let asking = Arc::clone(&ask);
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = Arc::clone(&cancelled);
+        let handle = std::thread::spawn(move || {
+            asking.ask("w1", "try it", &|| {
+                flag.load(std::sync::atomic::Ordering::SeqCst)
+            })
+        });
+        feed_worktree_ask(&f, cx, &mut rx);
+        let cancelled_at = std::time::Instant::now();
+        cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            !handle.join().unwrap(),
+            "a cancelled call makes no worktree"
+        );
+        assert!(
+            cancelled_at.elapsed() < Duration::from_secs(10),
+            "the cancel ends the wait, not the 30 s wait running out"
+        );
+        // The withdrawal the thread sent, then the person's late click.
+        feed_worktree_ask(&f, cx, &mut rx);
+        f.window
+            .update(cx, |panel, _, cx| {
+                assert!(
+                    panel.worktree_ask.is_none(),
+                    "the withdrawal closes the bar"
+                );
+                panel.answer_worktree(true, cx);
+            })
+            .unwrap();
+        assert_eq!(
+            worktree_rows(&dir),
+            [("abstain".to_string(), "cedian".to_string())]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Open cedian's own Ask for a `cedian_debug start` behind a link that
+    /// audits into `dir`: the Ask and its dialog id.
+    fn debug_ask(
+        f: &Fixture,
+        cx: &mut TestAppContext,
+        dir: &Path,
+    ) -> (crate::debug_tool::Ask, String) {
+        let (tx, _rx) = mpsc::unbounded::<LinkEvent>();
+        let link =
+            OmpLink::audit_only(tx, dir, cedian_omp::SpawnPolicy::default().approvals).unwrap();
+        let verdict = f
+            .window
+            .update(cx, |panel, window, cx| {
+                panel.link = Some(link);
+                panel.debug_verdict(
+                    "cedian_debug Start".to_string(),
+                    crate::debug_tool::Gate::Ask("Start the debug scenario \"main\"?".into()),
+                    window,
+                    cx,
+                )
+            })
+            .unwrap();
+        let crate::debug_tool::Verdict::Ask(ask) = verdict else {
+            panic!("an Ask opens a dialog");
+        };
+        let id = f
+            .window
+            .update(cx, |panel, _, _| panel.dialog_ids())
+            .unwrap()
+            .pop()
+            .expect("the Ask's dialog is open");
+        (ask, id)
+    }
+
+    /// The call decided to withdraw, and the person's click reaches the
+    /// GPUI thread before the withdrawal does: the click is no allow and
+    /// the call runs nothing.
+    #[gpui::test]
+    async fn a_click_after_the_withdrawal_decision_is_not_an_allow(cx: &mut TestAppContext) {
+        let (f, _buffer) = fixture(cx).await;
+        cx.executor().allow_parking();
+        let dir = worktree_dir("debug-click-race");
+        let (ask, id) = debug_ask(&f, cx, &dir);
+        let waiting = std::thread::spawn(move || crate::debug_tool::person_allows(ask, || true));
+        // Past the call's first poll, so it has decided; the panel has not
+        // run the withdrawal yet.
+        std::thread::sleep(Duration::from_millis(300));
+        f.window
+            .update(cx, |panel, _, cx| {
+                panel.answer(&id, UserAnswer::Choice(APPROVE.to_string()), cx)
+            })
+            .unwrap();
+        while !waiting.is_finished() {
+            cx.run_until_parked();
+            std::thread::yield_now();
+        }
+        assert!(!waiting.join().unwrap(), "a withdrawn call runs nothing");
+        cx.run_until_parked();
+        assert_eq!(
+            gate_rows(&dir, crate::debug_tool::TOOL),
+            [("abstain".to_string(), "cedian".to_string())]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The call stopped waiting and dropped its receiver before the panel
+    /// heard: a click cannot reach it, so the row is abstain by cedian.
+    #[gpui::test]
+    async fn a_click_after_the_call_is_gone_is_abstain(cx: &mut TestAppContext) {
+        let (f, _buffer) = fixture(cx).await;
+        let dir = worktree_dir("debug-call-gone");
+        let (ask, id) = debug_ask(&f, cx, &dir);
+        drop(ask);
+        f.window
+            .update(cx, |panel, _, cx| {
+                panel.answer(&id, UserAnswer::Choice(APPROVE.to_string()), cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            gate_rows(&dir, crate::debug_tool::TOOL),
+            [("abstain".to_string(), "cedian".to_string())]
+        );
+        assert!(
+            !f.window
+                .update(cx, |panel, _, _| panel.dialog_ids())
+                .unwrap()
+                .contains(&id),
+            "the dialog is closed"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

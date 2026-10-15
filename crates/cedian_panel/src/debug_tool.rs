@@ -41,6 +41,8 @@ const OP_BUDGET: Duration = Duration::from_secs(18);
 /// How long the person has to answer cedian's Ask before it is a denial:
 /// the dialog lease, plus a margin so the panel's expiry answers first.
 const ASK_WAIT: Duration = Duration::from_secs(5 * 60 + 30);
+/// How long a withdrawn Ask waits for the panel to settle it.
+const WITHDRAW_WAIT: Duration = Duration::from_secs(5);
 const MAX_FRAMES: usize = 32;
 const MAX_VARS: usize = 100;
 const MAX_VALUE: usize = 512;
@@ -212,7 +214,28 @@ pub enum Gate {
 pub(crate) enum Verdict {
     Allow,
     Deny(String),
-    Ask(std::sync::mpsc::Receiver<bool>),
+    Ask(Ask),
+}
+
+/// A pending Ask as the waiting call holds it: the person's answer to come,
+/// `settled`, which the call and the panel's click both try to set and only
+/// the first one does, and `asking`, whose drop tells the panel the call
+/// stopped waiting so it closes the dialog and audits the ask as abstained.
+pub(crate) struct Ask {
+    pub answer: std::sync::mpsc::Receiver<bool>,
+    pub settled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub asking: futures::channel::oneshot::Sender<()>,
+}
+
+impl Ask {
+    /// Claim the ask for whoever calls first: the call withdrawing it, or
+    /// the person's click answering it. False when the other side won.
+    pub fn settle(settled: &std::sync::atomic::AtomicBool) -> bool {
+        use std::sync::atomic::Ordering;
+        settled
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
 }
 
 /// The verdict, and the op that runs if allowed: the one judged, pinned to
@@ -255,7 +278,7 @@ pub(crate) fn tool(
             Verdict::Allow => {}
             Verdict::Deny(why) => return Err(format!("denied: {why}").into()),
             Verdict::Ask(answer) => {
-                if !person_allows(&answer, || ctx.is_cancelled()) {
+                if !person_allows(answer, || ctx.is_cancelled()) {
                     return Err(format!("denied: the person did not allow {what}").into());
                 }
             }
@@ -268,22 +291,34 @@ pub(crate) fn tool(
 
 /// Block OMP's thread until the person answers cedian's Ask. No answer in
 /// [`ASK_WAIT`], a closed dialog or a cancel is a denial (ADR-0013).
-fn person_allows(
-    answer: &std::sync::mpsc::Receiver<bool>,
-    is_cancelled: impl Fn() -> bool,
-) -> bool {
+///
+/// On a cancel or the deadline the call claims the ask (`Ask::settle`). If
+/// it wins, nothing runs and the panel closes the dialog and audits it
+/// abstained; a later click finds the ask settled and is no allow. If the
+/// click won, its answer is already on the way and the call takes it.
+pub(crate) fn person_allows(ask: Ask, is_cancelled: impl Fn() -> bool) -> bool {
+    use std::sync::mpsc::RecvTimeoutError;
+    let Ask {
+        answer,
+        settled,
+        asking,
+    } = ask;
     let deadline = Instant::now() + ASK_WAIT;
     loop {
         match answer.recv_timeout(Duration::from_millis(50)) {
             Ok(allow) => return allow,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return false,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                if is_cancelled() || Instant::now() >= deadline {
-                    return false;
-                }
+            Err(RecvTimeoutError::Disconnected) => return false,
+            Err(RecvTimeoutError::Timeout) if is_cancelled() || Instant::now() >= deadline => {
+                break;
             }
+            Err(RecvTimeoutError::Timeout) => {}
         }
     }
+    if Ask::settle(&settled) {
+        drop(asking);
+        return false;
+    }
+    answer.recv_timeout(WITHDRAW_WAIT).unwrap_or(false)
 }
 
 pub fn parse(args: Map<String, Value>) -> Result<Op, String> {
