@@ -78,3 +78,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0073](0073-cedian-debug-interim-exception.md) | `cedian_debug` is an interim exception to "no duplicate debugger tool", until OMP's `debug` can attach to Zed's session |
 | [0074](0074-s1-live-turn-after-the-runaway.md) | S1's live turn gets its own 2-turn cap, usable only behind a watchdog; `stop` asks on a session the person started |
 | [0075](0075-narrow-omp-fork.md) | cedian forks OMP narrowly, as it forks Zed, and ships the fork's build |
+| [0076](0076-s1-live-cap-three.md) | S1's live turns are capped at 3 in total, so the second take keeps its margin |
