@@ -749,6 +749,7 @@ fn main() {
             settings_ui::CedianHost {
                 agent_settings: cedian_panel::settings_host::agent_settings,
                 restart_agent: cedian_panel::settings_host::restart_agent,
+                agent_page: cedian_panel::settings_host::agent_page,
             },
             cx,
         );

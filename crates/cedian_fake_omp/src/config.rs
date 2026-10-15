@@ -15,6 +15,7 @@ const DEFAULTS: &[(&str, &str, &str)] = &[
     ("compaction.enabled", "boolean", "true"),
     ("display.theme", "string", r#""dark""#),
     ("modelRoles", "record", "{}"),
+    ("defaultThinkingLevel", "enum", r#""high""#),
     ("tools.approval", "record", "{}"),
     ("bash.patterns", "array", "[]"),
 ];

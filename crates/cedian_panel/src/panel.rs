@@ -893,6 +893,13 @@ impl CedianPanel {
         self.omp_policy.as_deref()
     }
 
+    /// Re-read the models OMP offers, for Settings > Models.
+    pub fn refresh_models(&self) {
+        if let Some(link) = &self.link {
+            link.refresh_picker();
+        }
+    }
+
     pub fn connection(&self) -> &Connection {
         &self.connection
     }

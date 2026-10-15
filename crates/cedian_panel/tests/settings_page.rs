@@ -11,7 +11,10 @@
 )]
 
 use cedian_omp::Layer;
+use cedian_omp::model_roles::{RoleModel, Thinking};
 use cedian_panel::OmpSettings;
+use cedian_panel::models_page::ModelsPage;
+use cedian_panel::panel::CedianPanel;
 use gpui::{TestAppContext, WindowHandle};
 use project::Project;
 use serde_json::{Value, json};
@@ -132,6 +135,52 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         global(root)["modelRoles"],
         json!({"review": "opencode-go/glm-5.3"})
     );
+
+    // Settings > Models writes the same record, typed: a picked model keeps
+    // the role's thinking level, a level is the role's suffix, Remove drops
+    // the role, and the default level is its own key.
+    let no_folder = Project::test(fs::RealFs::new(None, cx.executor()), [], cx).await;
+    let panel = cx
+        .add_window(|window, cx| CedianPanel::new(no_folder, window, cx))
+        .root(cx)
+        .unwrap();
+    let settings = page.root(cx).unwrap();
+    let models = cx.add_window(|window, cx| ModelsPage::new(panel, settings, window, cx));
+    models
+        .update(cx, |m, _, cx| m.pick("plan", "anthropic/opus", cx))
+        .unwrap();
+    wait(cx, &page, "the picked role", |p| {
+        p.roles().get("plan") == Some(&RoleModel::new("anthropic/opus"))
+    });
+    models
+        .update(cx, |m, _, cx| {
+            m.set_role_thinking("plan", Some(Thinking::Max), cx)
+        })
+        .unwrap();
+    wait(cx, &page, "the role's level", |p| {
+        p.roles().get("plan").and_then(|r| r.thinking) == Some(Thinking::Max)
+    });
+    models
+        .update(cx, |m, _, cx| m.pick("plan", "openai/gpt-6", cx))
+        .unwrap();
+    models
+        .update(cx, |m, _, cx| m.remove_role("review", cx))
+        .unwrap();
+    wait(cx, &page, "the removed role", |p| {
+        p.roles().get("review").is_none()
+            && p.roles().get("plan").map(|r| r.model.as_str()) == Some("openai/gpt-6")
+    });
+    assert_eq!(
+        global(root)["modelRoles"],
+        json!({"plan": "openai/gpt-6:max"})
+    );
+    models
+        .update(cx, |m, _, cx| m.set_default_thinking(Thinking::Medium, cx))
+        .unwrap();
+    wait(cx, &page, "the default level", |p| {
+        p.default_thinking() == Some(Thinking::Medium)
+    });
+    assert_eq!(global(root)["defaultThinkingLevel"], json!("medium"));
 }
 
 /// OMP's global config as fake-omp keeps it.

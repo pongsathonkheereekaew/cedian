@@ -36,6 +36,9 @@ pub struct OmpSettings {
     value: Entity<Editor>,
     selected: Option<String>,
     _watch: Option<Task<()>>,
+    /// The last write: each waits for the one before, so the agent's file
+    /// ends with the last change made.
+    writes: Option<Task<()>>,
 }
 
 impl OmpSettings {
@@ -71,6 +74,7 @@ impl OmpSettings {
             value,
             selected: None,
             _watch: None,
+            writes: None,
         };
         // `omp` runs to choose the binary and read its allows: off the UI
         // thread (ADR-0057 decision 4).
@@ -196,8 +200,14 @@ impl OmpSettings {
         self.set_roles(&roles, cx);
     }
 
+    /// Write the whole record. The page shows it at once, so a second change
+    /// before the agent's re-read builds on this one, not on the old record.
     pub fn set_roles(&mut self, roles: &ModelRoles, cx: &mut Context<Self>) {
-        self.set_value("modelRoles", &roles.to_config_value(), cx);
+        let value = roles.to_config_value();
+        if let Some(setting) = self.settings.iter_mut().find(|s| s.key == "modelRoles") {
+            setting.entry.value = serde_json::from_str(&value).ok();
+        }
+        self.set_value("modelRoles", &value, cx);
     }
 
     /// The agent's `defaultThinkingLevel`, once read.
@@ -221,9 +231,18 @@ impl OmpSettings {
             return;
         };
         let workdir = self.workdir.clone();
-        let task = cx.background_spawn(async move { op(&config, &workdir) });
+        let previous = self.writes.take();
+        let (done, outcome) = futures::channel::oneshot::channel();
+        self.writes = Some(cx.background_spawn(async move {
+            if let Some(previous) = previous {
+                previous.await;
+            }
+            done.send(op(&config, &workdir)).ok();
+        }));
         cx.spawn(async move |this, cx| {
-            let outcome = task.await;
+            let Ok(outcome) = outcome.await else {
+                return;
+            };
             this.update(cx, |this, cx| {
                 this.message = Some(match outcome {
                     Ok(out) => match out.overridden_by {
