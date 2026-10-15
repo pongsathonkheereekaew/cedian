@@ -33,5 +33,6 @@ theme.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+assets.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
 settings = { workspace = true, features = ["test-support"] }
