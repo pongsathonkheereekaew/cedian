@@ -10,6 +10,7 @@
 )]
 
 pub mod agent_dirs;
+pub mod api_keys;
 pub mod dialog;
 pub mod driver;
 pub mod errors;
