@@ -1,8 +1,8 @@
 {
   "repo": "cedian-agent (the OMP fork, submodule url ../cedian-agent.git; ADR-0078)",
-  "commit": "74b07ada00a343c2e45bd0743361855193b46916",
-  "commitDate": "2026-10-15T19:42:13+07:00",
-  "subject": "fix(rpc): start with no model selected instead of exiting before the handshake",
+  "commit": "c31fe9d946db06d9822038083ec11ad1f8a25bf5",
+  "commitDate": "2026-10-15T20:20:06+07:00",
+  "subject": "fix(rpc): adopt the provider's default model after a login when none is selected",
   "submodule": "vendor/cedian-agent",
   "build": "script/cedian-omp-build -> target/omp/omp + omp.stamp {commit, sha256}; the app runs only a build whose stamp names this commit (ADR-0075 decision 5)",
   "upstream": {
