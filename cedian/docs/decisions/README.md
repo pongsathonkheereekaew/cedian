@@ -85,3 +85,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0079](0079-pstack-ships-with-cedian.md) | pstack ships with cedian, on by default, with its own settings page |
 | [0080](0080-overlay-pins-agent-phone-home-off.md) | The spawn overlay pins the agent's issue reports and update check off under every policy |
 | [0081](0081-cmd-enter-steers.md) | Cmd+Enter (Ctrl+Enter) is the Stop-and-send chord; amends ADR-0064 point 4 |
+| [0082](0082-api-keys-in-the-agent-dir-env.md) | API keys live in the agent dir's `.env`, written by cedian at mode 0600; saving one restarts the agent when idle |
