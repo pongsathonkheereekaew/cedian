@@ -82,6 +82,7 @@ Known gaps that no slice exit names yet. Each row has the slice it must be settl
 
 | Follow-up | Found in | Settle before |
 |---|---|---|
+| External MCP: let other local tools (Claude Code, Cursor) connect to cedian with scoped, approved access to its workspace state and host tools (idea from comparing Synara, 2026-10-15) | owner, 2026-10-15 | after S7, if dogfooding shows a need |
 | The live bench's task revisions (`script/cedian-bench/run.sh` B1–B10 `BASE`/`REF`, `B8_BASE`) are hashes of the old docs repository; the history import (ADR-0078) rewrote them, so `run.sh run` cannot check them out. Map each to its imported commit (same subject and date under `cedian/`) | [S10 plan](plans/s10-omp-parity.md#progress), the move | the next benchmark or live pass |
 | The live lanes still start the person's `omp` (`cedian_omp` `driver.rs` ignored tests, `live_omp_config`, `reviewer_sandbox`, `replay_runtime`, `script/cedian-bench/run.sh`); they must run the bundled agent before the next live pass | fork #19 review | the next live pass |
 | User-visible Zed left by the rename (cedian #2), each for a decision: telemetry and crash-report text (data still goes to Zed: does cedian send any?), Help menu links to Zed Industries (remove or repoint), the installed CLI name `zed`, extension banners linking zed.dev, and whether `assets/licenses.md` carries OMP's MIT text | cedian #2 | v0.1 for telemetry and licenses; the rest S10 |
