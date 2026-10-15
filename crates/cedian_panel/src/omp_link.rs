@@ -23,11 +23,12 @@ use omp_rpc::{
     AbortAndRestoreQueueResult, AbortRetryCommand, CompactCommand, CycleModelCommand,
     CycleThinkingLevelCommand, ExportHtmlCommand, ExtensionUiRequest, ExtensionUiResponse,
     GetAvailableModelsCommand, GetAvailableThinkingLevelsCommand, GetEntriesCommand,
-    GetLoginProvidersCommand, GetMessagesCommand, GetMessagesPageCommand, GetStateCommand,
-    HandoffCommand, HostTool, HostUri, ImageContent, InterruptMode, LoginCommand, LoginProvider,
-    ModelInfo, PromoteQueuedMessageCommand, QueueMode, RpcAgentEvent, SetAutoCompactionCommand,
-    SetAutoRetryCommand, SetFollowUpModeCommand, SetInterruptModeCommand, SetModelCommand,
-    SetSessionNameCommand, SetSteeringModeCommand, SetThinkingLevelCommand, ThinkingLevel,
+    GetLoginProvidersCommand, GetLogoutAccountsCommand, GetMessagesCommand, GetMessagesPageCommand,
+    GetStateCommand, HandoffCommand, HostTool, HostUri, ImageContent, InterruptMode, LoginCommand,
+    LoginProvider, LogoutAccount, LogoutCommand, ModelInfo, PromoteQueuedMessageCommand, QueueMode,
+    RpcAgentEvent, SetAutoCompactionCommand, SetAutoRetryCommand, SetFollowUpModeCommand,
+    SetInterruptModeCommand, SetModelCommand, SetSessionNameCommand, SetSteeringModeCommand,
+    SetThinkingLevelCommand, ThinkingLevel,
 };
 use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
@@ -94,8 +95,18 @@ pub enum LinkEvent {
     Picker(Result<PickerState, String>),
     /// OMP's answer to a model or thinking-level change.
     PickerChanged(Result<PickerChange, String>),
-    /// OMP's login providers, for onboarding.
+    /// OMP's login providers, for Settings > Account and onboarding.
     LoginProviders(Result<Vec<LoginProvider>, String>),
+    /// OMP's stored credentials for `provider`, for Log out.
+    LogoutAccounts {
+        provider: String,
+        result: Result<Vec<LogoutAccount>, String>,
+    },
+    /// OMP's answer to logging out of `provider`.
+    LoggedOut {
+        provider: String,
+        result: Result<(), String>,
+    },
     /// OMP's answer to a login with `provider`.
     LoggedIn {
         provider: String,
@@ -1517,6 +1528,42 @@ impl OmpLink {
                 .map(drop)
                 .map_err(|e| e.to_string());
             LinkEvent::LoggedIn { provider, result }
+        });
+    }
+
+    /// The stored credentials of `provider`, off the UI thread.
+    pub fn logout_accounts(&self, provider: String) {
+        let refused = LinkEvent::LogoutAccounts {
+            provider: provider.clone(),
+            result: Err(NOT_RUNNING.to_string()),
+        };
+        self.off_thread(refused, move |control| {
+            let result = control
+                .call(&GetLogoutAccountsCommand {
+                    provider_id: provider.clone(),
+                })
+                .map_err(|e| e.to_string());
+            LinkEvent::LogoutAccounts { provider, result }
+        });
+    }
+
+    /// Remove each of `credentials` of `provider`; the first refusal ends it.
+    pub fn logout(&self, provider: String, credentials: Vec<i64>) {
+        let refused = LinkEvent::LoggedOut {
+            provider: provider.clone(),
+            result: Err(NOT_RUNNING.to_string()),
+        };
+        self.off_thread(refused, move |control| {
+            let result = credentials.into_iter().try_for_each(|credential_id| {
+                control
+                    .call(&LogoutCommand {
+                        provider_id: provider.clone(),
+                        credential_id,
+                    })
+                    .map(drop)
+                    .map_err(|e| e.to_string())
+            });
+            LinkEvent::LoggedOut { provider, result }
         });
     }
 
