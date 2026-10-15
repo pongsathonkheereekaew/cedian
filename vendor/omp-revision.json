@@ -1,8 +1,8 @@
 {
   "repo": "cedian-agent (the OMP fork, submodule url ../cedian-agent.git; ADR-0078)",
-  "commit": "17939340d3fd73806f4891f05229ef558c484e69",
-  "commitDate": "2026-10-15T18:59:23+07:00",
-  "subject": "Merge pull request #1 from pongsathonkheereekaew/cedian/storage",
+  "commit": "74b07ada00a343c2e45bd0743361855193b46916",
+  "commitDate": "2026-10-15T19:42:13+07:00",
+  "subject": "fix(rpc): start with no model selected instead of exiting before the handshake",
   "submodule": "vendor/cedian-agent",
   "build": "script/cedian-omp-build -> target/omp/omp + omp.stamp {commit, sha256}; the app runs only a build whose stamp names this commit (ADR-0075 decision 5)",
   "upstream": {
