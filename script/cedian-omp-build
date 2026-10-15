@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the app's OMP from the fork submodule `vendor/oh-my-pi` (ADR-0075
+# Build the app's OMP from the fork submodule `vendor/cedian-agent` (ADR-0075
 # decision 5) into target/omp/omp, with target/omp/omp.stamp recording the
 # source commit and the binary's sha256. The app runs only a build whose stamp
 # names the pinned commit (`vendor/omp-revision.json`), so `omp --version`,
@@ -9,14 +9,14 @@
 # skips the build. Prints the binary's sha256 either way.
 #
 # Prerequisites: the submodule checked out (`git submodule update --init
-# vendor/oh-my-pi`); bun >= 1.4 (1.4.2 tested); rustup, which installs the
-# nightly that vendor/oh-my-pi/rust-toolchain.toml names. A cold native build
+# vendor/cedian-agent`); bun >= 1.4 (1.4.2 tested); rustup, which installs the
+# nightly that vendor/cedian-agent/rust-toolchain.toml names. A cold native build
 # takes about 15 min on 10 cores and needs about 10 GB under target/omp-native.
 set -euo pipefail
 cd "$(unset GIT_DIR GIT_WORK_TREE; git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 export PATH="$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
 
-SRC=vendor/oh-my-pi
+SRC=vendor/cedian-agent
 OUT=target/omp
 PIN=$(python3 -c 'import json; print(json.load(open("vendor/omp-revision.json"))["commit"])')
 

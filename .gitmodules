@@ -1,3 +1,3 @@
-[submodule "vendor/oh-my-pi"]
-	path = vendor/oh-my-pi
-	url = https://github.com/pongsathonkheereekaew/oh-my-pi
+[submodule "vendor/cedian-agent"]
+	path = vendor/cedian-agent
+	url = ../cedian-agent.git

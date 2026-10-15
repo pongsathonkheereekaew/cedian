@@ -73,7 +73,7 @@ pub fn pinned_omp_version() -> String {
 }
 
 /// The OMP fork commit the app's bundled build must come from
-/// (`vendor/omp-revision.json`, the `vendor/oh-my-pi` submodule).
+/// (`vendor/omp-revision.json`, the `vendor/cedian-agent` submodule).
 pub fn pinned_omp_commit() -> String {
     pin()["commit"]
         .as_str()
