@@ -796,6 +796,23 @@ impl settings::Settings for ThemeSettings {
 mod tests {
     use super::*;
 
+    #[gpui::test]
+    fn cedian_themes_are_bundled_and_selected_by_default(cx: &mut gpui::App) {
+        ::settings::init(cx);
+        crate::init(::theme::LoadThemes::All(Box::new(assets::Assets)), cx);
+
+        let registry = ::theme::ThemeRegistry::global(cx);
+        let selection = &ThemeSettings::get_global(cx).theme;
+        for (appearance, name, default_name) in [
+            (Appearance::Light, "cedian Light", ::settings::DEFAULT_LIGHT_THEME),
+            (Appearance::Dark, "cedian Dark", ::settings::DEFAULT_DARK_THEME),
+        ] {
+            assert_eq!(selection.name(appearance).0.as_ref(), name);
+            assert_eq!(selection.name(appearance).0.as_ref(), default_name);
+            assert_eq!(registry.get(name).unwrap().appearance, appearance);
+        }
+    }
+
     fn theme_with_colors(colors: ::settings::ThemeColorsContent) -> Theme {
         crate::refine_theme(&crate::ThemeContent {
             name: "Test".into(),
