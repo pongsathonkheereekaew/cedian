@@ -536,6 +536,11 @@ pub struct Account {
     pub error: Option<String>,
     /// A saved API key reaches OMP when it next starts (ADR-0082).
     pub key_restart: KeyRestart,
+    /// Settings > Account is open: it also shows who is signed in.
+    pub shown_in_settings: bool,
+    /// A login finished and the picker is being re-read: when OMP still has
+    /// no model, the providers are read again.
+    logged_in: bool,
 }
 
 /// Where a saved API key is on its way to OMP.
@@ -2883,7 +2888,9 @@ impl CedianPanel {
                                 .iter()
                                 .any(|provider| provider.id == *id && provider.authenticated)
                         });
-                        if let Some(link) = &self.link {
+                        if let Some(link) = &self.link
+                            && self.account.shown_in_settings
+                        {
                             for provider in providers.iter().filter(|p| p.authenticated) {
                                 link.logout_accounts(provider.id.clone());
                             }
@@ -2910,8 +2917,11 @@ impl CedianPanel {
                     Ok(()) => {
                         if let Some(link) = &self.link {
                             link.refresh_picker();
+                            self.account.logged_in = true;
                         }
-                        self.refresh_account();
+                        if self.account.shown_in_settings {
+                            self.refresh_account();
+                        }
                     }
                     Err(e) => self.account.error = Some(format!("login with {provider}: {e}")),
                 }
@@ -2929,6 +2939,12 @@ impl CedianPanel {
             }
             LinkEvent::Picker(Ok(state)) => {
                 self.onboarding = state.model.is_none();
+                if std::mem::take(&mut self.account.logged_in)
+                    && self.onboarding
+                    && !self.account.shown_in_settings
+                {
+                    self.refresh_account();
+                }
                 self.picker.models = state.models;
                 self.picker.levels = state.levels;
                 self.picker.model = state.model;
@@ -4216,6 +4232,12 @@ impl CedianPanel {
     }
 
     /// Re-read OMP's providers and who is signed in to each.
+    /// Settings > Account opened: read the providers and who is signed in.
+    pub fn show_account(&mut self) {
+        self.account.shown_in_settings = true;
+        self.refresh_account();
+    }
+
     pub fn refresh_account(&mut self) {
         if let Some(link) = &self.link {
             self.account.checking = true;

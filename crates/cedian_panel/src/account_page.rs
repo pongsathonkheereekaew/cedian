@@ -136,7 +136,7 @@ impl AccountPage {
                 }
             })
             .collect();
-        panel.update(cx, |panel, _| panel.refresh_account());
+        panel.update(cx, |panel, _| panel.show_account());
         let mut this = Self {
             _observe: cx.observe(&panel, |_, _, cx| cx.notify()),
             panel,
