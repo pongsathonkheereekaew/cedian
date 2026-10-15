@@ -13,6 +13,7 @@
 //! cedian review dismiss <id> <reason> # close a finding, audited
 //! cedian review reset                 # drop the review task (new baseline next prompt)
 //! cedian state                        # session snapshot (model, streaming, queue)
+//! cedian agent import [--apply] …     # copy ~/.omp skills into cedian's agent dir
 //! ```
 //!
 //! State lives in-process per invocation EXCEPT the OMP session (adopted via
@@ -24,6 +25,7 @@
     reason = "headless, synchronous process control (OMP, LSP, DAP, Chrome, git, sandbox-exec): Zed's async spawn helpers do not apply"
 )]
 
+mod agent_import;
 mod session;
 mod shell;
 mod shell_lock;
@@ -82,6 +84,10 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
     let workdir = workdir.canonicalize().unwrap_or(workdir);
 
     let cmd = args.first().map(|s| s.as_str()).unwrap_or("help");
+    if cmd == "agent" {
+        // Not a workspace command: no lock, no settings.
+        return cmd_agent(&args[1..]);
+    }
     if !in_shell && !is_read_only(&args) {
         shell_lock::refuse_if_shell_live(&workdir, &args.join(" "))?;
     }
@@ -159,7 +165,7 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
         _ => {
             eprintln!(
                 "usage: cedian <prompt|shell|review|state|\
-                palette|workflow|worker> …"
+                palette|workflow|worker|agent> …"
             );
             eprintln!(
                 "env: CEDIAN_SESSION_DIR, CEDIAN_WORKDIR, CEDIAN_OMP_BINARY (dev builds only; else the bundled cedian agent)"
@@ -167,6 +173,28 @@ pub(crate) fn dispatch(args: Vec<String>, in_shell: bool) -> Result<(), String> 
             Ok(())
         }
     }
+}
+
+/// `cedian agent import`: the person's `~/.omp/agent` (or `--from`) into
+/// cedian's agent config dir (ADR-0078 decision 5).
+fn cmd_agent(args: &[String]) -> Result<(), String> {
+    if args.first().map(String::as_str) != Some("import") {
+        return Err(agent_import::USAGE.to_string());
+    }
+    let opts = agent_import::Options::parse(&args[1..])?;
+    let source = match &opts.from {
+        Some(dir) => dir.clone(),
+        None => std::env::var_os("HOME")
+            .map(|home| PathBuf::from(home).join(".omp/agent"))
+            .ok_or("HOME is not set; pass --from <omp agent dir>")?,
+    };
+    let dest = cedian_omp::AgentDirs::from_env()
+        .map_err(|e| e.to_string())?
+        .config;
+    for line in agent_import::run(&source, &dest, &opts)? {
+        println!("{line}");
+    }
+    Ok(())
 }
 
 /// The complete cedian host-tool set for these settings (ADR-0004: one

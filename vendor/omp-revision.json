@@ -1,8 +1,8 @@
 {
   "repo": "cedian-agent (the OMP fork, submodule url ../cedian-agent.git; ADR-0078)",
-  "commit": "e27c172a9c4b1984d7a72ecc6e288ce9afe9e6c0",
-  "commitDate": "2026-10-15T08:50:42+07:00",
-  "subject": "Merge pull request #1 from pongsathonkheereekaew/cedian/host-debug",
+  "commit": "17939340d3fd73806f4891f05229ef558c484e69",
+  "commitDate": "2026-10-15T18:59:23+07:00",
+  "subject": "Merge pull request #1 from pongsathonkheereekaew/cedian/storage",
   "submodule": "vendor/cedian-agent",
   "build": "script/cedian-omp-build -> target/omp/omp + omp.stamp {commit, sha256}; the app runs only a build whose stamp names this commit (ADR-0075 decision 5)",
   "upstream": {

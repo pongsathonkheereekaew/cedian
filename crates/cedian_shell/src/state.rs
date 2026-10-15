@@ -11,14 +11,8 @@ use std::path::{Path, PathBuf};
 
 /// The state root from the environment.
 pub fn root() -> Result<PathBuf, String> {
-    if let Some(dir) = std::env::var_os("CEDIAN_STATE_DIR") {
-        return Ok(PathBuf::from(dir));
-    }
-    if let Some(dir) = std::env::var_os("XDG_STATE_HOME").filter(|d| !d.is_empty()) {
-        return Ok(PathBuf::from(dir).join("cedian"));
-    }
-    let home = std::env::var_os("HOME").ok_or("HOME is not set, so cedian has no state dir")?;
-    Ok(PathBuf::from(home).join(".local/state/cedian"))
+    cedian_omp::agent_dirs::state_root(&std::env::vars().collect())
+        .ok_or_else(|| "HOME is not set, so cedian has no state dir".to_string())
 }
 
 /// The state directory for `workdir`, created on first use. Refused when it

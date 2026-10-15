@@ -20,7 +20,8 @@ pub const REVIEWER_PROFILE_FILE: &str = "reviewer.sbpl";
 const SHELLS: &[&str] = &["/bin/sh", "/bin/bash", "/bin/zsh"];
 
 /// Credential locations under `HOME` the reviewer may not read (ADR-0043).
-/// OMP's own auth store (`~/.omp/agent`) is not here: the reviewer needs it.
+/// cedian's agent state dir, which holds the auth store, is not here: the
+/// reviewer needs it.
 const CREDENTIAL_DIRS: &[&str] = &[
     ".ssh",
     ".aws",
@@ -57,15 +58,17 @@ impl ReviewerLayout {
         self.run().join("session")
     }
 
-    /// `TMPDIR`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` for the reviewer. OMP
-    /// keeps its run, log and state files under `$XDG_STATE_HOME/omp` and its
-    /// cache under `$XDG_CACHE_HOME/omp` when those directories exist.
+    /// `TMPDIR`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` and `PI_RUNTIME_DIR` for
+    /// the reviewer. The agent reads its config and auth from cedian's agent
+    /// dirs (`PI_CODING_AGENT_DIR`, `PI_STATE_DIR`) but keeps its run, log,
+    /// lock and cache files under `PI_RUNTIME_DIR`, inside the run dir.
     pub fn env(&self) -> Vec<(String, String)> {
         let run = self.run();
         [
             ("TMPDIR", "tmp"),
             ("XDG_STATE_HOME", "state"),
             ("XDG_CACHE_HOME", "cache"),
+            ("PI_RUNTIME_DIR", "state/omp"),
         ]
         .into_iter()
         .map(|(name, sub)| {

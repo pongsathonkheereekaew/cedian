@@ -17,7 +17,7 @@ use std::process::{Command, Stdio};
 fn the_bundled_fork_build_answers_get_state_and_set_host_debug() {
     let root = std::env::temp_dir().join(format!("cedian-bundled-omp-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    let agent = root.join("agent");
+    let agent = root.join("home/.config/cedian/agent");
     std::fs::create_dir_all(&agent).unwrap();
     std::fs::create_dir_all(root.join("ws")).unwrap();
     std::fs::write(
@@ -32,9 +32,15 @@ fn the_bundled_fork_build_answers_get_state_and_set_host_debug() {
     .unwrap();
     unsafe {
         // SAFETY: the only test in this binary.
-        std::env::remove_var("CEDIAN_OMP_BINARY");
+        for name in [
+            "CEDIAN_OMP_BINARY",
+            "CEDIAN_STATE_DIR",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+        ] {
+            std::env::remove_var(name);
+        }
         std::env::set_var("HOME", root.join("home"));
-        std::env::set_var("PI_CODING_AGENT_DIR", &agent);
     }
 
     let choice = cedian_shell::launch::omp_binary().expect("the stamped build");

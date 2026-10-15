@@ -9,8 +9,8 @@
 //! The files: the session `.jsonl`, which a process keeps open for writing
 //! once it has written to the session, and the owner lease OMP's creating
 //! process holds an exclusive flock on, `<state root>/run/session-owners/
-//! <sessionId>.lock` (the state root is `~/.omp`; `PI_CODING_AGENT_DIR` does
-//! not move it). A process that resumed but has not written yet holds
+//! <sessionId>.lock` (the state root is cedian's agent state dir,
+//! `PI_STATE_DIR`; ADR-0078). A process that resumed but has not written yet holds
 //! neither, so it goes unseen.
 //!
 //! OMP is a Bun program, and Bun opens files close-on-exec and spawns
@@ -44,9 +44,9 @@ pub fn session_files(
         .collect()
 }
 
-/// OMP's state root: `~/.omp`.
+/// The agent's state root: cedian's agent state dir (ADR-0078).
 pub fn state_root() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".omp"))
+    crate::AgentDirs::from_env().ok().map(|dirs| dirs.state)
 }
 
 /// The holders outside `own`'s process group (`own` is the app's OMP, a

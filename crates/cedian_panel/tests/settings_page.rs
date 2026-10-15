@@ -24,7 +24,7 @@ fn main() {
     cedian_fake_omp::test_main::enter(&args);
     let root = std::env::temp_dir().join(format!("cedian-u3a-settings-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    for dir in ["ws/.omp", "agent"] {
+    for dir in ["ws/.omp", "cfg/cedian/agent"] {
         std::fs::create_dir_all(root.join(dir)).unwrap();
     }
     std::fs::write(
@@ -40,7 +40,7 @@ fn main() {
         std::env::set_var("CEDIAN_STATE_DIR", root.join("state"));
         std::env::set_var("HOME", root.join("home"));
         std::env::set_var("CEDIAN_OMP_BINARY", std::env::current_exe().unwrap());
-        std::env::set_var("PI_CODING_AGENT_DIR", root.join("agent"));
+        std::env::set_var("XDG_CONFIG_HOME", root.join("cfg"));
         std::env::remove_var("OMP_PROFILE");
     }
     print!("test settings_page_mirrors_omp_config ... ");
@@ -85,9 +85,11 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         "the spawn overlay pins it"
     );
 
-    // OMP's CLI changes a setting: the page shows it without a restart.
+    // The agent's CLI, pointed at cedian's agent dir (ADR-0078), changes a
+    // setting: the page shows it without a restart.
     let cli = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["config", "set", "compaction.enabled", "false", "--json"])
+        .env("PI_CODING_AGENT_DIR", root.join("cfg/cedian/agent"))
         .current_dir(&ws)
         .status()
         .unwrap();
@@ -134,7 +136,10 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
 
 /// OMP's global config as fake-omp keeps it.
 fn global(root: &Path) -> Value {
-    serde_json::from_str(&std::fs::read_to_string(root.join("agent/config.yml")).unwrap()).unwrap()
+    serde_json::from_str(
+        &std::fs::read_to_string(root.join("cfg/cedian/agent/config.yml")).unwrap(),
+    )
+    .unwrap()
 }
 
 fn layer(cx: &mut TestAppContext, page: &WindowHandle<OmpSettings>, key: &str) -> Layer {
