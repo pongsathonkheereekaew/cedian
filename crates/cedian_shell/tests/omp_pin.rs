@@ -61,7 +61,7 @@ fn the_app_runs_only_the_stamped_fork_build() {
     let error = refused(&exe);
     assert!(
         error.contains("script/cedian-omp-build"),
-        "no bundled the agent: refused with the fix, PATH's pinned omp is not run: {error}"
+        "no bundled agent: refused with the fix, PATH's pinned omp is not run: {error}"
     );
 
     let sidecar = fake_named(&app.join("Contents/Resources"), "cedian-agent", "18.8.6");

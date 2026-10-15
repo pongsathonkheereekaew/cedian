@@ -4057,7 +4057,7 @@ fn search_and_files_page() -> SettingsPage {
             }),
             SettingsPageItem::SettingItem(SettingItem {
                 title: "File Scan Inclusions",
-                description: "Files or globs of files that will be included by cedian, even when ignored by git. This is useful for files that are not tracked by git, but are still important to your project. Note that globs that are overly broad can slow down Zed's file scanning. \"File Scan Exclusions\" takes precedence over these inclusions",
+                description: "Files or globs of files that will be included by cedian, even when ignored by git. This is useful for files that are not tracked by git, but are still important to your project. Note that globs that are overly broad can slow down cedian's file scanning. \"File Scan Exclusions\" takes precedence over these inclusions",
                 field: Box::new(
                     SettingField {
                         organization_override: None,
