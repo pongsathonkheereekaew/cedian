@@ -1,5 +1,6 @@
 mod action;
 mod agent;
+mod cedian;
 mod editor;
 mod extension;
 mod fallible_options;
@@ -16,6 +17,7 @@ mod workspace;
 pub use action::{ActionName, ActionWithArguments, CommandAliasTarget};
 pub use agent::*;
 use anyhow::Context;
+pub use cedian::*;
 pub use editor::*;
 pub use extension::*;
 pub use fallible_options::*;
@@ -303,6 +305,9 @@ pub struct SettingsContent {
     /// Control what info is collected by Zed.
     pub telemetry: Option<TelemetrySettingsContent>,
 
+    /// cedian's composer and notification settings.
+    pub cedian: Option<CedianSettingsContent>,
+
     /// Configuration of the terminal in Zed.
     pub terminal: Option<TerminalSettingsContent>,
 
@@ -406,7 +411,7 @@ fallible_options::flattened_deserialize!(SettingsContent {
     sections: { project, theme, extension, workspace, editor, remote },
     options: {
         call_hierarchy, command_palette, file_finder, git_panel, tabs, tab_bar, tab_switcher, status_bar, preview_tabs, agent,
-        agent_servers, audio, auto_update, base_keymap, collaboration_panel, debugger, diagnostics,
+        agent_servers, audio, auto_update, base_keymap, cedian, collaboration_panel, debugger, diagnostics,
         git,
         global_lsp_settings, image_viewer, markdown_preview, repl, helix_mode, hide_mouse,
         journal, log, line_indicator_format, language_models, copilot, outline_panel, project_panel,
@@ -626,8 +631,8 @@ pub struct TelemetrySettingsContent {
 impl Default for TelemetrySettingsContent {
     fn default() -> Self {
         Self {
-            diagnostics: Some(true),
-            metrics: Some(true),
+            diagnostics: Some(false),
+            metrics: Some(false),
             anthropic_retention: Some(false),
         }
     }

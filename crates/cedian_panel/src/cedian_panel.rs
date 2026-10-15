@@ -1,6 +1,8 @@
 //! cedian inside the Zed fork (S9a spike): the dock panel that talks to OMP
 //! through the cedian headless crates, and the agent-edit import.
 
+pub mod app_settings;
+pub mod attention;
 pub mod browser;
 mod context;
 pub mod debug_tool;
@@ -12,6 +14,7 @@ pub mod omp_settings;
 pub mod panel;
 pub mod review;
 pub mod sessions;
+pub mod settings_host;
 pub mod worker_complete;
 pub mod worker_trees;
 pub mod workflow_view;

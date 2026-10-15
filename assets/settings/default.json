@@ -1707,13 +1707,27 @@
   "word_diff_enabled": true,
   // Control what info is collected by Zed.
   "telemetry": {
-    // Send debug info like crash reports.
-    "diagnostics": true,
-    // Send anonymized usage data like what languages you're using Zed with.
-    "metrics": true,
+    // cedian forces both off in code; they would report to Zed Industries.
+    "diagnostics": false,
+    "metrics": false,
     // Allow sending requests to Anthropic models that cannot be offered with
     // Zero Data Retention
     "anthropic_retention": false,
+  },
+  // cedian's agent composer and notifications (Settings > General and
+  // Settings > Notifications).
+  "cedian": {
+    // Which key sends a message: "enter" or "cmd_enter".
+    "send_with": "enter",
+    // A message sent while the agent works: "queue" or "steer".
+    "follow_up": "queue",
+    // "when_unfocused", "always" or "never".
+    "notify_turn_finished": "when_unfocused",
+    "notify_approval_needed": true,
+    "notify_question_asked": true,
+    "bounce_dock_icon": true,
+    // "none" or "system" (the system alert sound).
+    "notification_sound": "system",
   },
   // Whether to disable all AI features in Zed.
   //

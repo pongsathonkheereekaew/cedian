@@ -63,6 +63,10 @@ macro_rules! concat_sections {
 }
 
 pub(crate) fn settings_data(cx: &App) -> Vec<SettingsPage> {
+    crate::cedian::arrange(zed_settings_data(cx))
+}
+
+fn zed_settings_data(cx: &App) -> Vec<SettingsPage> {
     vec![
         general_page(cx),
         appearance_page(),
@@ -1760,7 +1764,7 @@ fn keymap_page() -> SettingsPage {
     );
 
     SettingsPage {
-        title: "Keymap",
+        title: "Keyboard Shortcuts",
         items,
     }
 }

@@ -236,6 +236,7 @@ impl VsCodeSettings {
             tab_switcher: None,
             tabs: self.item_settings_content(),
             telemetry: self.telemetry_settings_content(),
+            cedian: None,
             terminal: self.terminal_settings_content(),
             theme: Box::new(self.theme_settings_content()),
             title_bar: None,

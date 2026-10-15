@@ -9,6 +9,7 @@ pub struct TreeViewItem {
     id: ElementId,
     group_name: Option<SharedString>,
     label: SharedString,
+    icon: Option<IconName>,
     expanded: bool,
     selected: bool,
     disabled: bool,
@@ -30,6 +31,7 @@ impl TreeViewItem {
             id: id.into(),
             group_name: None,
             label: label.into(),
+            icon: None,
             expanded: false,
             selected: false,
             disabled: false,
@@ -44,6 +46,12 @@ impl TreeViewItem {
             tab_index: None,
             focus_handle: None,
         }
+    }
+
+    /// An icon between a root item's disclosure and its label.
+    pub fn icon(mut self, icon: IconName) -> Self {
+        self.icon = Some(icon);
+        self
     }
 
     pub fn group_name(mut self, group_name: impl Into<SharedString>) -> Self {
@@ -198,6 +206,15 @@ impl RenderOnce for TreeViewItem {
                                     .opened_icon(IconName::ChevronDown)
                                     .closed_icon(IconName::ChevronRight),
                             )
+                            .when_some(self.icon, |this, icon| {
+                                this.child(Icon::new(icon).size(IconSize::Small).color(
+                                    if self.selected {
+                                        Color::Default
+                                    } else {
+                                        Color::Muted
+                                    },
+                                ))
+                            })
                             .child(
                                 Label::new(label)
                                     .when(!self.selected, |this| this.color(Color::Muted)),

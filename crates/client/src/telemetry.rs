@@ -758,6 +758,8 @@ mod tests {
 
         let (telemetry, first_date_time, event) = cx.update(|cx| {
             let telemetry = Telemetry::new(clock.clone(), http, cx);
+            // cedian turns metrics off in settings; the queue is tested directly.
+            telemetry.state.lock().settings.metrics = true;
 
             telemetry.state.lock().max_queue_size = 4;
             telemetry.start(system_id, installation_id, session_id, cx);
@@ -835,6 +837,8 @@ mod tests {
 
         cx.update(|cx| {
             let telemetry = Telemetry::new(clock.clone(), http, cx);
+            // cedian turns metrics off in settings; the queue is tested directly.
+            telemetry.state.lock().settings.metrics = true;
             telemetry.state.lock().max_queue_size = 4;
             telemetry.start(system_id, installation_id, session_id, cx);
 
@@ -881,6 +885,8 @@ mod tests {
 
         let telemetry = cx.update(|cx| {
             let telemetry = Telemetry::new(clock.clone(), http, cx);
+            // cedian turns metrics off in settings; the queue is tested directly.
+            telemetry.state.lock().settings.metrics = true;
             telemetry.start(
                 Some("system_id".to_string()),
                 Some("installation_id".to_string()),

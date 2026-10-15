@@ -944,6 +944,7 @@
   {
     "context": "CedianPanel > Editor",
     "bindings": {
+      "ctrl-enter": "cedian_panel::SendMessage",
       "ctrl-shift-enter": "cedian_panel::StopAndSend",
     },
   },

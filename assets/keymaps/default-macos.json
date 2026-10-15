@@ -995,6 +995,7 @@
     "context": "CedianPanel > Editor",
     "bindings": {
       "cmd-shift-enter": "cedian_panel::StopAndSend",
+      "cmd-enter": "cedian_panel::SendMessage",
     },
   },
   {
