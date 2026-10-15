@@ -57,8 +57,8 @@ cat >"$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# The icon is U13's branding step: `script/cedian-icon` draws
-# `cedian/assets/AppIcon.icns` (the chevron mark), and the bundle carries it.
+# The icon is U13's branding step: `script/cedian-icon` writes
+# `cedian/assets/AppIcon.icns` from the brand kit (cedian/brand), and the bundle carries it.
 ICON=cedian/assets/AppIcon.icns
 if [ -f "$ICON" ]; then
   cp "$ICON" "$APP/Contents/Resources/AppIcon.icns"
