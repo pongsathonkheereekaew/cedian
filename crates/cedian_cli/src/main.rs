@@ -25,7 +25,6 @@
     reason = "headless, synchronous process control (OMP, LSP, DAP, Chrome, git, sandbox-exec): Zed's async spawn helpers do not apply"
 )]
 
-mod agent_import;
 mod session;
 mod shell;
 mod shell_lock;
@@ -34,7 +33,7 @@ mod state;
 mod test_dir;
 
 use cedian_agent_ui::Panel;
-use cedian_omp::{OmpBinary, OmpRuntime, RuntimeConfig};
+use cedian_omp::{OmpBinary, OmpRuntime, RuntimeConfig, agent_import};
 use cedian_review::FileDiff;
 use cedian_shell::{
     corrections, review_agent, review_findings, timing, workflow_host, workflow_store,
