@@ -46,8 +46,8 @@ use fs::RemoveOptions;
 use futures::{StreamExt, channel::mpsc};
 use gpui::{
     Action, AnyElement, App, AsyncWindowContext, ClipboardEntry, Context, ElementId, Entity,
-    EntityId, EventEmitter, FocusHandle, Focusable, Pixels, Render, Subscription, Task, WeakEntity,
-    Window, actions, px,
+    EntityId, EventEmitter, FocusHandle, Focusable, ListAlignment, ListState, Pixels, Render,
+    SharedString, Subscription, Task, WeakEntity, Window, actions, list, px,
 };
 use language::{Buffer, BufferEvent};
 use omp_rpc::{ExtensionUiRequest, ImageContent};
@@ -372,6 +372,9 @@ pub struct CedianPanel {
     project: Entity<Project>,
     input: Entity<Editor>,
     thread: Thread,
+    thread_list: ThreadList,
+    /// What `thread_list` shows, rebuilt when what it is built from changes.
+    thread_rows: Vec<ThreadRow>,
     /// OMP's subagents, each under the `task` call that started it.
     subagents: SubagentTree,
     /// Each running subagent's Steer text box, by id.
@@ -616,6 +619,8 @@ impl CedianPanel {
             project,
             input,
             thread: Thread::new(),
+            thread_list: ThreadList::new(),
+            thread_rows: Vec::new(),
             subagents: SubagentTree::default(),
             steer_boxes: HashMap::default(),
             subagent_notes: HashMap::default(),
@@ -2263,6 +2268,7 @@ impl CedianPanel {
         if moved {
             self.forget_old_omp(window, cx);
             self.thread = Thread::new();
+            self.thread_list.reset();
             self.sessions.moved(title);
             let pending = self.pending_hunks();
             if pending > 0 {
@@ -2497,6 +2503,7 @@ impl CedianPanel {
 
     fn forget_subagents(&mut self) {
         self.subagents = SubagentTree::default();
+        self.thread_list.rows_key = None;
         self.steer_boxes.clear();
         self.subagent_notes.clear();
     }
@@ -2677,6 +2684,7 @@ impl CedianPanel {
             LinkEvent::SwitchRefused(reason) => self.notice = Some(reason),
             LinkEvent::HandedOff(Ok(Some(_))) => {
                 self.thread = Thread::new();
+                self.thread_list.reset();
                 self.sessions.history = Default::default();
                 self.session_notes.push(
                     "cedian agent handed the conversation off: its summary now opens the session"
@@ -3773,32 +3781,89 @@ impl CedianPanel {
     /// Compaction and retry notes, Stop retry, Steer now on each queued
     /// follow-up, and the session's queue, compaction and retry settings
     /// while the picker is open.
-    /// The history loaded so far, above the live thread.
-    fn render_history(&self) -> Vec<AnyElement> {
+    /// Rebuild the thread column's rows: the history loaded so far, then the
+    /// live thread's messages, then its cards, each followed by the subagents
+    /// it started.
+    fn sync_thread_rows(&mut self) {
         let history = &self.sessions.history;
-        let mut rows: Vec<AnyElement> = history
-            .lines
-            .iter()
-            .enumerate()
-            .map(|(i, line)| {
-                div()
-                    .debug_selector(move || format!("cedian-history-{i}"))
-                    .child(Label::new(line.clone()).color(Color::Muted))
-                    .into_any_element()
+        let key = ThreadRowsKey {
+            thread: self.thread.revision(),
+            subagents: self.subagents.rows().len(),
+            history: history.lines.len(),
+            history_total: history.total,
+        };
+        if self.thread_list.rows_key == Some(key) {
+            return;
+        }
+        let mut rows: Vec<ThreadRow> = (0..history.lines.len()).map(ThreadRow::History).collect();
+        if history.total.is_some() {
+            rows.push(ThreadRow::HistoryTotal);
+        }
+        let history_rows = rows.len();
+        let (messages, cards) = cedian_agent_ui::render_thread(self.thread.events());
+        rows.extend(
+            messages
+                .into_iter()
+                .map(|m| ThreadRow::Message(format!("{:?}: {}", m.role, m.text).into())),
+        );
+        let message_rows = rows.len() - history_rows;
+        let entries: Vec<ThreadRow> = self
+            .cards_with_subagents(cards)
+            .into_iter()
+            .map(|entry| match entry {
+                Entry::Card(card) => ThreadRow::Card {
+                    line: card_line(&card).into(),
+                    call_id: card.call_id,
+                },
+                Entry::Subagent(row) => ThreadRow::Subagent(row.id.clone()),
             })
             .collect();
-        if let Some(total) = history.total {
-            rows.push(
-                Label::new(format!(
-                    "{} of {total} earlier message(s) shown",
-                    history.lines.len()
-                ))
-                .size(LabelSize::Small)
-                .color(Color::Muted)
-                .into_any_element(),
-            );
-        }
-        rows
+        let entry_rows = entries.len();
+        rows.extend(entries);
+        self.thread_rows = rows;
+        self.thread_list
+            .sync([history_rows, message_rows, entry_rows]);
+        self.thread_list.rows_key = Some(key);
+    }
+
+    fn render_thread_row(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        let history = &self.sessions.history;
+        let row = match self.thread_rows.get(index) {
+            Some(ThreadRow::History(i)) => {
+                let i = *i;
+                div()
+                    .debug_selector(move || format!("cedian-history-{i}"))
+                    .child(
+                        Label::new(history.lines.get(i).cloned().unwrap_or_default())
+                            .color(Color::Muted),
+                    )
+                    .into_any_element()
+            }
+            Some(ThreadRow::HistoryTotal) => Label::new(format!(
+                "{} of {} earlier message(s) shown",
+                history.lines.len(),
+                history.total.unwrap_or_default()
+            ))
+            .size(LabelSize::Small)
+            .color(Color::Muted)
+            .into_any_element(),
+            Some(ThreadRow::Message(text)) => Label::new(text.clone()).into_any_element(),
+            Some(ThreadRow::Card { call_id, line }) => {
+                let selector = format!("cedian-tool-{call_id}");
+                div()
+                    .debug_selector(move || selector)
+                    .child(Label::new(line.clone()).color(Color::Muted))
+                    .into_any_element()
+            }
+            Some(ThreadRow::Subagent(id)) => {
+                match self.subagents.rows().iter().find(|row| &row.id == id) {
+                    Some(row) => self.render_subagent(row, cx),
+                    None => div().into_any_element(),
+                }
+            }
+            None => div().into_any_element(),
+        };
+        div().pb_1().child(row).into_any_element()
     }
 
     /// The session list, the current session's actions and its history
@@ -5747,23 +5812,7 @@ impl Render for CedianPanel {
                 self.steer_boxes.insert(row.id.clone(), input);
             }
         }
-        let (messages, cards) = cedian_agent_ui::render_thread(self.thread.events());
-        let mut rows: Vec<AnyElement> = messages
-            .into_iter()
-            .map(|m| Label::new(format!("{:?}: {}", m.role, m.text)).into_any_element())
-            .collect();
-        for entry in self.cards_with_subagents(cards) {
-            rows.push(match entry {
-                Entry::Card(card) => {
-                    let selector = format!("cedian-tool-{}", card.call_id);
-                    div()
-                        .debug_selector(move || selector)
-                        .child(Label::new(card_line(&card)).color(Color::Muted))
-                        .into_any_element()
-                }
-                Entry::Subagent(row) => self.render_subagent(row, cx),
-            });
-        }
+        self.sync_thread_rows();
         let connection = match &self.connection {
             Connection::NotStarted => "cedian agent not started".to_string(),
             Connection::Starting => "starting cedian agent…".to_string(),
@@ -5831,7 +5880,6 @@ impl Render for CedianPanel {
             }
         );
         let review = self.show_review.then(|| self.render_review(cx));
-        let history = self.render_history();
         let browser = self.render_browser(cx);
         let workflow = self.render_workflow(cx);
         let workers = self.render_worker_trees(cx);
@@ -5897,13 +5945,11 @@ impl Render for CedianPanel {
             })
             .when(!self.show_review, |panel| {
                 panel.child(
-                    v_flex()
-                        .id("cedian-thread")
-                        .flex_1()
-                        .overflow_y_scroll()
-                        .gap_1()
-                        .children(history)
-                        .children(rows),
+                    list(
+                        self.thread_list.state.clone(),
+                        cx.processor(|this, index, _window, cx| this.render_thread_row(index, cx)),
+                    )
+                    .flex_1(),
                 )
             })
             .children(workflow)
@@ -9640,6 +9686,65 @@ mod tests {
             );
         });
         eprintln!("tool_call_id={call_id}: OMP edit imported and reverted by one undo");
+    }
+}
+
+/// One row of the panel's thread column.
+enum ThreadRow {
+    History(usize),
+    HistoryTotal,
+    Message(SharedString),
+    Card { call_id: String, line: SharedString },
+    Subagent(String),
+}
+
+/// What the thread column's rows were built from. A scroll redraws the panel
+/// without changing any of it, and then the rows are not rebuilt.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ThreadRowsKey {
+    thread: u64,
+    subagents: usize,
+    history: usize,
+    history_total: Option<i64>,
+}
+
+/// The thread column's list and the row count of each of its sections
+/// (history, messages, cards) as it last showed them, so a page of history
+/// or a new message splices in where it landed and the rest keep their
+/// measured heights and the scroll position.
+struct ThreadList {
+    state: ListState,
+    sections: [usize; 3],
+    rows_key: Option<ThreadRowsKey>,
+}
+
+impl ThreadList {
+    fn new() -> Self {
+        Self {
+            state: ListState::new(0, ListAlignment::Top, px(1024.)),
+            sections: [0; 3],
+            rows_key: None,
+        }
+    }
+
+    fn sync(&mut self, sections: [usize; 3]) {
+        // Back to front, so each splice's range is still in the old indices.
+        for section in (0..sections.len()).rev() {
+            let start: usize = self.sections[..section].iter().sum();
+            let (old, new) = (self.sections[section], sections[section]);
+            if new > old {
+                self.state.splice(start + old..start + old, new - old);
+            } else if new < old {
+                self.state.splice(start + new..start + old, 0);
+            }
+        }
+        self.sections = sections;
+    }
+
+    fn reset(&mut self) {
+        self.state.reset(0);
+        self.sections = [0; 3];
+        self.rows_key = None;
     }
 }
 

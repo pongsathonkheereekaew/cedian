@@ -18,6 +18,10 @@ script/cedian-prune 20
 crates=(omp-rpc)
 for dir in crates/cedian_*; do
   name=$(basename "$dir")
+  # Its benches turn on gpui's `bench-support`, and cargo unifies features
+  # across the packages of one run: the gate would rebuild and test all of
+  # them with it. Run it by hand: `cargo bench -p cedian_bench`.
+  [ "$name" = cedian_bench ] && continue
   crates+=("$name")
 done
 pkgs=()
