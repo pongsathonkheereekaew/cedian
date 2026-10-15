@@ -622,7 +622,7 @@ fn notification_items() -> Vec<SettingsPageItem> {
             },
             state: Some(|_| {
                 Some(RowState::Unavailable(
-                    "Not available yet: this build is unsigned, and whether an unsigned build can post to the notification center is unverified.".into(),
+                    "Not available yet: needs a signed build (unverified).".into(),
                 ))
             }),
         }),
