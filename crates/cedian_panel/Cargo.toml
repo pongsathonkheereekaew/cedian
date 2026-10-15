@@ -142,3 +142,7 @@ harness = false
 [[test]]
 name = "debug_round_trip"
 harness = false
+
+[[test]]
+name = "debug_live_replay"
+harness = false
