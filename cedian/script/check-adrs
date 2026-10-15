@@ -4,7 +4,7 @@
 # lists every file exactly once, under the file's number, and links no missing file.
 set -eu
 
-DIR="$(git rev-parse --show-toplevel)/docs/decisions"
+DIR="$(cd "$(dirname "$0")/.." && pwd)/docs/decisions"
 INDEX="$DIR/README.md"
 status=0
 fail() { echo "check-adrs: $*" >&2; status=1; }

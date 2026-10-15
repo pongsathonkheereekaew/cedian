@@ -54,7 +54,7 @@ cargo test -p cedian_omp --test live_spawn_profile -- --ignored   # live lanes n
 CEDIAN_P2_RECORD=cli cargo test -p cedian_cli --test replay_cli    # re-record a fixture (live)
 ```
 
-For the docs, `cedian/script/install-guardrails` installs a pre-push force guard and a pre-commit `script/check-adrs` (duplicate ADR number, `docs/decisions/README.md` out of step with the files).
+`script/cedian-check` also runs `cedian/script/check-adrs` (duplicate ADR number, `docs/decisions/README.md` out of step with the files), so one pre-commit hook guards the code and the docs.
 
 Settings: the user's `cedian.toml` only — `$CEDIAN_CONFIG`, else
 `$XDG_CONFIG_HOME/cedian/cedian.toml`, else `~/.config/cedian/cedian.toml`
