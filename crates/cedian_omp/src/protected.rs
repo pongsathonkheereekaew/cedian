@@ -23,7 +23,8 @@ pub enum ProtectedKind {
 pub struct ProtectedRoots {
     pub workspace: PathBuf,
     /// Overlay/session roots the agent must not write (CLI `--session-dir`,
-    /// app `state_dir/omp`, and optionally `~/.omp` when known).
+    /// app `state_dir/omp`, the agent's state dir when known, and its config
+    /// dir: ADR-0078 moved both out of `~/.omp`).
     pub session_dirs: Vec<PathBuf>,
 }
 
@@ -31,9 +32,10 @@ impl ProtectedRoots {
     /// Workspace plus the launch's overlay dir and optional OMP state root.
     pub fn for_launch(workspace: PathBuf, state_dir: &Path, omp_state: Option<PathBuf>) -> Self {
         let mut session_dirs = vec![state_dir.join("omp")];
-        if let Some(omp) = omp_state {
-            if !session_dirs.iter().any(|d| d == &omp) {
-                session_dirs.push(omp);
+        let config = crate::AgentDirs::from_env().ok().map(|dirs| dirs.config);
+        for dir in omp_state.into_iter().chain(config) {
+            if !session_dirs.contains(&dir) {
+                session_dirs.push(dir);
             }
         }
         Self {

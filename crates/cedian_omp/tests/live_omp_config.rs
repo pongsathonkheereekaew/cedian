@@ -1,5 +1,5 @@
 //! ADR-0045 against real OMP (needs `omp` on PATH; no model call). An
-//! isolated agent dir (`PI_CODING_AGENT_DIR`) keeps the user's config
+//! isolated config home (`XDG_CONFIG_HOME`, so cedian's agent dir) keeps the user's config
 //! untouched. `cargo test -p cedian_omp --test live_omp_config -- --ignored`
 #![allow(
     clippy::disallowed_methods,
@@ -14,13 +14,14 @@ use serde_json::json;
 fn reads_writes_and_layers_go_through_omp() {
     let root = std::env::temp_dir().join(format!("cedian-omp-config-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    for dir in ["agent", "ws/.omp", "empty", "defaults"] {
+    for dir in ["cfg/cedian/agent", "ws/.omp", "empty", "defaults"] {
         std::fs::create_dir_all(root.join(dir)).unwrap();
     }
     let root = root.canonicalize().unwrap();
     // SAFETY: the only test in this binary; set before any OMP runs.
     unsafe {
-        std::env::set_var("PI_CODING_AGENT_DIR", root.join("agent"));
+        std::env::set_var("XDG_CONFIG_HOME", root.join("cfg"));
+        std::env::set_var("CEDIAN_STATE_DIR", root.join("state"));
         std::env::remove_var("OMP_PROFILE");
     }
     let omp = cedian_omp::resolve_on_path("omp", std::env::var("PATH").ok().as_deref()).unwrap();
@@ -29,7 +30,7 @@ fn reads_writes_and_layers_go_through_omp() {
 
     assert_eq!(
         config.dir(&ws).unwrap(),
-        root.join("agent"),
+        root.join("cfg/cedian/agent"),
         "the agent dir cedian watches"
     );
     let written = config.set(&ws, "compaction.enabled", "false").unwrap();

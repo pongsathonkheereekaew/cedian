@@ -3,7 +3,7 @@
 //! `omp config list --json`, writes go through `omp config set` / `reset`,
 //! and the layer behind each value is derived by comparing three reads.
 
-use crate::{OmpError, scrub_env};
+use crate::{OmpError, agent_env};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -118,10 +118,9 @@ impl OmpConfig {
     fn run(&self, cwd: &Path, args: &[&str], extra: &[(&str, &str)]) -> Result<String, OmpError> {
         use std::io::Read as _;
         crate::spawn_profile::check_binary(&self.binary)?;
-        let mut env = scrub_env(std::env::vars());
+        let mut env = agent_env(std::env::vars())?;
         if !extra.is_empty() {
-            // An explicit agent dir is only honoured without a profile.
-            env.retain(|(k, _)| k != "OMP_PROFILE" && !extra.iter().any(|(e, _)| e == k));
+            env.retain(|(k, _)| !extra.iter().any(|(e, _)| e == k));
             env.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
         }
         let mut child = std::process::Command::new(&self.binary)

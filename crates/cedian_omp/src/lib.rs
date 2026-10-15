@@ -9,6 +9,7 @@
     reason = "headless, synchronous process control (OMP, LSP, DAP, Chrome, git, sandbox-exec): Zed's async spawn helpers do not apply"
 )]
 
+pub mod agent_dirs;
 pub mod dialog;
 pub mod driver;
 pub mod errors;
@@ -22,6 +23,7 @@ pub mod session;
 pub mod sessions;
 pub mod spawn_profile;
 
+pub use agent_dirs::AgentDirs;
 pub use dialog::{
     Answerer, DialogRecord, GateDecision, UserAnswer, abandoned, abstained, headless_answer,
     now_ms, user_answer,
@@ -46,5 +48,5 @@ pub use session::{
 pub use sessions::SessionEntry;
 pub use spawn_profile::{
     ApprovalMode, Approvals, BashRule, Sessions, SpawnPlan, SpawnPolicy, SpawnProfile, ToolPolicy,
-    omp_config_get, omp_version, resolve_on_path, scrub_env,
+    agent_env, omp_config_get, omp_version, resolve_on_path, scrub_env,
 };

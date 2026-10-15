@@ -384,10 +384,6 @@ pub const ENV_ALLOW: &[&str] = &[
     "XDG_DATA_HOME",
     "XDG_CACHE_HOME",
     "XDG_STATE_HOME",
-    // Which agent dir OMP reads: cedian and the user's CLI see one config
-    // (ADR-0045 decision 4). Directory names, not credentials.
-    "PI_CODING_AGENT_DIR",
-    "OMP_PROFILE",
 ];
 
 /// Filter `vars` down to [`ENV_ALLOW`], in allow-list order.
@@ -397,6 +393,21 @@ pub fn scrub_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(Strin
         .iter()
         .filter_map(|name| vars.get(*name).map(|v| ((*name).to_string(), v.clone())))
         .collect()
+}
+
+/// The env every OMP process cedian starts gets: [`scrub_env`] plus
+/// cedian's own agent dirs ([`crate::AgentDirs`], ADR-0078 decision 5), so
+/// the agent never reads or writes the person's `~/.omp`. The person's
+/// `PI_CODING_AGENT_DIR` and `OMP_PROFILE` never pass. Refused when the
+/// dirs cannot be named.
+pub fn agent_env(
+    vars: impl IntoIterator<Item = (String, String)>,
+) -> Result<Vec<(String, String)>, OmpError> {
+    let vars: BTreeMap<String, String> = vars.into_iter().collect();
+    let dirs = crate::AgentDirs::from_vars(&vars)?;
+    let mut env = scrub_env(vars);
+    env.extend(dirs.env());
+    Ok(env)
 }
 
 pub(crate) fn check_binary(path: &Path) -> Result<(), OmpError> {
@@ -478,7 +489,7 @@ impl SpawnProfile {
             "{binary}:{session_dir}:{cwd}:{}",
             self.policy.approvals.label()
         );
-        let mut env = scrub_env(parent_env);
+        let mut env = agent_env(parent_env)?;
         if let Some(layout) = &self.policy.sandbox {
             for (name, value) in layout.env() {
                 env.retain(|(n, _)| *n != name);
@@ -564,7 +575,7 @@ fn run_captured(
         .process_group(0)
         .current_dir(cwd)
         .env_clear()
-        .envs(scrub_env(std::env::vars()))
+        .envs(agent_env(std::env::vars())?)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -677,11 +688,35 @@ mod tests {
             .collect()
     }
 
+    fn home() -> Vec<(String, String)> {
+        env(&[("HOME", "/Users/u")])
+    }
+
+    #[test]
+    fn the_agent_gets_cedians_dirs_never_the_persons_omp() {
+        let plan = profile()
+            .plan(env(&[
+                ("HOME", "/Users/u"),
+                ("PI_CODING_AGENT_DIR", "/Users/u/.omp/agent"),
+                ("OMP_PROFILE", "work"),
+            ]))
+            .unwrap();
+        let env: BTreeMap<_, _> = plan.env.into_iter().collect();
+        assert_eq!(env["PI_CODING_AGENT_DIR"], "/Users/u/.config/cedian/agent");
+        assert_eq!(env["PI_STATE_DIR"], "/Users/u/.local/state/cedian/agent");
+        assert!(!env.contains_key("OMP_PROFILE"));
+    }
+
+    #[test]
+    fn no_home_no_agent() {
+        assert!(profile().plan(Vec::new()).is_err());
+    }
+
     #[test]
     fn omp_default_sessions_pass_no_session_dir_but_keep_the_overlay() {
         let mut p = profile();
         p.sessions = Sessions::OmpDefault;
-        let plan = p.plan(Vec::new()).unwrap();
+        let plan = p.plan(home()).unwrap();
         assert!(
             !plan.argv.iter().any(|a| a == "--session-dir"),
             "{:?}",
@@ -695,7 +730,7 @@ mod tests {
 
     #[test]
     fn golden_argv() {
-        let plan = profile().plan(Vec::new()).unwrap();
+        let plan = profile().plan(home()).unwrap();
         assert_eq!(
             plan.argv,
             [
@@ -778,7 +813,7 @@ mod tests {
         p.policy
             .tool_policies
             .insert("eval".to_string(), ToolPolicy::Allow);
-        assert!(p.plan(Vec::new()).is_err());
+        assert!(p.plan(home()).is_err());
     }
 
     #[test]
@@ -1059,6 +1094,11 @@ mod tests {
             "never the shared temp dir"
         );
         assert_eq!(env["XDG_STATE_HOME"], "/tmp/t1/run/state");
+        assert_eq!(
+            env["PI_RUNTIME_DIR"], "/tmp/t1/run/state/omp",
+            "the reviewer's logs, locks and caches stay in its run dir"
+        );
+        assert_eq!(env["PI_STATE_DIR"], "/Users/u/.local/state/cedian/agent");
         assert_eq!(env["HOME"], "/Users/u");
     }
 
@@ -1066,17 +1106,17 @@ mod tests {
     fn model_with_control_chars_is_refused() {
         let mut p = profile();
         p.policy.model = Some("x\ny".to_string());
-        assert!(p.plan(Vec::new()).is_err());
+        assert!(p.plan(home()).is_err());
     }
 
     #[test]
     fn relative_and_control_paths_rejected() {
         let mut p = profile();
         p.binary_path = PathBuf::from("omp");
-        assert!(p.plan(Vec::new()).is_err());
+        assert!(p.plan(home()).is_err());
         let mut p = profile();
         p.session_dir = PathBuf::from("/tmp/a\nb");
-        assert!(p.plan(Vec::new()).is_err());
+        assert!(p.plan(home()).is_err());
     }
 
     #[test]
@@ -1085,8 +1125,8 @@ mod tests {
         let mut b = profile();
         b.cwd = PathBuf::from("/Users/u/other");
         assert_ne!(
-            a.plan(Vec::new()).unwrap().dedupe_key,
-            b.plan(Vec::new()).unwrap().dedupe_key
+            a.plan(home()).unwrap().dedupe_key,
+            b.plan(home()).unwrap().dedupe_key
         );
     }
 
@@ -1193,7 +1233,7 @@ mod tests {
 
     #[test]
     fn opt_in_argv_names_no_approval_mode() {
-        let argv = opted_in().plan(Vec::new()).unwrap().argv;
+        let argv = opted_in().plan(home()).unwrap().argv;
         assert!(!argv.iter().any(|a| a == "--approval-mode"), "{argv:?}");
         assert!(argv.iter().any(|a| a == "--config"), "overlay still passed");
     }
@@ -1225,17 +1265,17 @@ mod tests {
         p.policy
             .tool_policies
             .insert("eval".to_string(), ToolPolicy::Allow);
-        assert!(p.plan(Vec::new()).is_err());
+        assert!(p.plan(home()).is_err());
         let mut p = opted_in();
         p.policy.host_tools.insert("bash".to_string());
-        assert!(p.plan(Vec::new()).is_err());
+        assert!(p.plan(home()).is_err());
     }
 
     #[test]
     fn profiles_never_share_a_dedupe_key() {
         assert_ne!(
-            profile().plan(Vec::new()).unwrap().dedupe_key,
-            opted_in().plan(Vec::new()).unwrap().dedupe_key
+            profile().plan(home()).unwrap().dedupe_key,
+            opted_in().plan(home()).unwrap().dedupe_key
         );
     }
 }
