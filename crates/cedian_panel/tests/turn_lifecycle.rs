@@ -78,12 +78,7 @@ const LIVE: &str = concat!(
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("--mode") => std::process::exit(cedian_fake_omp::run(&args)),
-        Some("--version") => std::process::exit(cedian_fake_omp::version()),
-        Some("config") => std::process::exit(cedian_fake_omp::config_get(&args)),
-        _ => {}
-    }
+    cedian_fake_omp::test_main::enter(&args);
     let record = cedian_fake_omp::recording::armed("turn_lifecycle");
     queue_order_matches_omps();
     let root = std::env::temp_dir().join(format!("cedian-u4-turns-{}", std::process::id()));

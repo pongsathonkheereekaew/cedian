@@ -43,12 +43,7 @@ const PROMPT: &str = "Run the shell command `echo cedian` with your bash tool. \
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("--mode") => std::process::exit(cedian_fake_omp::run(&args)),
-        Some("--version") => std::process::exit(cedian_fake_omp::version()),
-        Some("config") => std::process::exit(cedian_fake_omp::config_get(&args)),
-        _ => {}
-    }
+    cedian_fake_omp::test_main::enter(&args);
     let record = std::env::var_os("CEDIAN_U4_RECORD").is_some();
     // U12e (ADR-0058 decision 3): `CEDIAN_U12_APP_TURNS` runs the app live
     // without writing a fixture, sends that many warm turns after the approval

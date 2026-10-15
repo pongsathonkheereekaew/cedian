@@ -44,12 +44,7 @@ const B: &str = "01a139e5-e3fa-7590-a571-57102af41fd6";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("--mode") => std::process::exit(cedian_fake_omp::run(&args)),
-        Some("--version") => std::process::exit(cedian_fake_omp::version()),
-        Some("config") => std::process::exit(cedian_fake_omp::config_get(&args)),
-        _ => {}
-    }
+    cedian_fake_omp::test_main::enter(&args);
     let root = std::env::temp_dir().join(format!("cedian-s10-sessions-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("ws")).unwrap();

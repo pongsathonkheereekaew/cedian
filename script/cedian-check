@@ -28,6 +28,7 @@ rustfmt --edition 2024 --check "${files[@]}"
 script/check-licenses
 # The benchmark harness: turn cap, OMP wrapper, model check (fake OMP only).
 python3 script/cedian-bench/test_bench.py
+script/cedian-bench/test-watchdog.sh
 if [ "${1:-}" = check ]; then
   cargo check -j4 --all-targets "${pkgs[@]}"
   exit 0

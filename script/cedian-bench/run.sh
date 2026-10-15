@@ -56,6 +56,8 @@ PASS=${BENCH_PASS:-}
 PASS_DIR=$RESULTS_ROOT/$PASS
 LEDGER=$PASS_DIR/turns.log
 CAP="python3 $BENCH/cap.py"
+# shellcheck source=watchdog.sh
+. "$BENCH/watchdog.sh"
 S2_RESULTS=${S2_RESULTS:-$TASKS/docs/benchmarks/2026-10-07}
 ALL="b1 b2 b3 b4 b5 b6 b7 b8 b9 b10"
 # B8 is open work: it starts where the harness was written.
@@ -410,29 +412,40 @@ lane() {
 # used 10, so the last lane is the first cut if a step has to fail.
 LANES="cli shell s2 s3review s3same workflow review inline_edit turn_lifecycle channel worktree p8 p8deny s2profile"
 
+# The lane's cargo test, teed to its log; the status is cargo's.
+record_step() {
+  # shellcheck disable=SC2086
+  (cd "$ROOT" && env $LANE_ENV CEDIAN_RECORD_OMP="$1" CEDIAN_RECORD_OMP_REAL="$OMP" CEDIAN_RECORD_MODEL="$BENCH_MODEL" \
+     CARGO_PROFILE_DEV_DEBUG=line-tables-only cargo test -j4 $LANE_TEST) 2>&1 |
+    tee "$2"
+  return "${PIPESTATUS[0]}"
+}
+
 record() {
   local name=$1 out printed used reserved tap omp lane_status
   [ "${BENCH_GO:-}" = 1 ] || { echo "record needs the owner's go: BENCH_GO=1 (ADR-0058 decision 5)" >&2; exit 2; }
   lane "$name"
   preflight 9
+  # Built before the reservation and the guard, so the wall clock bounds the
+  # turn only.
+  # shellcheck disable=SC2086
+  (cd "$ROOT" && CARGO_PROFILE_DEV_DEBUG=line-tables-only cargo test -j4 --no-run $LANE_TEST)
   reserved=$(admit "record-$name" "$LANE_TURNS" "$LANE_REVIEWER") || stop_pass $?
   tap=$PASS_DIR/taps/record/$name
   rm -rf "$tap"
   omp=$(wrapper on "$tap")
   out=$WORK/logs/record-$name.log
-  # shellcheck disable=SC2086
-  (cd "$ROOT" && env $LANE_ENV CEDIAN_RECORD_OMP="$omp" CEDIAN_RECORD_OMP_REAL="$OMP" CEDIAN_RECORD_MODEL="$BENCH_MODEL" \
-     CARGO_PROFILE_DEV_DEBUG=line-tables-only cargo test -j4 $LANE_TEST) 2>&1 |
-    tee "$out"
   # The lane's own tests decide the step: a recording whose test fails is
   # booked (its turns are spent) and then fails the pass, so a fixture that
   # does not replay is never reported as recorded.
-  lane_status=("${PIPESTATUS[@]}")
+  lane_status=0
+  guard_step "record-$name" "$reserved" "$tap" "$CARGO_TARGET_DIR/debug/deps/${LANE_TEST##* }-" \
+    "${RECORD_LIMIT_SECS:-420}" record_step "$omp" "$out" || lane_status=$?
   printed=$(sed -n 's/.*model turns: \([0-9][0-9]*\).*/\1/p' "$out" | awk '{ n += $1 } END { print n + 0 }')
   used=$(tapped "$tap" "$reserved")
   [ "$printed" -le "$used" ] || used=$printed
   book "record-$name" "$reserved" "$used"
-  [ "${lane_status[0]}" = 0 ] || {
+  [ "$lane_status" = 0 ] || {
     echo "record-$name: the lane's tests failed; its fixture is not a recording to keep (see $out)" >&2
     exit 1
   }

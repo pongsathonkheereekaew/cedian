@@ -25,6 +25,7 @@ mod fs_effects;
 mod record;
 pub mod recording;
 mod replay;
+pub mod test_main;
 
 pub use fixture::{Dir, Placeholders, Record};
 

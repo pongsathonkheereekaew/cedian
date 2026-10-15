@@ -27,14 +27,11 @@ const ORIGINAL: &str = "alpha\nbeta\ngamma\n";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("--mode") {
-        std::process::exit(cedian_fake_omp::run(&args));
-    }
-    if args.first().map(String::as_str) == Some("--version") {
-        std::process::exit(cedian_fake_omp::version());
-    }
-    if args.first().map(String::as_str) == Some("config") {
-        std::process::exit(cedian_fake_omp::config_get(&args));
+    cedian_fake_omp::test_main::enter(&args);
+    if std::env::var_os(PROBE).is_none() {
+        print!("test printenv_reexec_refused_before_any_scenario ... ");
+        printenv_refused();
+        println!("ok");
     }
     // `CEDIAN_P2_RECORD=<lane>` re-records ONE fixture against the pinned OMP.
     let which = std::env::var("CEDIAN_P2_RECORD").unwrap_or_default();
@@ -118,6 +115,25 @@ fn main() {
 /// The CLI under test, isolated in `root`: its own workspace, session dir,
 /// user `cedian.toml` and HOME (never the developer's, but in a recording),
 /// and a PATH with no `omp` on it, so only fake-omp can run.
+const PROBE: &str = "CEDIAN_ARG_PROBE";
+
+/// Zed's environment loader runs `<exe> --printenv`; a record binary must
+/// exit 2 before it starts a scenario (STOP LINE 2026-10-14). The probe env
+/// keeps an unguarded child from probing again; the record env is removed
+/// so a child that does run cannot reach a real OMP.
+fn printenv_refused() {
+    let out = Command::new(std::env::current_exe().unwrap())
+        .arg("--printenv")
+        .env(PROBE, "1")
+        .env_remove("CEDIAN_P2_RECORD")
+        .env_remove("CEDIAN_RECORD_OMP")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code(), Some(2), "stdout: {stdout}");
+    assert!(stdout.is_empty(), "a scenario started: {stdout}");
+}
+
 fn cli(root: &Path) -> Command {
     let config = root.join("cedian.toml");
     if !config.exists() {

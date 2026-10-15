@@ -68,20 +68,7 @@ const PERSON_CONTINUE: usize = 10;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("--mode") => std::process::exit(cedian_fake_omp::run(&args)),
-        Some("--version") => std::process::exit(cedian_fake_omp::version()),
-        Some("config") => std::process::exit(cedian_fake_omp::config_get(&args)),
-        // Any other call is not a test run: Zed's environment loader runs
-        // this binary as `--printenv` in a login shell, and running the
-        // scenario there would start another OMP (in a record lane, another
-        // model turn) for every launch.
-        Some(other) => {
-            eprintln!("{other}: not a test run");
-            std::process::exit(2)
-        }
-        None => {}
-    }
+    cedian_fake_omp::test_main::enter(&args);
     let root = std::env::temp_dir().join(format!("cedian-s1-dap-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("ws/src")).unwrap();
