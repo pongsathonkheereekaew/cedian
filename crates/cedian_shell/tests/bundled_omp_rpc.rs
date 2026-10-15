@@ -156,26 +156,31 @@ fn the_bundled_fork_build_starts_with_an_empty_agent_dir_and_lists_login_provide
     for line in [
         r#"{"id":"1","type":"get_state"}"#,
         r#"{"id":"2","type":"get_login_providers"}"#,
+        r#"{"id":"3","type":"prompt","message":"hello"}"#,
     ] {
         writeln!(stdin, "{line}").unwrap();
     }
     let mut answers = std::collections::BTreeMap::new();
+    let mut prompt_result = None;
     for line in BufReader::new(child.stdout.take().unwrap()).lines() {
         let line = line.unwrap();
         let frame: serde_json::Value = match serde_json::from_str(&line) {
             Ok(frame) => frame,
             Err(_) => continue,
         };
-        if frame["type"] == "response" {
+        if frame["type"] == "prompt_result" && frame["id"] == "3" {
+            println!("prompt_result: {}", &line[..line.len().min(300)]);
+            prompt_result = Some(frame);
+        } else if frame["type"] == "response" {
             println!("response: {}", &line[..line.len().min(300)]);
             answers.insert(frame["id"].as_str().unwrap_or("").to_string(), frame);
-            if answers.len() == 2 {
-                break;
-            }
+        }
+        if answers.len() == 3 && prompt_result.is_some() {
+            break;
         }
     }
     drop(stdin);
-    if answers.len() < 2 {
+    if answers.len() < 3 || prompt_result.is_none() {
         let status = child.wait().unwrap();
         panic!("cedian agent exited before answering: {status}, answers {answers:?}");
     }
@@ -191,6 +196,16 @@ fn the_bundled_fork_build_starts_with_an_empty_agent_dir_and_lists_login_provide
             .is_empty(),
         "{}",
         answers["2"]
+    );
+    // The panel opens the model picker on this literal prefix (panel.rs,
+    // `LinkEvent::PromptFailed`); a reworded refusal would leave it closed.
+    let prompt_result = prompt_result.unwrap();
+    assert_eq!(prompt_result["status"], "error", "{prompt_result}");
+    assert!(
+        prompt_result["error"]["message"]
+            .as_str()
+            .is_some_and(|e| e.starts_with("No model selected")),
+        "{prompt_result}"
     );
     assert!(!root.join("home/.omp").exists(), "wrote into ~/.omp");
     let _ = std::fs::remove_dir_all(&root);

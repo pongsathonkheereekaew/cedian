@@ -83,3 +83,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0077](0077-v0-1-waits-for-three-fork-items.md) | v0.1 waits for the bundled fork OMP, S5's worktree attribution, and project-scoped reads |
 | [0078](0078-two-private-repos-one-product.md) | cedian is one private product in two repos, `cedian` and `cedian-agent` |
 | [0079](0079-pstack-ships-with-cedian.md) | pstack ships with cedian, on by default, with its own settings page |
+| [0080](0080-overlay-pins-agent-phone-home-off.md) | The spawn overlay pins the agent's issue reports and update check off under every policy |

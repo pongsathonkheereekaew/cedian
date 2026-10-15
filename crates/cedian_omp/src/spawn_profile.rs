@@ -289,6 +289,10 @@ impl SpawnPolicy {
             Approvals::Omp if patterns.is_empty() => json!({"tools": {"approval": approval}}),
             Approvals::Omp => json!({"tools": {"approval": approval}, "bash": bash}),
         };
+        for pin in PRIVACY_PINS {
+            let (section, key) = pin.key.split_once('.').expect("section.key");
+            overlay[section] = json!({ key: false });
+        }
         if self.approvals == Approvals::Reviewer {
             overlay["browser"] = json!({"relay": false});
         } else if let Some(url) = &self.browser_cdp_url {
@@ -298,6 +302,30 @@ impl SpawnPolicy {
         Ok(overlay)
     }
 }
+
+/// An agent setting that would send something off this computer, pinned
+/// off by the overlay under every policy, `policy = "omp"` included: an
+/// approval opt-in is not a privacy opt-in (ADR-0080). Settings > Privacy
+/// shows each one as "Set by cedian".
+pub struct PrivacyPin {
+    /// `section.key` in the agent's config; the overlay writes `false`.
+    pub key: &'static str,
+    pub title: &'static str,
+    pub description: &'static str,
+}
+
+pub const PRIVACY_PINS: &[PrivacyPin] = &[
+    PrivacyPin {
+        key: "dev.autoqa",
+        title: "Agent issue reports",
+        description: "The agent can send tool-failure reports to qa.omp.sh. cedian turns this off.",
+    },
+    PrivacyPin {
+        key: "startup.checkUpdate",
+        title: "Agent update check",
+        description: "The bundled agent updates only with cedian, so it never checks for updates.",
+    },
+];
 
 fn check_browser_url(url: &str) -> Result<(), OmpError> {
     let loopback = url
@@ -900,6 +928,28 @@ mod tests {
     }
 
     #[test]
+    fn overlay_pins_the_agents_phone_home_off_under_every_policy() {
+        for approvals in [
+            Approvals::Cedian(ApprovalMode::Write),
+            Approvals::Reviewer,
+            Approvals::Omp,
+        ] {
+            let overlay = SpawnPolicy {
+                approvals,
+                ..SpawnPolicy::default()
+            }
+            .overlay()
+            .unwrap();
+            assert_eq!(overlay["dev"]["autoqa"], false, "{approvals:?}");
+            assert_eq!(overlay["startup"]["checkUpdate"], false, "{approvals:?}");
+        }
+        assert_eq!(
+            PRIVACY_PINS.iter().map(|pin| pin.key).collect::<Vec<_>>(),
+            ["dev.autoqa", "startup.checkUpdate"]
+        );
+    }
+
+    #[test]
     fn opt_in_leaves_config_allows_to_omp() {
         let mut policy = SpawnPolicy {
             approvals: Approvals::Omp,
@@ -1249,13 +1299,19 @@ mod tests {
                     "patterns": [{"match": "rm -rf *", "approval": "deny"}],
                     "allowCompoundCommands": false,
                 },
+                "dev": {"autoqa": false},
+                "startup": {"checkUpdate": false},
             })
         );
         let mut bare = opted_in();
         bare.policy.bash_patterns.clear();
         assert_eq!(
             bare.policy.overlay().unwrap(),
-            json!({"tools": {"approval": {"cedian_worktree_request": "allow", "write": "deny"}}})
+            json!({
+                "tools": {"approval": {"cedian_worktree_request": "allow", "write": "deny"}},
+                "dev": {"autoqa": false},
+                "startup": {"checkUpdate": false},
+            })
         );
     }
 

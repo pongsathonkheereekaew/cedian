@@ -2574,9 +2574,9 @@ impl CedianPanel {
                 );
                 self.forget_subagents();
                 self.onboarding = None;
-                if model.is_some() {
-                    self.picker.model = model;
-                } else if let Some(link) = &self.link {
+                let has_model = model.is_some();
+                self.picker.model = model;
+                if !has_model && let Some(link) = &self.link {
                     self.onboarding = Some(Onboarding::default());
                     link.login_providers();
                 }
