@@ -728,6 +728,20 @@ fn summarize_args(name: &str, args: Option<&serde_json::Value>) -> String {
         "eval" => format!("{}: {}", get("language"), first_line(get("code"))),
         "todo" => format!("{} {}", get("op"), get("task")),
         "web_search" => get("query").chars().take(80).collect(),
+        "cedian_debug" => {
+            let mut parts = vec![get("op").to_string(), get("scenario").to_string()];
+            if !get("path").is_empty() {
+                parts.push(match args.get("line") {
+                    Some(line) => format!("{}:{line}", get("path")),
+                    None => get("path").to_string(),
+                });
+            }
+            if let Some(session) = args.get("session") {
+                parts.push(format!("session {session}"));
+            }
+            parts.retain(|p| !p.is_empty());
+            parts.join(" ")
+        }
         _ => args
             .as_object()
             .map(|o| o.keys().take(3).cloned().collect::<Vec<_>>().join(", "))
@@ -1114,6 +1128,23 @@ mod tests {
         let preview = summarize_args("future_tool", Some(&args));
         assert!(!preview.contains('{'), "got {preview:?}");
         assert!(summarize_args("read", None).is_empty());
+    }
+
+    #[test]
+    fn a_cedian_debug_preview_carries_its_values() {
+        let preview = |args| summarize_args("cedian_debug", Some(&args));
+        assert_eq!(
+            preview(serde_json::json!({"op": "start", "scenario": "main"})),
+            "start main"
+        );
+        assert_eq!(
+            preview(serde_json::json!({"op": "set_breakpoint", "path": "src/main.c", "line": 5})),
+            "set_breakpoint src/main.c:5"
+        );
+        assert_eq!(
+            preview(serde_json::json!({"op": "continue", "session": 2})),
+            "continue session 2"
+        );
     }
 
     #[test]

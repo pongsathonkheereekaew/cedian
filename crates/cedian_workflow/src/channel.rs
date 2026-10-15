@@ -702,7 +702,10 @@ pub fn update_parameters() -> Map<String, Value> {
             "gate_kind": {"type": "string", "enum": ["build", "test", "lint", "reproduction", "behavior", "visual", "performance", "review"]},
             "evidence_kinds": {"type": "array", "items": {"type": "string"}},
             "min_items": {"type": "integer"},
-            "kind": {"type": "string"},
+            "kind": {"type": "string", "enum": [
+                "investigation", "bug_fix", "feature", "refactor", "performance", "prototype",
+                "command", "test", "browser", "screenshot", "simulator", "debugger", "file", "custom"
+            ], "description": "op=start: the task kind (investigation..prototype); op=evidence: the evidence kind (command..custom)"},
             "title": {"type": "string"},
             "risk": {"type": "string", "enum": ["low", "medium", "high"]},
             "gate": {"type": "string"},
@@ -793,7 +796,7 @@ pub fn kind_for(tool: &str, claimed: EvidenceKind) -> EvidenceKind {
             K::Screenshot => K::Screenshot,
             _ => K::Browser,
         },
-        "debug" => K::Debugger,
+        "debug" | "cedian_debug" => K::Debugger,
         t if READ_ONLY_TOOLS.contains(&t) => K::File,
         _ => K::Custom,
     }
@@ -825,7 +828,7 @@ fn enum_arg<T: serde::de::DeserializeOwned>(
         None | Some(Value::Null) => Ok(None),
         Some(v) => serde_json::from_value(v.clone())
             .map(Some)
-            .map_err(|_| format!("bad `{key}`: {v}")),
+            .map_err(|e| format!("bad `{key}`: {e}")),
     }
 }
 
@@ -1334,6 +1337,24 @@ mod tests {
     }
 
     #[test]
+    fn the_kind_argument_names_its_values() {
+        let params = update_parameters();
+        let allowed = params["properties"]["kind"]["enum"].as_array().unwrap();
+        for kind in ["investigation", "bug_fix", "debugger", "file", "command"] {
+            assert!(allowed.iter().any(|k| k == kind), "{kind}: {allowed:?}");
+        }
+        let (ch, _, _) = channel();
+        start(&ch);
+        let bad = ch
+            .update(&args(json!({
+                "op": "evidence", "gate": "verify", "kind": "runtime", "outcome": "pass",
+                "summary": "s"
+            })))
+            .unwrap_err();
+        assert!(bad.contains("debugger") && bad.contains("file"), "{bad}");
+    }
+
+    #[test]
     fn evidence_kind_follows_the_bound_tool() {
         use EvidenceKind as K;
         assert_eq!(kind_for("read", K::Test), K::File);
@@ -1341,6 +1362,7 @@ mod tests {
         assert_eq!(kind_for("bash", K::File), K::Command);
         assert_eq!(kind_for("browser", K::Screenshot), K::Screenshot);
         assert_eq!(kind_for("mcp_x", K::Test), K::Custom);
+        assert_eq!(kind_for("cedian_debug", K::Custom), K::Debugger);
         // A read reported as a test cannot pass `verify` (test|command).
         let (ch, store, _) = channel();
         start(&ch);

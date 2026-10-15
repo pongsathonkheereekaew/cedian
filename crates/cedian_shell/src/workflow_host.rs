@@ -206,6 +206,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn evidence_binds_to_a_cedian_debug_call_by_its_values() {
+        let calls = [
+            finished("1", "cedian_debug", "start main", CallOutcome::Ok),
+            finished("2", "cedian_debug", "continue session 1", CallOutcome::Ok),
+        ];
+        let bound = bound_call(&calls, "cedian_debug", "start").expect("bound");
+        assert_eq!(bound.tool_call_id, "1");
+        assert_eq!(
+            bound_call(&calls, "cedian_debug", "main").map(|b| b.tool_call_id),
+            Some("1".into())
+        );
+    }
+
     /// S2 finding / ROADMAP: a headless-denied bash after a read must not
     /// make the read's evidence born stale (it changed nothing).
     #[test]
