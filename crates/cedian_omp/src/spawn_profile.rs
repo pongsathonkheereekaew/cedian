@@ -290,8 +290,7 @@ impl SpawnPolicy {
             Approvals::Omp => json!({"tools": {"approval": approval}, "bash": bash}),
         };
         for pin in PRIVACY_PINS {
-            let (section, key) = pin.key.split_once('.').expect("section.key");
-            overlay[section] = json!({ key: false });
+            overlay[pin.section][pin.key] = json!(false);
         }
         if self.approvals == Approvals::Reviewer {
             overlay["browser"] = json!({"relay": false});
@@ -308,7 +307,8 @@ impl SpawnPolicy {
 /// approval opt-in is not a privacy opt-in (ADR-0080). Settings > Privacy
 /// shows each one as "Set by cedian".
 pub struct PrivacyPin {
-    /// `section.key` in the agent's config; the overlay writes `false`.
+    pub section: &'static str,
+    /// The overlay writes `false` at `overlay[section][key]`.
     pub key: &'static str,
     pub title: &'static str,
     pub description: &'static str,
@@ -316,12 +316,14 @@ pub struct PrivacyPin {
 
 pub const PRIVACY_PINS: &[PrivacyPin] = &[
     PrivacyPin {
-        key: "dev.autoqa",
+        section: "dev",
+        key: "autoqa",
         title: "Agent issue reports",
         description: "The agent can send tool-failure reports to qa.omp.sh. cedian turns this off.",
     },
     PrivacyPin {
-        key: "startup.checkUpdate",
+        section: "startup",
+        key: "checkUpdate",
         title: "Agent update check",
         description: "The bundled agent updates only with cedian, so it never checks for updates.",
     },
@@ -944,8 +946,11 @@ mod tests {
             assert_eq!(overlay["startup"]["checkUpdate"], false, "{approvals:?}");
         }
         assert_eq!(
-            PRIVACY_PINS.iter().map(|pin| pin.key).collect::<Vec<_>>(),
-            ["dev.autoqa", "startup.checkUpdate"]
+            PRIVACY_PINS
+                .iter()
+                .map(|pin| (pin.section, pin.key))
+                .collect::<Vec<_>>(),
+            [("dev", "autoqa"), ("startup", "checkUpdate")]
         );
     }
 

@@ -1717,8 +1717,6 @@
   // cedian's agent composer and notifications (Settings > General and
   // Settings > Notifications).
   "cedian": {
-    // Which key sends a message: "enter" or "cmd_enter".
-    "send_with": "enter",
     // A message sent while the agent works: "queue" or "steer".
     "follow_up": "queue",
     // "when_unfocused", "always" or "never".

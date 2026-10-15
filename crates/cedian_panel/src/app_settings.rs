@@ -3,13 +3,12 @@
 //! user's settings file under `cedian`.
 
 use settings::{
-    FollowUp, NotificationSound, RegisterSetting, SendWith, Settings, SettingsContent,
+    FollowUp, NotificationSound, RegisterSetting, Settings, SettingsContent,
     TurnFinishedNotification,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, RegisterSetting)]
 pub struct CedianSettings {
-    pub send_with: SendWith,
     pub follow_up: FollowUp,
     pub notify_turn_finished: TurnFinishedNotification,
     pub notify_approval_needed: bool,
@@ -22,7 +21,6 @@ impl Settings for CedianSettings {
     fn from_settings(content: &SettingsContent) -> Self {
         let cedian = content.cedian.clone().unwrap_or_default();
         Self {
-            send_with: cedian.send_with.unwrap_or_default(),
             follow_up: cedian.follow_up.unwrap_or_default(),
             notify_turn_finished: cedian.notify_turn_finished.unwrap_or_default(),
             notify_approval_needed: cedian.notify_approval_needed.unwrap_or(true),

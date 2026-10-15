@@ -560,7 +560,6 @@ fn init_renderers(cx: &mut App) {
         .add_basic_renderer::<settings::SaturatingBool>(render_toggle_button)
         .add_basic_renderer::<settings::CursorShape>(render_dropdown)
         .add_basic_renderer::<settings::RestoreOnStartupBehavior>(render_dropdown)
-        .add_basic_renderer::<settings::SendWith>(render_dropdown)
         .add_basic_renderer::<settings::FollowUp>(render_dropdown)
         .add_basic_renderer::<settings::TurnFinishedNotification>(render_dropdown)
         .add_basic_renderer::<settings::NotificationSound>(render_dropdown)

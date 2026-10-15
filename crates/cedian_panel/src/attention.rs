@@ -64,11 +64,10 @@ pub fn delivery(attention: Attention, settings: &CedianSettings, focused: bool) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use settings::{FollowUp, SendWith};
+    use settings::FollowUp;
 
     fn defaults() -> CedianSettings {
         CedianSettings {
-            send_with: SendWith::Enter,
             follow_up: FollowUp::Queue,
             notify_turn_finished: TurnFinishedNotification::WhenUnfocused,
             notify_approval_needed: true,

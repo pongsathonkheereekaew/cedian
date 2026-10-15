@@ -58,7 +58,7 @@ const APPROVE: &str = "Approve";
 /// The gate every panel browser capture is evidence for.
 pub const BROWSER_GATE: &str = "browser";
 use project::Project;
-use settings::{FollowUp, SendWith, Settings as _};
+use settings::{FollowUp, Settings as _};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -84,8 +84,6 @@ actions!(
         /// Stop the running turn and send the composer once it has ended
         /// (ADR-0064).
         StopAndSend,
-        /// Send the composer's message.
-        SendMessage,
     ]
 );
 
@@ -5980,11 +5978,6 @@ impl Render for CedianPanel {
                         div()
                             .flex_1()
                             .on_action(cx.listener(|this, _: &menu::Confirm, window, cx| {
-                                if CedianSettings::get_global(cx).send_with == SendWith::Enter {
-                                    this.send(window, cx);
-                                }
-                            }))
-                            .on_action(cx.listener(|this, _: &SendMessage, window, cx| {
                                 this.send(window, cx)
                             }))
                             .child(self.input.clone()),
@@ -6408,24 +6401,55 @@ mod tests {
             .unwrap();
     }
 
-    /// Settings > General: Enter sends by default; with "⌘ Enter" only the
-    /// send action does.
+    /// Ruling 36: Enter sends, and during a turn queues under the default
+    /// follow-up; Cmd+Enter steers once, as the shipped macOS keymap binds it.
     #[gpui::test]
-    async fn send_with_setting_chooses_the_sending_key(cx: &mut TestAppContext) {
+    async fn cmd_enter_steers_a_running_turn_once(cx: &mut TestAppContext) {
         init(cx);
         cx.update(|cx| {
-            cx.bind_keys([
-                gpui::KeyBinding::new("enter", menu::Confirm, Some("Editor")),
-                gpui::KeyBinding::new("cmd-enter", SendMessage, Some("CedianPanel > Editor")),
-            ])
+            let keymap = settings::KeymapFile::parse(include_str!(
+                "../../../assets/keymaps/default-macos.json"
+            ))
+            .unwrap();
+            let section = keymap
+                .sections()
+                .find(|section| section.context == "CedianPanel > Editor")
+                .unwrap();
+            let mut bindings = vec![gpui::KeyBinding::new(
+                "enter",
+                menu::Confirm,
+                Some("Editor"),
+            )];
+            for (keys, action) in section.bindings() {
+                let (name, _) = settings::KeymapFile::parse_action(action).unwrap().unwrap();
+                let action = cx.build_action(name, None).unwrap();
+                bindings.push(
+                    gpui::KeyBinding::load(
+                        keys,
+                        action,
+                        Some(
+                            gpui::KeyBindingContextPredicate::parse("CedianPanel > Editor")
+                                .unwrap()
+                                .into(),
+                        ),
+                        false,
+                        None,
+                        &gpui::DummyKeyboardMapper,
+                    )
+                    .unwrap(),
+                );
+            }
+            cx.bind_keys(bindings);
         });
         let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
         let mut vcx = VisualTestContext::from_window(window.into(), cx);
-        let sent = |vcx: &mut VisualTestContext, keys: &str| {
+        let press = |vcx: &mut VisualTestContext, turn: Turn, keys: &str| {
             window
                 .update(vcx, |panel, window, cx| {
                     panel.notice = None;
+                    panel.after_stop = None;
+                    panel.turn = turn;
                     panel.set_prompt("hello", window, cx);
                     window.focus(&panel.input.focus_handle(cx), cx);
                 })
@@ -6434,13 +6458,64 @@ mod tests {
             vcx.simulate_keystrokes(keys);
             vcx.run_until_parked();
             window
-                .read_with(vcx, |panel, _| panel.notice().is_some())
+                .read_with(vcx, |panel, _| {
+                    (
+                        panel.notice().map(str::to_string),
+                        panel.next_prompt().map(str::to_string),
+                    )
+                })
                 .unwrap()
         };
-        assert!(sent(&mut vcx, "enter"), "Enter sends by default");
-        set_user_settings(r#"{"cedian": {"send_with": "cmd_enter"}}"#, &mut vcx);
-        assert!(!sent(&mut vcx, "enter"), "Enter no longer sends");
-        assert!(sent(&mut vcx, "cmd-enter"), "the send key sends");
+        let (notice, _) = press(&mut vcx, Turn::Idle, "enter");
+        assert!(notice.is_some(), "Enter sends when idle");
+        let (notice, next) = press(&mut vcx, Turn::Streaming, "enter");
+        assert_eq!(next, None, "Enter during a turn does not steer");
+        assert_eq!(
+            notice.as_deref(),
+            Some("cedian agent is not running; restart it"),
+            "Enter during a turn queues"
+        );
+        let (_, next) = press(&mut vcx, Turn::Streaming, "cmd-enter");
+        assert_eq!(
+            next.as_deref(),
+            Some("hello"),
+            "Cmd+Enter steers the running turn"
+        );
+    }
+
+    /// Settings acts on the workspace window that opened it, even when
+    /// another window is in front; the frontmost one only once it closed.
+    #[gpui::test]
+    async fn settings_target_the_window_that_opened_them(cx: &mut TestAppContext) {
+        init(cx);
+        let open = async |cx: &mut TestAppContext| {
+            let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+            let window = cx.add_window(|window, cx| {
+                workspace::MultiWorkspace::test_new(project.clone(), window, cx)
+            });
+            let panel = window
+                .update(cx, |multi, window, cx| {
+                    multi.workspace().clone().update(cx, |workspace, cx| {
+                        let panel = cx.new(|cx| CedianPanel::new(project.clone(), window, cx));
+                        workspace.add_panel(panel.clone(), window, cx);
+                        panel
+                    })
+                })
+                .unwrap();
+            (window, panel)
+        };
+        let (_front, front_panel) = open(cx).await;
+        let (origin, origin_panel) = open(cx).await;
+        let target = |origin: Option<gpui::AnyWindowHandle>, cx: &mut TestAppContext| {
+            cx.update(|cx| crate::settings_host::target(origin, cx).map(|(_, _, panel)| panel))
+        };
+        assert_eq!(target(Some(origin.into()), cx), Some(origin_panel));
+        assert_eq!(target(None, cx), Some(front_panel.clone()));
+        origin
+            .update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(target(Some(origin.into()), cx), Some(front_panel));
     }
 
     /// The panel's "agent settings" opens the settings window on Advanced,

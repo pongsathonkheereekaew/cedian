@@ -6,11 +6,6 @@ use settings_macros::{MergeFrom, with_fallible_options};
 #[with_fallible_options]
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom)]
 pub struct CedianSettingsContent {
-    /// Which key sends a message from the agent composer; the other inserts
-    /// a new line.
-    ///
-    /// Default: enter
-    pub send_with: Option<SendWith>,
     /// What a message sent while the agent works does: wait for the current
     /// turn (queue) or stop it and go now (steer).
     ///
@@ -36,29 +31,6 @@ pub struct CedianSettingsContent {
     ///
     /// Default: system
     pub notification_sound: Option<NotificationSound>,
-}
-
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum SendWith {
-    #[default]
-    #[strum(serialize = "Enter")]
-    Enter,
-    #[strum(serialize = "⌘ Enter")]
-    CmdEnter,
 }
 
 #[derive(

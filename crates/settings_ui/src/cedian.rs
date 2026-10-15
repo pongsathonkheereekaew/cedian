@@ -7,8 +7,8 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::{AnyView, PromptLevel};
-use settings::{FollowUp, SendWith, TurnFinishedNotification};
+use gpui::{AnyView, AnyWindowHandle, PromptLevel};
+use settings::{FollowUp, TurnFinishedNotification};
 use ui::Chip;
 
 use super::*;
@@ -349,10 +349,11 @@ fn user(metadata: Option<Box<SettingsFieldMetadata>>) -> Option<Box<SettingsFiel
 /// no host (tests, a build without the panel) shows the rows as unavailable.
 #[derive(Clone, Copy)]
 pub struct CedianHost {
-    /// The agent's settings view, built for `window`.
-    pub agent_settings: fn(&mut Window, &mut App) -> Option<AnyView>,
-    /// Restart the agent of the frontmost workspace.
-    pub restart_agent: fn(&mut App),
+    /// The agent's settings view for the workspace window that opened
+    /// Settings, built for `window`.
+    pub agent_settings: fn(Option<AnyWindowHandle>, &mut Window, &mut App) -> Option<AnyView>,
+    /// Restart the agent of the workspace window that opened Settings.
+    pub restart_agent: fn(Option<AnyWindowHandle>, &mut App),
 }
 
 impl Global for CedianHost {}
@@ -496,23 +497,8 @@ fn composer_items() -> Vec<SettingsPageItem> {
     vec![
         SettingsPageItem::SectionHeader("Composer"),
         SettingsPageItem::SettingItem(SettingItem {
-            title: "Send With",
-            description: "Which key sends a message from the agent composer. ⌘ Enter always sends.",
-            field: Box::new(SettingField::<SendWith> {
-                organization_override: None,
-                json_path: Some("cedian.send_with"),
-                pick: |content| content.cedian.as_ref()?.send_with.as_ref(),
-                write: |content, value, _| content.cedian.get_or_insert_default().send_with = value,
-            }),
-            metadata: user(Some(Box::new(SettingsFieldMetadata {
-                should_do_titlecase: Some(false),
-                ..Default::default()
-            }))),
-            files: USER,
-        }),
-        SettingsPageItem::SettingItem(SettingItem {
             title: "Messages Sent While the Agent Works",
-            description: "Queue them for after the current turn, or steer: stop the turn and send now. ⌘⇧ Enter steers once.",
+            description: "Queue them for after the current turn, or steer: stop the turn and send now. ⌘ Enter steers once.",
             field: Box::new(SettingField::<FollowUp> {
                 organization_override: None,
                 json_path: Some("cedian.follow_up"),
@@ -745,15 +731,15 @@ fn advanced_items() -> Vec<SettingsPageItem> {
             title: "Restart Agent",
             description: "Stop the agent of the open project and start it again. A running turn ends.",
             badge: None,
-            control: |_, _, _| {
+            control: |_, _, cx| {
                 Button::new("cedian-restart-agent", "Restart")
                     .style(ButtonStyle::OutlinedGhost)
                     .size(ButtonSize::Medium)
-                    .on_click(|_, _, cx| {
+                    .on_click(cx.listener(|this, _, _, cx| {
                         if let Some(host) = host(cx) {
-                            (host.restart_agent)(cx);
+                            (host.restart_agent)(this.original_window.map(Into::into), cx);
                         }
-                    })
+                    }))
                     .into_any_element()
             },
             state: Some(|cx| {
@@ -797,12 +783,13 @@ fn advanced_items() -> Vec<SettingsPageItem> {
 }
 
 fn render_agent_settings_page(
-    _: &SettingsWindow,
+    settings_window: &SettingsWindow,
     _: &ScrollHandle,
     window: &mut Window,
     cx: &mut Context<SettingsWindow>,
 ) -> AnyElement {
-    let view = host(cx).and_then(|host| (host.agent_settings)(window, cx));
+    let origin = settings_window.original_window.map(Into::into);
+    let view = host(cx).and_then(|host| (host.agent_settings)(origin, window, cx));
     match view {
         Some(view) => div().size_full().px_8().child(view).into_any_element(),
         None => v_flex()
@@ -1270,14 +1257,6 @@ mod tests {
             );
             assert_eq!((restricted.pick)(&content), Some(&false));
 
-            let send = field::<SendWith>(setting(general, "Send With"));
-            assert_eq!((send.pick)(defaults), Some(&SendWith::Enter));
-            (send.write)(&mut content, Some(SendWith::CmdEnter), cx);
-            assert_eq!(
-                content.cedian.as_ref().unwrap().send_with,
-                Some(SendWith::CmdEnter)
-            );
-
             let follow_up =
                 field::<FollowUp>(setting(general, "Messages Sent While the Agent Works"));
             assert_eq!((follow_up.pick)(defaults), Some(&FollowUp::Queue));
@@ -1340,20 +1319,19 @@ mod tests {
     }
 
     #[gpui::test]
-    fn restore_defaults_resets_each_changed_row_of_the_page(cx: &mut TestAppContext) {
+    async fn restore_defaults_resets_each_changed_row_of_the_page(cx: &mut TestAppContext) {
         let (window, cx) = open_window(cx);
+        let changed = r#"{"cedian": {"follow_up": "steer"}, "session": {"trust_all_worktrees": true}, "confirm_quit": true}"#;
+        let fs = cx.update(|_, cx| <dyn fs::Fs>::global(cx));
+        fs.write(paths::settings_file(), changed.as_bytes())
+            .await
+            .unwrap();
         cx.update(|_, cx| {
             cx.update_global::<SettingsStore, _>(|store, cx| {
-                store
-                    .set_user_settings(
-                        r#"{"cedian": {"send_with": "cmd_enter"}, "session": {"trust_all_worktrees": true}}"#,
-                        cx,
-                    )
-                    .result()
-                    .unwrap();
+                store.set_user_settings(changed, cx).result().unwrap();
             });
         });
-        window.update(cx, |window, cx| {
+        window.update_in(cx, |window, gpui_window, cx| {
             let general = window
                 .navbar_entries
                 .iter()
@@ -1361,10 +1339,25 @@ mod tests {
                 .unwrap();
             window.open_navbar_entry_page(general);
             assert_eq!(window.current_page().title, "General");
-            assert_eq!(window.current_page_resets(cx).len(), 2);
+            assert_eq!(window.current_page_resets(cx).len(), 3);
             assert!(sidebar_page("General").unwrap().restore_defaults);
             assert!(!sidebar_page("Editor").unwrap().restore_defaults);
+            window.reset_current_page(gpui_window, cx);
         });
+        cx.run_until_parked();
+        let written = fs.load(paths::settings_file()).await.unwrap();
+        let written: serde_json::Value = settings::parse_json_with_comments(&written)
+            .unwrap_or_else(|error| panic!("{error}: {written:?}"));
+        for (value, default) in [
+            (&written["cedian"]["follow_up"], serde_json::json!("queue")),
+            (
+                &written["session"]["trust_all_worktrees"],
+                serde_json::json!(false),
+            ),
+            (&written["confirm_quit"], serde_json::json!(false)),
+        ] {
+            assert!(value.is_null() || *value == default, "{written}");
+        }
     }
 
     #[gpui::test]
