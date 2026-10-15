@@ -12,7 +12,7 @@ echo "cedian-prune: $(free_gb) GB free, under ${min_gb} GB; pruning build output
 rm -rf target/debug/incremental
 deps=target/debug/deps
 if [ -d "$deps" ]; then
-  ls -t "$deps" | grep -E '^[a-z0-9_]+-[0-9a-f]{16}$' | awk -F- 'seen[$1]++' |
+  ls -t "$deps" | { grep -E '^[a-z0-9_]+-[0-9a-f]{16}$' || true; } | awk -F- 'seen[$1]++' |
     while read -r f; do
       if [ -x "$deps/$f" ]; then rm -f "$deps/$f"; fi
     done
