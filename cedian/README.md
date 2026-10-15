@@ -4,7 +4,7 @@
 
 Built in Rust + GPUI on a Zed fork. Identity and parity: [ADR-0034](docs/decisions/0034-identity-and-omp-parity.md).
 
-> Docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (rules) · [`docs/decisions/`](docs/decisions/) (why) · [`docs/ROADMAP.md`](docs/ROADMAP.md) (slices, exits, stand-ins, Cursor workflow coverage) · [`cedian/OMP_PARITY.md`](https://github.com/pongsathonkheereekaew/zed/blob/cedian/s9/cedian/OMP_PARITY.md) in the fork (per-feature OMP coverage). This table is the only status source.
+> Docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (rules) · [`docs/decisions/`](docs/decisions/) (why) · [`docs/ROADMAP.md`](docs/ROADMAP.md) (slices, exits, stand-ins, Cursor workflow coverage) · [`cedian/OMP_PARITY.md`](OMP_PARITY.md) in the fork (per-feature OMP coverage). This table is the only status source.
 > Stack lock: Rust + GPUI only in the cedian process. No TypeScript/Electron/WebView/Tauri.
 
 ## Status (slices; execution order in ROADMAP)

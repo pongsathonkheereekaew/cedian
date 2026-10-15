@@ -1,6 +1,6 @@
 # cedian — Architecture
 
-**cedian is a Cursor-style agentic IDE — the same agent + IDE workflow and product features — built for OMP: OMP runs as upstream ships it, every OMP feature gets a native surface, and Zed is forked only as far as OMP needs. OMP decides; cedian executes, renders, and verifies.** Built in Rust + GPUI on a Zed fork. Identity and OMP parity: [ADR-0034](decisions/0034-identity-and-omp-parity.md); scope and priorities: [ADR-0023](decisions/0023-product-scope.md). Per-feature OMP coverage: [`cedian/OMP_PARITY.md`](https://github.com/pongsathonkheereekaew/zed/blob/cedian/s9/cedian/OMP_PARITY.md).
+**cedian is a Cursor-style agentic IDE — the same agent + IDE workflow and product features — built for OMP: OMP runs as upstream ships it, every OMP feature gets a native surface, and Zed is forked only as far as OMP needs. OMP decides; cedian executes, renders, and verifies.** Built in Rust + GPUI on a Zed fork. Identity and OMP parity: [ADR-0034](decisions/0034-identity-and-omp-parity.md); scope and priorities: [ADR-0023](decisions/0023-product-scope.md). Per-feature OMP coverage: [`cedian/OMP_PARITY.md`](../OMP_PARITY.md).
 
 > **cedian = environment. OMP = intelligence.** A minimal Zed fork turned into a fully native agentic IDE, powered by one and only one harness: OMP (Oh My Pi). cedian is personal: no other agent harnesses, no ACP agents, no generic third-party runtimes, no public agent marketplace. The user experiences one product: **cedian**.
 
@@ -704,7 +704,7 @@ open_session(...)
 
 ### §9 Tool Coverage
 
-Target: every OMP tool stays available and gains a native surface; cedian is the source of truth only where the IDE owns the state. Coverage of every OMP feature, tools included, is tracked in [`cedian/OMP_PARITY.md`](https://github.com/pongsathonkheereekaew/zed/blob/cedian/s9/cedian/OMP_PARITY.md) ([ADR-0034](decisions/0034-identity-and-omp-parity.md)).
+Target: every OMP tool stays available and gains a native surface; cedian is the source of truth only where the IDE owns the state. Coverage of every OMP feature, tools included, is tracked in [`cedian/OMP_PARITY.md`](../OMP_PARITY.md) ([ADR-0034](decisions/0034-identity-and-omp-parity.md)).
 
 | Capability | Owner | Integration |
 |---|---|---|
