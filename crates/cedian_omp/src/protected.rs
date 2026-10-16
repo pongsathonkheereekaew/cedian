@@ -270,6 +270,13 @@ mod tests {
             "Allow tool: write\nPath: src/main.rs",
             &roots
         ));
+        // A read of a protected path never reaches a dialog (the fork denies
+        // it, ADR-0084); should one, the gate still refuses it.
+        let read = format!(
+            "Allow tool: read\nReason: outside the project: {0}/x\nPath: {0}/x",
+            session.display()
+        );
+        assert!(approval_targets_protected(&read, &roots));
         let _ = fs::remove_dir_all(&dir);
     }
 

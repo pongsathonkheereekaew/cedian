@@ -55,8 +55,50 @@ pub fn spawn_policy(
     if settings.permissions.dangerous == Verdict::Deny {
         deny(cedian_omp::spawn_profile::EXEC_TOOLS);
     }
+    // The Safe actions tier (ADR-0084 decision 6): `ask` makes every read
+    // ask, inside the project too; `deny` refuses reads. Under the opt-in
+    // the overlay keeps only the deny, as for the other tiers.
+    let safe = match settings.permissions.safe {
+        Verdict::Allow => None,
+        Verdict::Ask => Some(ToolPolicy::Prompt),
+        Verdict::Deny => Some(ToolPolicy::Deny),
+    };
+    if let Some(verdict) = safe {
+        for tool in cedian_omp::READ_TOOLS {
+            policy.tool_policies.insert((*tool).to_string(), verdict);
+        }
+    }
     policy
 }
+
+/// Where `workdir`'s agent reads without asking (ADR-0084): the workspace,
+/// the `read_folders` of its key in the user's file, and the protected
+/// names and dirs reads are refused, from the same roots writes are
+/// (ADR-0012, ADR-0044, ADR-0078). The notes say which folders were
+/// dropped and why.
+pub fn read_scope(
+    settings: &Settings,
+    workdir: &Path,
+    protected: &cedian_omp::ProtectedRoots,
+) -> (cedian_omp::ReadScope, Vec<String>) {
+    let folders = settings.read_folders_for(workdir);
+    let scope = cedian_omp::ReadScope {
+        roots: vec![protected.workspace.clone()],
+        allow: folders.folders,
+        protected_names: READ_PROTECTED_NAMES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect(),
+        protected_paths: protected.session_dirs.clone(),
+        outside_asks: true,
+    };
+    (scope, folders.notes)
+}
+
+/// Directory names the agent may not read under the project or an allowed
+/// folder (ADR-0084 decision 3): git's store, cedian's old in-workspace
+/// state and the agent's own project config.
+pub const READ_PROTECTED_NAMES: &[&str] = &[".git", ".cedian", ".omp"];
 
 /// What pstack gives `workdir`'s agent (ADR-0079): the bundled skills and,
 /// unless the person turned it off, the mandate naming this machine's
@@ -564,6 +606,81 @@ mod tests {
             "{:?}",
             launch.notes
         );
+    }
+
+    #[test]
+    fn the_safe_tier_is_written_for_every_read_tool() {
+        let mut settings = Settings::default();
+        assert!(
+            spawn_policy(&settings, Policy::Cedian, &[])
+                .tool_policies
+                .get("read")
+                .is_none(),
+            "allow writes nothing: the scope alone decides"
+        );
+        settings.permissions.safe = Verdict::Ask;
+        let asks = spawn_policy(&settings, Policy::Cedian, &[]);
+        for tool in cedian_omp::READ_TOOLS {
+            assert_eq!(
+                asks.tool_policies.get(*tool),
+                Some(&ToolPolicy::Prompt),
+                "{tool}"
+            );
+        }
+        settings.permissions.safe = Verdict::Deny;
+        let denies = spawn_policy(&settings, Policy::Omp, &[]);
+        for tool in cedian_omp::READ_TOOLS {
+            assert_eq!(
+                denies.tool_policies.get(*tool),
+                Some(&ToolPolicy::Deny),
+                "{tool}"
+            );
+        }
+        let overlay = denies.overlay().unwrap();
+        assert_eq!(overlay["tools"]["approval"]["read"], "deny");
+        let overlay = spawn_policy(
+            &{
+                let mut s = Settings::default();
+                s.permissions.safe = Verdict::Ask;
+                s
+            },
+            Policy::Omp,
+            &[],
+        )
+        .overlay()
+        .unwrap();
+        assert!(
+            overlay["tools"]["approval"].get("read").is_none(),
+            "under the opt-in an ask is OMP's to decide"
+        );
+    }
+
+    #[test]
+    fn the_read_scope_is_the_workspace_the_user_folders_and_the_protected_roots() {
+        let dir = crate::test_dir::TestDir::new("read-scope");
+        let ws = dir.join("ws");
+        let docs = dir.join("docs");
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::create_dir_all(&docs).unwrap();
+        let ws = ws.canonicalize().unwrap();
+        let docs = docs.canonicalize().unwrap();
+        let settings = crate::settings::parse_settings(&format!(
+            "schema = 1\n[projects.{:?}]\nread_folders = [{:?}, \"relative/x\"]\n",
+            ws.display().to_string(),
+            docs.display().to_string()
+        ))
+        .unwrap();
+        let protected = cedian_omp::ProtectedRoots {
+            workspace: ws.clone(),
+            session_dirs: vec![dir.join("state/omp"), dir.join("home/.omp")],
+        };
+        let (scope, notes) = read_scope(&settings, &ws, &protected);
+        assert_eq!(scope.roots, [ws]);
+        assert_eq!(scope.allow, [docs]);
+        assert_eq!(scope.protected_names, [".git", ".cedian", ".omp"]);
+        assert_eq!(scope.protected_paths, protected.session_dirs);
+        assert!(scope.outside_asks);
+        assert!(notes.iter().any(|n| n.contains("relative/x")), "{notes:?}");
     }
 
     #[test]

@@ -388,6 +388,16 @@ fn spawn(
         println!("note: {note}");
     }
     policy.pstack = pstack.profile;
+    let protected = cedian_omp::ProtectedRoots::for_launch(
+        workdir.to_path_buf(),
+        &state::dir(workdir)?,
+        cedian_omp::driver::state_root(),
+    );
+    let (scope, notes) = cedian_shell::launch::read_scope(settings, workdir, &protected);
+    for note in &notes {
+        println!("note: {note}");
+    }
+    policy.read_scope = Some(scope);
     if choice.policy == cedian_shell::Policy::Cedian {
         policy.config_allows = cedian_shell::launch::config_allows(&omp.binary, workdir)?;
     }

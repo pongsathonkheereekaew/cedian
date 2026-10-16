@@ -420,6 +420,17 @@ impl LaunchSpec {
             log::warn!("cedian: {note}");
         }
         policy.pstack = pstack.profile;
+        let omp_state = cedian_omp::driver::state_root();
+        let protected = cedian_omp::ProtectedRoots::for_launch(
+            workdir.to_path_buf(),
+            &state_dir,
+            omp_state.clone(),
+        );
+        let (scope, notes) = cedian_shell::launch::read_scope(&settings, workdir, &protected);
+        for note in notes {
+            log::warn!("cedian: {note}");
+        }
+        policy.read_scope = Some(scope);
         Ok(Self {
             binary: None,
             workdir: workdir.to_path_buf(),
@@ -427,7 +438,7 @@ impl LaunchSpec {
             sessions: Sessions::OmpDefault,
             policy,
             policy_source: choice.policy,
-            omp_state: cedian_omp::driver::state_root(),
+            omp_state,
             uris: Vec::new(),
             tools,
             worktree_ask,

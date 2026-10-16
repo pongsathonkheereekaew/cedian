@@ -257,6 +257,25 @@ mod tests {
         assert_eq!(record.answered_by, Answerer::Cedian);
     }
 
+    /// A read outside the project (ADR-0084) is OMP's ordinary approval
+    /// select, so the gate records it against the read tool like any other.
+    #[test]
+    fn a_read_scope_prompt_is_recorded_against_its_tool() {
+        let r = request(json!({
+            "type": "extension_ui_request", "method": "select", "id": "u2",
+            "title": "Allow tool: read\nReason: outside the project: /Users/me/notes.txt\nPath: ~/notes.txt",
+            "options": ["Approve", "Deny"]
+        }));
+        let (_, record) = user_answer(&r, UserAnswer::Choice("Approve".into())).unwrap();
+        assert_eq!(record.tool.as_deref(), Some("read"));
+        assert_eq!(record.decision, GateDecision::Allow);
+        assert!(
+            record.label.contains("/Users/me/notes.txt"),
+            "{}",
+            record.label
+        );
+    }
+
     #[test]
     fn confirm_is_declined_and_notify_needs_no_reply() {
         let r = request(json!({
