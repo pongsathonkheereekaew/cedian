@@ -61,12 +61,12 @@ use project::Project;
 use settings::{FollowUp, Settings as _};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-use util::ResultExt as _;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use ui::{Button, Label, prelude::*};
+use util::ResultExt as _;
 use workspace::{
     Workspace,
     dock::{DockPosition, Panel, PanelEvent},
@@ -989,7 +989,9 @@ impl CedianPanel {
         for entry in self.cards_with_subagents(cards) {
             match entry {
                 Entry::Card(card) => lines.push(card_line(&card)),
-                Entry::Subagent(row) => lines.push(subagent_line(row, self.subagent_root.as_deref())),
+                Entry::Subagent(row) => {
+                    lines.push(subagent_line(row, self.subagent_root.as_deref()))
+                }
             }
         }
         lines
@@ -4980,7 +4982,10 @@ impl CedianPanel {
         v_flex()
             .debug_selector(move || selector)
             .pl_4()
-            .child(Label::new(subagent_line(row, self.subagent_root.as_deref())).size(LabelSize::Small))
+            .child(
+                Label::new(subagent_line(row, self.subagent_root.as_deref()))
+                    .size(LabelSize::Small),
+            )
             .children(controls)
             .children(self.subagent_notes.get(&row.id).map(|note| {
                 Label::new(note.clone())

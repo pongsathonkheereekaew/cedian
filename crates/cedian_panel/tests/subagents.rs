@@ -240,6 +240,80 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     );
     assert!(state.join("briefs/w1.1.json").exists());
 
+    // 6b. A `task` call's subagent works in w1's tree: its row names the
+    // tree, and of the two files it writes (open, so the call's import
+    // reads them; the watcher does not run under this executor), the one
+    // w1's brief allows advances w1 and the other is an audit row naming
+    // the subagent and the worker.
+    std::fs::write(ws.join(".worktrees/w1/other.txt"), "before\n").unwrap();
+    let mut open = Vec::new();
+    for file in ["notes.txt", "other.txt"] {
+        open.push(
+            project
+                .update(cx, |project, cx| {
+                    project.open_local_buffer(ws.join(".worktrees/w1").join(file), cx)
+                })
+                .await
+                .unwrap(),
+        );
+    }
+    let progress = || {
+        cedian_worker::Registry::open(&state)
+            .unwrap()
+            .0
+            .get("w1")
+            .unwrap()
+            .last_progress
+    };
+    let spawned = progress();
+    submit(cx, &window, "work in w1");
+    wait(cx, &window, "the task turn in w1", |p| {
+        p.turn() == &Turn::Idle && p.transcript().iter().any(|l| l == "User: work in w1")
+    });
+    wait(cx, &window, "other.txt to import out of scope", |p| {
+        p.review().out_of_scope_count() == 1
+    });
+    assert_connected(cx, &window);
+    let (line, working_in) = window
+        .update(cx, |p, _, _| {
+            let line = p
+                .transcript()
+                .into_iter()
+                .find(|l| l.contains("fix the casing in w1"));
+            let working_in = p
+                .subagents()
+                .working_in(&ws.join(".worktrees/w1"))
+                .map(|row| row.id.clone());
+            (line, working_in)
+        })
+        .unwrap();
+    let line = line.expect("the subagent's row");
+    assert!(line.ends_with(" in .worktrees/w1"), "{line}");
+    assert_eq!(working_in.as_deref(), Some("sa-w1"));
+    let audit = std::fs::read_to_string(state.join("audit.jsonl")).unwrap();
+    let breach: serde_json::Value = audit
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .find(|row| row["item"]["event"] == "out_of_scope")
+        .unwrap_or_else(|| {
+            let listed = window
+                .update(cx, |p, _, _| p.review().unreviewable().to_vec())
+                .unwrap();
+            panic!("an out_of_scope row: {audit}\nunreviewable: {listed:?}")
+        });
+    assert_eq!(breach["item"]["subagent"], "sa-w1");
+    assert_eq!(breach["item"]["workers"], serde_json::json!(["w1"]));
+    assert!(
+        breach["item"]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("other.txt")),
+        "{breach}"
+    );
+    assert!(
+        progress() > spawned,
+        "notes.txt, in w1's brief, advanced it"
+    );
+
     // 7. Restart while a subagent runs: its row and controls go.
     submit(cx, &window, "one more");
     wait(cx, &window, "a running subagent", |p| {

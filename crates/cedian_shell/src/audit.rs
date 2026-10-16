@@ -417,6 +417,10 @@ mod tests {
         assert_eq!(rows[0]["item"]["path"], "/src/main.rs");
         assert_eq!(rows[0]["item"]["workers"], json!(["w1"]));
         assert_eq!(rows[0]["item"]["subagent"], "sa-1");
-        assert_eq!(rows[1]["item"]["subagent"], Value::Null, "no subagent known");
+        assert_eq!(
+            rows[1]["item"]["subagent"],
+            Value::Null,
+            "no subagent known"
+        );
     }
 }

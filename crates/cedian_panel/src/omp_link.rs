@@ -1454,9 +1454,7 @@ impl OmpLink {
         subagent: Option<String>,
     ) {
         let recorded = match &mut self.gate.state.lock().audit {
-            Some(audit) => {
-                audit.out_of_scope(&tool_call_id, &path, &[worker], subagent.as_deref())
-            }
+            Some(audit) => audit.out_of_scope(&tool_call_id, &path, &[worker], subagent.as_deref()),
             None => Err("the audit log is not open".to_string()),
         };
         if let Err(e) = recorded {

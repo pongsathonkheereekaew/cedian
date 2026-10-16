@@ -518,7 +518,11 @@ mod tests {
             .attribute(Path::new("/ws/.worktrees/wa/src/lib.rs"))
             .unwrap();
         assert_eq!(
-            (attribution.worker, attribution.rel.as_str(), attribution.in_scope),
+            (
+                attribution.worker,
+                attribution.rel.as_str(),
+                attribution.in_scope
+            ),
             ("wa", "src/lib.rs", true)
         );
         let crossed = scope
@@ -526,7 +530,10 @@ mod tests {
             .unwrap();
         assert_eq!((crossed.worker, crossed.in_scope), ("wb", false));
         assert_eq!(in_scope(&scope, "/ws/.worktrees/wb/docs/x.md"), Some(true));
-        assert_eq!(in_scope(&scope, "/ws/.worktrees/wb/docs/private.md"), Some(false));
+        assert_eq!(
+            in_scope(&scope, "/ws/.worktrees/wb/docs/private.md"),
+            Some(false)
+        );
         assert_eq!(in_scope(&scope, "/ws/src/lib.rs"), None, "under no tree");
         assert_eq!(in_scope(&scope, "/ws/.worktrees/wab/src/lib.rs"), None);
         assert_eq!(scope.workers().collect::<Vec<_>>(), vec!["wa", "wb"]);
@@ -536,12 +543,15 @@ mod tests {
     #[test]
     fn a_malformed_glob_is_an_error_naming_it() {
         let brief = scope_brief(&["src/**", "src/["], &[]);
-        let err = WorkerScope::new(Path::new("/ws"), [("w1", ".worktrees/w1", &brief)]).unwrap_err();
+        let err =
+            WorkerScope::new(Path::new("/ws"), [("w1", ".worktrees/w1", &brief)]).unwrap_err();
         assert_eq!(err.pattern, "src/[");
         assert!(err.to_string().contains("src/["), "{err}");
         let deny_only = scope_brief(&["src/**"], &["["]);
         assert_eq!(
-            WorkerScope::new(Path::new("/ws"), [("w1", ".worktrees/w1", &deny_only)]).unwrap_err().pattern,
+            WorkerScope::new(Path::new("/ws"), [("w1", ".worktrees/w1", &deny_only)])
+                .unwrap_err()
+                .pattern,
             "["
         );
     }
