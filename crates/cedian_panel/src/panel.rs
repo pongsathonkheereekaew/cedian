@@ -924,14 +924,16 @@ impl CedianPanel {
         self.notice.as_deref()
     }
 
-    /// OMP runs and has no model (after a first login, before a pick): a
-    /// prompt would be refused with terminal instructions, so Send is off
-    /// and the picker carries the hint.
     /// The picker's one line: the session's model and thinking level, or,
     /// with no model, what the person does to get one.
     pub fn picker_summary(&self) -> String {
         let Some(model) = self.picker.model.as_deref() else {
             let next = match self.connection {
+                Connection::Ready { .. }
+                    if !self.picker.models.is_empty() || !self.account.accounts.is_empty() =>
+                {
+                    "Pick one below"
+                }
                 Connection::Ready { .. } => "Sign in in Settings > Account",
                 Connection::NotStarted => "Open a folder to start the agent",
                 Connection::Starting | Connection::Checking => "The agent is starting",
@@ -945,6 +947,9 @@ impl CedianPanel {
         }
     }
 
+    /// OMP runs and has no model (after a first login, before a pick): a
+    /// prompt would be refused with terminal instructions, so Send is off
+    /// and the picker carries the hint.
     fn needs_model(&self) -> bool {
         matches!(self.connection, Connection::Ready { .. }) && self.picker.model.is_none()
     }
@@ -6433,6 +6438,11 @@ mod tests {
                     panel.picker_summary(),
                     "No model · Sign in in Settings > Account"
                 );
+                panel
+                    .account
+                    .accounts
+                    .insert("anthropic".into(), Vec::new());
+                assert_eq!(panel.picker_summary(), "No model · Pick one below");
                 panel.picker.model = Some("anthropic/claude".into());
                 assert_eq!(panel.picker_summary(), "Model: anthropic/claude");
                 panel.picker.thinking = Some(omp_rpc::ThinkingLevel::High);
