@@ -155,7 +155,7 @@ pub fn agent_page(
             view.into()
         }
         AgentPage::Models => {
-            let view = cx.new(|cx| ModelsPage::new(panel, settings, window, cx));
+            let view = cx.new(|cx| ModelsPage::new(panel, workspace_window, settings, window, cx));
             views(cx).views.get_mut(&id)?.models = Some(view.clone());
             view.into()
         }

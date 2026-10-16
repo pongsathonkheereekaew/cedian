@@ -241,6 +241,9 @@ pub enum RowState {
     Error(SharedString),
     /// Something the row needs is missing; the text says what.
     Unavailable(SharedString),
+    /// The agent the row needs is not running; the control starts it, so it
+    /// stays enabled.
+    NotRunning(SharedString),
     /// The parent switch is off: dimmed, control disabled, no text.
     DisabledChild,
 }
@@ -283,7 +286,9 @@ pub fn render_row_state(state: &RowState, cx: &App) -> Option<AnyElement> {
                 .into_any_element(),
         ),
         RowState::Error(text) => Some(line(IconName::XCircle, text.clone(), Color::Error)),
-        RowState::Unavailable(text) => Some(line(IconName::Warning, text.clone(), Color::Warning)),
+        RowState::Unavailable(text) | RowState::NotRunning(text) => {
+            Some(line(IconName::Warning, text.clone(), Color::Warning))
+        }
         RowState::DisabledChild => None,
     }
 }
@@ -500,6 +505,7 @@ pub(crate) fn arrange(zed: Vec<SettingsPage>) -> Vec<SettingsPage> {
     ] {
         take_item(&mut zed_general, gone);
     }
+    zed_general.retain(|item| !matches!(item, SettingsPageItem::SectionHeader("General Settings")));
     drop_empty_sections(&mut zed_general);
 
     let mut general = vec![
@@ -509,8 +515,8 @@ pub(crate) fn arrange(zed: Vec<SettingsPage>) -> Vec<SettingsPage> {
     general.extend(restore);
     general.push(confirm_quit_item());
     general.extend(accessible);
-    general.extend(composer_items());
     general.extend(zed_general);
+    general.extend(composer_items());
     by_title.insert("General", general);
 
     by_title.insert(
@@ -834,13 +840,17 @@ fn open_button(id: &'static str, path: Option<PathBuf>) -> AnyElement {
     h_flex()
         .gap_2()
         .when_some(path.clone(), |this, path| {
-            this.child(value_text(
-                util::paths::home_dir()
-                    .as_path()
-                    .to_str()
-                    .and_then(|home| path.to_str().map(|path| path.replacen(home, "~", 1)))
-                    .unwrap_or_else(|| path.display().to_string()),
-            ))
+            let shown = util::paths::home_dir()
+                .as_path()
+                .to_str()
+                .and_then(|home| path.to_str().map(|path| path.replacen(home, "~", 1)))
+                .unwrap_or_else(|| path.display().to_string());
+            this.child(
+                div()
+                    .id(SharedString::from(format!("{id}-path")))
+                    .tooltip(Tooltip::text(shown.clone()))
+                    .child(value_text(truncate_middle(&shown, PATH_CHARS))),
+            )
         })
         .child(
             Button::new(id, "Open")
@@ -855,6 +865,24 @@ fn open_button(id: &'static str, path: Option<PathBuf>) -> AnyElement {
                 }),
         )
         .into_any_element()
+}
+
+/// A path longer than this squeezes the row's description into lines.
+const PATH_CHARS: usize = 32;
+
+/// `text` cut to `max` characters by dropping its middle, so a path keeps
+/// its root and its last folder.
+fn truncate_middle(text: &str, max: usize) -> String {
+    let count = text.chars().count();
+    if count <= max {
+        return text.to_string();
+    }
+    let kept = max.saturating_sub(1);
+    let head = kept / 2;
+    let tail = kept - head;
+    let start: String = text.chars().take(head).collect();
+    let end: String = text.chars().skip(count - tail).collect();
+    format!("{start}…{end}")
 }
 
 fn cedian_toml_path() -> Option<PathBuf> {
@@ -1441,7 +1469,29 @@ mod tests {
             assert_eq!(content.workspace.confirm_quit, Some(true));
             setting(general, "Accessible Mode");
             setting(general, "Restore On Startup");
+            let headers: Vec<_> = general
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    SettingsPageItem::SectionHeader(header) => Some(*header),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(headers.first(), Some(&"App"));
+            assert!(
+                !headers.contains(&"General Settings"),
+                "Zed's general rows join App; the page names no second General: {headers:?}"
+            );
         });
+    }
+
+    #[test]
+    fn a_long_path_keeps_its_root_and_last_folder() {
+        assert_eq!(truncate_middle("~/.config/cedian", 32), "~/.config/cedian");
+        let long = "~/Library/Application Support/cedian/agent/state";
+        let short = truncate_middle(long, 32);
+        assert_eq!(short.chars().count(), 32);
+        assert_eq!(short, "~/Library/Appli…dian/agent/state");
     }
 
     #[gpui::test]

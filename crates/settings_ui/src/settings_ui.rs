@@ -3305,6 +3305,7 @@ impl SettingsWindow {
                     .role(Role::Tree)
                     .aria_label("Settings Navigation")
                     .flex_1()
+                    .min_h_0()
                     .overflow_hidden()
                     .track_focus(&self.navbar_focus_handle.focus_handle(cx))
                     .tab_group()

@@ -455,7 +455,11 @@ impl RenderOnce for Switch {
         let adjust_ratio = if is_light(cx) { 1.5 } else { 1.0 };
 
         let base_color = cx.theme().colors().text;
-        let thumb_color = base_color;
+        let thumb_color = if is_on && is_light(cx) {
+            gpui::white()
+        } else {
+            base_color
+        };
         let (bg_color, border_color) = self.color.get_colors(is_on, cx);
 
         let bg_hover_color = if is_on {

@@ -3,10 +3,10 @@
 //! one typed `modelRoles` record (ADR-0045 decision 3).
 
 use crate::omp_settings::OmpSettings;
-use crate::panel::CedianPanel;
+use crate::panel::{CedianPanel, Connection};
 use cedian_omp::model_roles::{ModelRoles, RoleModel, Thinking};
 use editor::Editor;
-use gpui::{App, Context, Entity, Render, Subscription, Window};
+use gpui::{AnyWindowHandle, App, Context, Entity, Render, Subscription, Window};
 use settings_ui::{
     ModelChoice, RowState, ScopeBadge, SettingsSectionHeader, group_models, model_picker,
     render_row, render_row_state,
@@ -34,6 +34,31 @@ pub fn role_state(model: Option<&RoleModel>, choices: &[ModelChoice]) -> Option<
     )
 }
 
+/// The Default Model row's state: the agent must run for the roles to load,
+/// so a stopped agent says so instead of loading forever.
+pub fn default_model_state(
+    running: bool,
+    loaded: bool,
+    model: Option<&RoleModel>,
+    choices: &[ModelChoice],
+) -> Option<RowState> {
+    if !running {
+        Some(RowState::NotRunning("Agent not running".into()))
+    } else if !loaded {
+        Some(RowState::Loading)
+    } else {
+        role_state(model, choices)
+    }
+}
+
+/// A role as its row names it, in the Title Case of the other rows.
+pub fn role_title(role: &str) -> String {
+    let mut chars = role.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
+}
+
 /// A role name a person may add: new, and letters, digits, `-` or `_`.
 pub fn check_new_role(name: &str, roles: &ModelRoles) -> Result<String, String> {
     let name = name.trim();
@@ -54,6 +79,7 @@ pub fn check_new_role(name: &str, roles: &ModelRoles) -> Result<String, String> 
 
 pub struct ModelsPage {
     panel: Entity<CedianPanel>,
+    workspace_window: AnyWindowHandle,
     settings: Entity<OmpSettings>,
     new_role: Entity<Editor>,
     /// Roles added here that have no model yet: they are written when one
@@ -66,6 +92,7 @@ pub struct ModelsPage {
 impl ModelsPage {
     pub fn new(
         panel: Entity<CedianPanel>,
+        workspace_window: AnyWindowHandle,
         settings: Entity<OmpSettings>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -82,6 +109,7 @@ impl ModelsPage {
                 cx.observe(&settings, |_, _, cx| cx.notify()),
             ],
             panel,
+            workspace_window,
             settings,
             new_role,
             pending_roles: Vec::new(),
@@ -277,7 +305,7 @@ impl ModelsPage {
             .into_any_element();
         render_row(
             SharedString::from(format!("cedian-role-row-{role}")),
-            role.to_string().into(),
+            role_title(role).into(),
             None,
             None,
             state.as_ref(),
@@ -333,13 +361,24 @@ impl Render for ModelsPage {
                     .ok();
             },
         );
-        let default_state = if loaded {
-            role_state(default_model.as_ref(), &choices)
-        } else {
-            Some(RowState::Loading)
-        };
+        let running = matches!(self.panel.read(cx).connection(), Connection::Ready { .. });
+        let default_state = default_model_state(running, loaded, default_model.as_ref(), &choices);
         let default_control = h_flex()
             .gap_2()
+            .when(!running, |this| {
+                this.child(
+                    Button::new("cedian-models-start", "Start")
+                        .style(ButtonStyle::OutlinedGhost)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let panel = this.panel.clone();
+                            this.workspace_window
+                                .update(cx, |_, window, cx| {
+                                    panel.update(cx, |panel, cx| panel.restart(window, cx))
+                                })
+                                .ok();
+                        })),
+                )
+            })
             .when(
                 matches!(&default_state, Some(RowState::Unavailable(text)) if text.starts_with("Sign in")),
                 |this| this.child(open_account_button("default")),
@@ -450,6 +489,7 @@ impl Render for ModelsPage {
                     ),
                 )
             })
+            .pb_8()
             .when(choices.is_empty(), |this| {
                 this.children(render_row_state(
                     &RowState::Empty {
@@ -458,6 +498,7 @@ impl Render for ModelsPage {
                     },
                     cx,
                 ))
+                .child(div().h_4())
             })
             .child(section("Defaults", defaults))
             .child(section("Roles", role_rows))
@@ -499,6 +540,27 @@ mod tests {
             None,
             "nothing is known before the agent lists its models"
         );
+    }
+
+    #[test]
+    fn a_stopped_agent_offers_start_instead_of_loading_forever() {
+        let choices = [choice("anthropic", "opus")];
+        assert_eq!(
+            default_model_state(false, false, None, &choices),
+            Some(RowState::NotRunning("Agent not running".into()))
+        );
+        assert_eq!(
+            default_model_state(true, false, None, &choices),
+            Some(RowState::Loading)
+        );
+        assert_eq!(default_model_state(true, true, None, &choices), None);
+    }
+
+    #[test]
+    fn role_rows_are_title_case() {
+        assert_eq!(role_title("default"), "Default");
+        assert_eq!(role_title("my-review"), "My-review");
+        assert_eq!(role_title(""), "");
     }
 
     #[test]
