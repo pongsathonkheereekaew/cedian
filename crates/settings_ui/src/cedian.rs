@@ -22,6 +22,8 @@ pub(crate) enum SidebarGroup {
 }
 
 impl SidebarGroup {
+    const ALL: [Self; 4] = [Self::Personal, Self::Agent, Self::Workspace, Self::System];
+
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Personal => "PERSONAL",
@@ -188,6 +190,13 @@ pub(crate) const SIDEBAR: &[SidebarPage] = {
 /// Zed pages cedian does not show: they configure Zed's collaboration and
 /// Zed's own agent, which cedian hides. Developer moves into Advanced.
 pub(crate) const HIDDEN_PAGES: &[&str] = &["Collaboration", "AI", "Developer"];
+
+/// The window height that shows every sidebar row and group heading
+/// without scrolling: 28 px rows plus the search box, footer and padding.
+pub(crate) fn sidebar_fit_height() -> Pixels {
+    let rows = SIDEBAR.len() + SidebarGroup::ALL.len();
+    px(28. * rows as f32 + 140.)
+}
 
 pub(crate) fn sidebar_page(title: &str) -> Option<&'static SidebarPage> {
     SIDEBAR.iter().find(|page| page.title == title)
@@ -400,6 +409,17 @@ fn value_text(text: impl Into<SharedString>) -> AnyElement {
         .size(LabelSize::Small)
         .color(Color::Muted)
         .into_any_element()
+}
+
+/// The badge a row shows: "User" only while the user's file sets the value.
+pub(crate) fn shown_badge(
+    item: &SettingItem,
+    set_in: &settings::SettingsFile,
+) -> Option<ScopeBadge> {
+    item.metadata
+        .as_ref()
+        .and_then(|metadata| metadata.badge)
+        .filter(|badge| *badge != ScopeBadge::User || *set_in == settings::SettingsFile::User)
 }
 
 fn user(metadata: Option<Box<SettingsFieldMetadata>>) -> Option<Box<SettingsFieldMetadata>> {
@@ -930,7 +950,7 @@ fn advanced_items() -> Vec<SettingsPageItem> {
         row(
             "Open cedian.toml",
             "Escape hatch. Every setting has a row in this window; an unknown key fails the whole file.",
-            Some(ScopeBadge::User),
+            None,
             |_, _, cx| {
                 Button::new("cedian-open-toml", "Open")
                     .style(ButtonStyle::OutlinedGhost)
@@ -1667,5 +1687,131 @@ mod tests {
         let pin = agent_pin().expect("vendor/omp-revision.json parses");
         assert_eq!(pin.commit.len(), 40);
         assert!(pin.version.split('.').count() == 3, "{pin:?}");
+    }
+
+    #[gpui::test]
+    fn clicking_each_sidebar_page_in_a_scrolled_sidebar_opens_it(cx: &mut TestAppContext) {
+        let (window, cx) = open_window(cx);
+        cx.simulate_resize(gpui::size(px(900.), px(500.)));
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        let roots: Vec<(usize, &'static str)> = window.read_with(cx, |window, _| {
+            window
+                .nav_rows()
+                .into_iter()
+                .enumerate()
+                .filter_map(|(row, nav_row)| match nav_row {
+                    NavRow::Entry(index) if window.navbar_entries[index].is_root => {
+                        Some((row, window.navbar_entries[index].title))
+                    }
+                    _ => None,
+                })
+                .collect()
+        });
+        for scroll_to_end in [false, true] {
+            for &(row, title) in &roots {
+                window.update(cx, |window, cx| {
+                    let rows = window.nav_rows().len();
+                    window.navbar_scroll_handle.scroll_to_item(
+                        if scroll_to_end { rows - 1 } else { row },
+                        gpui::ScrollStrategy::Nearest,
+                    );
+                    cx.notify();
+                });
+                cx.run_until_parked();
+                let position = window.read_with(cx, |window, _| {
+                    let state = window.navbar_scroll_handle.0.borrow();
+                    let item_height = state.last_item_size.expect("laid out").contents.height
+                        / window.nav_rows().len() as f32;
+                    let bounds = state.base_handle.bounds();
+                    let top = bounds.top() + state.base_handle.offset().y + item_height * row;
+                    gpui::point(bounds.left() + px(60.), top + item_height / 2.)
+                });
+                let visible = window.read_with(cx, |window, _| {
+                    let bounds = window.navbar_scroll_handle.0.borrow().base_handle.bounds();
+                    position.y > bounds.top() && position.y < bounds.bottom()
+                });
+                assert!(visible || scroll_to_end, "{title} is scrolled into view");
+                if !visible {
+                    continue;
+                }
+                cx.simulate_click(position, gpui::Modifiers::none());
+                for _ in 0..3 {
+                    cx.update(|window, cx| window.simulate_next_frame(cx));
+                    cx.run_until_parked();
+                }
+                window.read_with(cx, |window, _| {
+                    assert_eq!(window.current_page().title, title, "clicked {title}");
+                });
+            }
+        }
+    }
+
+    #[gpui::test]
+    fn the_user_badge_shows_only_on_values_the_user_file_sets(cx: &mut TestAppContext) {
+        let (window, cx) = open_window(cx);
+        let badges = |cx: &mut gpui::VisualTestContext| {
+            window.read_with(cx, |window, cx| {
+                let mut badges = Vec::new();
+                for title in ["General", "Notifications", "Privacy"] {
+                    for item in page(window, title).items.iter() {
+                        if let SettingsPageItem::SettingItem(item) = item {
+                            let (set_in, _) = item.field.file_set_in(SettingsUiFile::User, cx);
+                            if shown_badge(item, &set_in) == Some(ScopeBadge::User) {
+                                badges.push(item.title);
+                            }
+                        }
+                    }
+                }
+                badges
+            })
+        };
+        assert_eq!(
+            badges(cx),
+            Vec::<&str>::new(),
+            "a fresh profile sets nothing"
+        );
+        cx.update(|_, cx| {
+            cx.update_global::<SettingsStore, _>(|store, cx| {
+                store
+                    .set_user_settings(r#"{"confirm_quit": true}"#, cx)
+                    .result()
+                    .unwrap();
+            });
+        });
+        assert!(badges(cx).contains(&"Confirm Before Quitting"));
+    }
+
+    #[gpui::test]
+    fn the_sidebar_lists_pages_only_and_the_arrow_keys_walk_them(cx: &mut TestAppContext) {
+        let (window, cx) = open_window(cx);
+        cx.update(|window, _| window.activate_window());
+        window.read_with(cx, |window, _| {
+            assert!(window.navbar_entries.iter().all(|entry| entry.is_root));
+        });
+        window.update_in(cx, |window, gpui_window, cx| {
+            window.focus_and_scroll_to_nav_entry(0, gpui_window, cx);
+        });
+        cx.update(|window, cx| window.simulate_next_frame(cx));
+        cx.run_until_parked();
+        fn walk(
+            cx: &mut gpui::VisualTestContext,
+            window: &Entity<SettingsWindow>,
+            action: impl gpui::Action,
+            expected: &str,
+        ) {
+            cx.dispatch_action(action);
+            for _ in 0..3 {
+                cx.update(|window, cx| window.simulate_next_frame(cx));
+                cx.run_until_parked();
+            }
+            window.read_with(cx, |window, _| {
+                assert_eq!(window.current_page().title, expected);
+            });
+        }
+        walk(cx, &window, FocusNextNavEntry, "Appearance");
+        walk(cx, &window, FocusNextNavEntry, "Notifications");
+        walk(cx, &window, FocusPreviousNavEntry, "Appearance");
+        walk(cx, &window, FocusLastNavEntry, "About");
     }
 }

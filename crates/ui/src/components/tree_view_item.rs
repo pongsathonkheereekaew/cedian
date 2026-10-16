@@ -198,14 +198,14 @@ impl RenderOnce for TreeViewItem {
                         let label = self.label;
 
                         if self.root_item {
-                            this.child(
-                                Disclosure::new("toggle", self.expanded)
-                                    .when_some(self.on_toggle.clone(), |disclosure, on_toggle| {
-                                        disclosure.on_toggle_expanded(on_toggle)
-                                    })
-                                    .opened_icon(IconName::ChevronDown)
-                                    .closed_icon(IconName::ChevronRight),
-                            )
+                            this.when_some(self.on_toggle.clone(), |this, on_toggle| {
+                                this.child(
+                                    Disclosure::new("toggle", self.expanded)
+                                        .on_toggle_expanded(on_toggle)
+                                        .opened_icon(IconName::ChevronDown)
+                                        .closed_icon(IconName::ChevronRight),
+                                )
+                            })
                             .when_some(self.icon, |this, icon| {
                                 this.child(Icon::new(icon).size(IconSize::Small).color(
                                     if self.selected {

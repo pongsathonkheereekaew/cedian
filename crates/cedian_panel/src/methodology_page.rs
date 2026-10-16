@@ -77,6 +77,20 @@ impl Methodology {
         }
     }
 
+    /// "User" on a row only while the user's files set it to something other
+    /// than the default; a fresh profile shows no badge.
+    pub fn badge(&self, row: Row) -> Option<ScopeBadge> {
+        let set = match row {
+            Row::Pstack => self.switches.pstack != Switches::default().pstack,
+            Row::Mandate => self.switches.mandate != Switches::default().mandate,
+            Row::DefaultEffort => {
+                self.sheet.default_effort != PstackModels::default().default_effort
+            }
+            Row::Role(role) => self.sheet.get(role).is_some(),
+        };
+        set.then_some(ScopeBadge::User)
+    }
+
     /// For this environment: `cedian.toml` where cedian reads it, the sheet
     /// in the agent's config dir.
     pub fn load_from_env() -> Self {
@@ -209,6 +223,11 @@ impl MethodologyPage {
             state: Methodology::load_from_env(),
             more_roles: false,
         }
+    }
+
+    fn toggle_more_roles(&mut self, cx: &mut Context<Self>) {
+        self.more_roles = !self.more_roles;
+        cx.notify();
     }
 
     pub fn state(&self) -> &Methodology {
@@ -373,7 +392,7 @@ impl MethodologyPage {
             SharedString::from(format!("cedian-pstack-row-{id}")),
             role.title().into(),
             Some(role.description().into()),
-            Some(ScopeBadge::User),
+            self.state.badge(Row::Role(role)),
             self.state.row_state(Row::Role(role), state).as_ref(),
             h_flex()
                 .gap_2()
@@ -423,7 +442,7 @@ impl Render for MethodologyPage {
                 "cedian-pstack-row",
                 "pstack".into(),
                 Some("Use pstack's skills and playbooks in every session. Takes effect when the agent restarts.".into()),
-                Some(ScopeBadge::User),
+                self.state.badge(Row::Pstack),
                 self.state.row_state(Row::Pstack, None).as_ref(),
                 pstack_switch,
                 cx,
@@ -433,7 +452,7 @@ impl Render for MethodologyPage {
                 "cedian-pstack-mandate-row",
                 "Mandate".into(),
                 Some("Append the poteto-mode mandate to the agent's system prompt. Reviewers never get it.".into()),
-                Some(ScopeBadge::User),
+                self.state.badge(Row::Mandate),
                 self.state.row_state(Row::Mandate, child.clone()).as_ref(),
                 mandate_switch,
                 cx,
@@ -443,7 +462,7 @@ impl Render for MethodologyPage {
                 "cedian-pstack-default-effort-row",
                 "Default Reasoning Effort".into(),
                 Some("Effort for roles that do not set their own.".into()),
-                Some(ScopeBadge::User),
+                self.state.badge(Row::DefaultEffort),
                 self.state.row_state(Row::DefaultEffort, child).as_ref(),
                 default_effort,
                 cx,
@@ -459,14 +478,14 @@ impl Render for MethodologyPage {
         let more_open = self.more_roles;
         roles.push(
             h_flex()
+                .id("cedian-pstack-more-roles-row")
+                .debug_selector(|| "cedian-pstack-more-roles-row".to_string())
                 .gap_1()
+                .cursor_pointer()
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_more_roles(cx)))
                 .child(
-                    Disclosure::new("cedian-pstack-more-roles", more_open).on_click(cx.listener(
-                        |this, _, _, cx| {
-                            this.more_roles = !this.more_roles;
-                            cx.notify();
-                        },
-                    )),
+                    Disclosure::new("cedian-pstack-more-roles", more_open)
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_more_roles(cx))),
                 )
                 .child(Label::new("More roles").color(Color::Muted))
                 .into_any_element(),
@@ -644,5 +663,56 @@ mod tests {
         state.set_default_effort(DefaultEffort::Level(Effort::Low));
         assert_eq!(state.sheet.default_effort, DefaultEffort::Session);
         assert!(state.error.is_some());
+    }
+
+    #[test]
+    fn a_row_shows_the_user_badge_only_once_the_user_sets_it() {
+        let (_dir, settings, sheet) = paths();
+        let mut state = Methodology::load(Some(settings), Some(sheet));
+        let rows = [
+            Row::Pstack,
+            Row::Mandate,
+            Row::DefaultEffort,
+            Row::Role(PstackRole::BugFix),
+        ];
+        for row in rows {
+            assert_eq!(state.badge(row), None, "{row:?} on a fresh profile");
+        }
+        state.set_mandate(false);
+        state.pick(PstackRole::BugFix, "@slow");
+        state.set_default_effort(DefaultEffort::Level(Effort::High));
+        for row in &rows[1..] {
+            assert_eq!(state.badge(*row), Some(ScopeBadge::User), "{row:?}");
+        }
+        assert_eq!(state.badge(Row::Pstack), None);
+    }
+
+    #[gpui::test]
+    async fn clicking_the_more_roles_label_opens_them(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            let store = settings::SettingsStore::test(cx);
+            cx.set_global(store);
+            theme_settings::init(theme::LoadThemes::JustBase, cx);
+            editor::init(cx);
+        });
+        let project = project::Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let (page, cx) = cx.add_window_view(|window, cx| {
+            let panel = cx.new(|cx| CedianPanel::new(project.clone(), window, cx));
+            let settings =
+                cx.new(|cx| OmpSettings::new(project.clone(), PathBuf::from("/"), window, cx));
+            MethodologyPage::new(panel, settings, cx)
+        });
+        cx.run_until_parked();
+        for open in [true, false] {
+            let row = cx
+                .debug_bounds("cedian-pstack-more-roles-row")
+                .expect("the More roles row is drawn");
+            cx.simulate_click(
+                gpui::point(row.left() + gpui::px(48.), row.center().y),
+                gpui::Modifiers::none(),
+            );
+            cx.run_until_parked();
+            page.read_with(cx, |page, _| assert_eq!(page.more_roles, open));
+        }
     }
 }
