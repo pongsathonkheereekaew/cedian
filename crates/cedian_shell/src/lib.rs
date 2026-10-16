@@ -10,6 +10,7 @@ pub mod audit;
 pub mod corrections;
 pub mod launch;
 pub mod palette;
+pub mod pstack;
 pub mod review_agent;
 pub mod review_findings;
 pub mod session_manager;
@@ -26,7 +27,7 @@ pub mod workspace_files;
 pub use palette::{Palette, PaletteAction};
 pub use session_manager::{SESSIONS_SNAPSHOT_VERSION, SessionEntry, SessionManager};
 pub use settings::{
-    CONFIG_ENV, Permissions, Policy, PolicyChoice, RunKind, SETTINGS_FILE, SETTINGS_SCHEMA,
-    Settings, SettingsError, UpdateChannel, Verdict, default_settings_toml, parse_settings,
-    resolve_settings,
+    CONFIG_ENV, Permissions, Policy, PolicyChoice, PstackChoice, RunKind, SETTINGS_FILE,
+    SETTINGS_SCHEMA, Settings, SettingsError, UpdateChannel, Verdict, default_settings_toml,
+    parse_settings, resolve_settings, user_settings_path,
 };

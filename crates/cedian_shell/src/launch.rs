@@ -58,6 +58,58 @@ pub fn spawn_policy(
     policy
 }
 
+/// What pstack gives `workdir`'s agent (ADR-0079): the bundled skills and,
+/// unless the person turned it off, the mandate naming this machine's
+/// bundle and override sheet. `None` when pstack is off for `workdir`.
+/// Only for a person's session: a reviewer's profile never calls this.
+pub fn pstack_profile(
+    settings: &Settings,
+    workdir: &Path,
+) -> Result<Option<cedian_omp::PstackProfile>, String> {
+    let sheet = crate::pstack::sheet_path()?;
+    pstack_profile_for(
+        settings,
+        workdir,
+        std::env::current_exe().ok().as_deref(),
+        &sheet,
+    )
+}
+
+pub fn pstack_profile_for(
+    settings: &Settings,
+    workdir: &Path,
+    exe: Option<&Path>,
+    sheet: &Path,
+) -> Result<Option<cedian_omp::PstackProfile>, String> {
+    if !settings.pstack_for(workdir).enabled {
+        return Ok(None);
+    }
+    let bundle = exe
+        .and_then(crate::pstack::PstackBundle::for_exe)
+        .or_else(debug_build_source_tree_pstack)
+        .ok_or_else(|| {
+            format!(
+                "pstack is on but no bundled pstack is next to {}; turn it off in Settings > Methodology or rebuild the app",
+                exe.map_or("the app".into(), |exe| exe.display().to_string())
+            )
+        })?;
+    let mandate = if settings.pstack_mandate {
+        Some(bundle.mandate(sheet)?)
+    } else {
+        None
+    };
+    Ok(Some(cedian_omp::PstackProfile {
+        skills_dir: bundle.skills(),
+        mandate,
+    }))
+}
+
+fn debug_build_source_tree_pstack() -> Option<crate::pstack::PstackBundle> {
+    cfg!(debug_assertions)
+        .then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/cedian"))
+        .and_then(|exe| crate::pstack::PstackBundle::for_exe(&exe))
+}
+
 /// The pin file (`vendor/omp-revision.json`).
 fn pin() -> serde_json::Value {
     serde_json::from_str(include_str!("../../../vendor/omp-revision.json"))
@@ -322,6 +374,50 @@ mod tests {
         assert_eq!(
             spawn_policy(&settings, Policy::Cedian, &[]).approvals,
             Approvals::Cedian(ApprovalMode::AlwaysAsk)
+        );
+    }
+
+    #[test]
+    fn the_spawn_gets_the_bundled_pstack_unless_it_is_off() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let exe = repo.join("target/debug/cedian");
+        let sheet = Path::new("/c/agent/pstack-models.md");
+        let workdir = std::env::temp_dir();
+        let mut settings = Settings::default();
+
+        let on = pstack_profile_for(&settings, &workdir, Some(&exe), sheet)
+            .unwrap()
+            .expect("on by default");
+        assert!(on.skills_dir.ends_with("vendor/pstack/skills"));
+        let mandate = on.mandate.expect("mandate on by default");
+        assert!(mandate.contains("skill://Poteto Mode"));
+        assert!(mandate.contains("/c/agent/pstack-models.md"));
+        assert!(!mandate.contains("{{"), "every placeholder filled");
+        assert!(!mandate.contains("~/.omp"), "never the person's OMP");
+
+        settings.pstack_mandate = false;
+        let skills_only = pstack_profile_for(&settings, &workdir, Some(&exe), sheet)
+            .unwrap()
+            .unwrap();
+        assert_eq!(skills_only.mandate, None);
+
+        settings.pstack = false;
+        assert_eq!(
+            pstack_profile_for(&settings, &workdir, Some(&exe), sheet),
+            Ok(None),
+            "off runs the plain agent"
+        );
+
+        settings.pstack = true;
+        assert!(
+            pstack_profile_for(
+                &settings,
+                &workdir,
+                Some(Path::new("/nowhere/cedian")),
+                sheet
+            )
+            .is_ok_and(|profile| profile.is_some()),
+            "a debug build falls back to its source tree"
         );
     }
 

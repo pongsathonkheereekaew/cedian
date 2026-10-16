@@ -105,10 +105,16 @@ pub struct PolicyChoice {
     pub notes: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PstackChoice {
+    pub enabled: bool,
+    pub notes: Vec<String>,
+}
+
 /// Validated settings. Only [`parse_settings`] builds one from text, so a
 /// `Settings` in hand passed the schema check and every floor gate passed
 /// `Gate::register`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     pub permissions: Permissions,
     /// Reviewer allow-list: shell commands reviewers may run (S3).
@@ -121,13 +127,81 @@ pub struct Settings {
     /// Gates cedian requires per task kind × risk. Empty = fast lane
     /// (ADR-0026).
     pub floor: GateFloor,
-    /// `[projects."<path>"]` as written; read through [`Settings::policy_for`].
+    /// `pstack`: pstack bundled with cedian, on by default (ADR-0079). Read
+    /// a workspace's value through [`Settings::pstack_for`].
+    pub pstack: bool,
+    /// `pstack_mandate`: the poteto-mode mandate in the system prompt.
+    pub pstack_mandate: bool,
     projects: BTreeMap<String, Policy>,
+    project_pstack: BTreeMap<String, bool>,
     /// The file these settings came from (canonical), if any.
     source: Option<PathBuf>,
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            permissions: Permissions::default(),
+            reviewer_allow_list: Vec::new(),
+            review_role: ReviewRole::default(),
+            update_channel: UpdateChannel::default(),
+            floor: GateFloor::default(),
+            pstack: true,
+            pstack_mandate: true,
+            projects: BTreeMap::new(),
+            project_pstack: BTreeMap::new(),
+            source: None,
+        }
+    }
+}
+
+fn project_values<T: Copy>(
+    keys: &BTreeMap<String, T>,
+    workdir: &Path,
+    notes: &mut Vec<String>,
+) -> Vec<T> {
+    let mut matched = Vec::new();
+    for (key, value) in keys {
+        let path = Path::new(key);
+        let why = match path.canonicalize() {
+            _ if !path.is_absolute() => "not an absolute path".to_string(),
+            Ok(canonical) if canonical == path => {
+                if canonical == workdir {
+                    matched.push(*value);
+                }
+                continue;
+            }
+            Ok(canonical) => format!("not canonical; write it as {:?}", canonical.display()),
+            Err(e) => e.to_string(),
+        };
+        notes.push(format!("[projects.{key:?}] ignored: {why}"));
+    }
+    matched
+}
+
 impl Settings {
+    /// Whether `workdir` (canonical) runs with pstack: the user's `pstack`,
+    /// unless a `[projects]` key in the user's own file says otherwise. A
+    /// settings file inside the workspace never switches it (ADR-0079
+    /// decision 3), and two keys that disagree leave the user's value.
+    pub fn pstack_for(&self, workdir: &Path) -> PstackChoice {
+        let mut notes = Vec::new();
+        let matched = project_values(&self.project_pstack, workdir, &mut notes);
+        let mut enabled = self.pstack;
+        match matched.as_slice() {
+            [] => {}
+            [first, rest @ ..] if rest.iter().all(|p| p == first) => {
+                if self.source.as_deref().is_some_and(|src| src.starts_with(workdir)) {
+                    notes.push("the settings file is inside this workspace, so it cannot switch pstack".to_string());
+                } else {
+                    enabled = *first;
+                }
+            }
+            _ => notes.push("two [projects] keys name this workspace with different pstack values: the user value applies".to_string()),
+        }
+        PstackChoice { enabled, notes }
+    }
+
     /// The policy `workdir` (canonical) runs under. Fails closed to
     /// `Cedian` with a note on any doubt (ADR-0035 decision 6): a key that is
     /// not absolute, does not exist or is not canonical as written (a symlink
@@ -135,24 +209,7 @@ impl Settings {
     /// a settings file that lives inside the workspace itself.
     pub fn policy_for(&self, workdir: &Path, run: RunKind) -> PolicyChoice {
         let mut notes = Vec::new();
-        let mut matched = Vec::new();
-        for (key, value) in &self.projects {
-            let path = Path::new(key);
-            let why = match path.canonicalize() {
-                _ if !path.is_absolute() => "not an absolute path".to_string(),
-                Ok(canonical) if canonical == path => {
-                    if canonical == workdir {
-                        matched.push(*value);
-                    }
-                    continue;
-                }
-                Ok(canonical) => format!("not canonical; write it as {:?}", canonical.display()),
-                Err(e) => e.to_string(),
-            };
-            notes.push(format!(
-                "[projects.{key:?}] ignored: {why} (default policy)"
-            ));
-        }
+        let matched = project_values(&self.projects, workdir, &mut notes);
         let mut policy = match matched.as_slice() {
             [] => Policy::Cedian,
             [first, rest @ ..] if rest.iter().all(|p| p == first) => *first,
@@ -197,6 +254,8 @@ struct RawSettings {
     projects: BTreeMap<String, RawProject>,
     #[serde(default)]
     review: RawReview,
+    pstack: Option<bool>,
+    pstack_mandate: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]
@@ -208,7 +267,8 @@ struct RawReview {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawProject {
-    policy: Policy,
+    policy: Option<Policy>,
+    pstack: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]
@@ -306,6 +366,15 @@ pub fn parse_settings(toml_src: &str) -> Result<Settings, SettingsError> {
     if raw.schema != Some(SETTINGS_SCHEMA) {
         return Err(SettingsError::BadSchema(raw.schema));
     }
+    if let Some((key, _)) = raw
+        .projects
+        .iter()
+        .find(|(_, project)| project.policy.is_none() && project.pstack.is_none())
+    {
+        return Err(SettingsError::Parse(format!(
+            "[projects.{key:?}] sets nothing: give it `policy` or `pstack`"
+        )));
+    }
     Ok(Settings {
         permissions: raw.permissions,
         reviewer_allow_list: raw.reviewer_allow_list,
@@ -318,10 +387,17 @@ pub fn parse_settings(toml_src: &str) -> Result<Settings, SettingsError> {
             .unwrap_or_default(),
         update_channel: raw.update_channel,
         floor: GateFloor::from_specs(raw.workflow.floor).map_err(SettingsError::BadFloor)?,
+        pstack: raw.pstack.unwrap_or(true),
+        pstack_mandate: raw.pstack_mandate.unwrap_or(true),
+        project_pstack: raw
+            .projects
+            .iter()
+            .filter_map(|(key, project)| Some((key.clone(), project.pstack?)))
+            .collect(),
         projects: raw
             .projects
             .into_iter()
-            .map(|(key, project)| (key, project.policy))
+            .filter_map(|(key, project)| Some((key, project.policy?)))
             .collect(),
         source: None,
     })
@@ -336,6 +412,10 @@ fn locate(env: impl Fn(&str) -> Option<String>) -> Option<(PathBuf, bool)> {
     }
     let dir = set("XDG_CONFIG_HOME").or_else(|| set("HOME").map(|home| home.join(".config")))?;
     Some((dir.join("cedian").join(SETTINGS_FILE), false))
+}
+
+pub fn user_settings_path() -> Option<PathBuf> {
+    locate(|key| std::env::var(key).ok()).map(|(path, _)| path)
 }
 
 /// The settings `workdir` runs under: refuse workspace settings files, then
@@ -615,6 +695,65 @@ mod tests {
                 .iter()
                 .any(|n| n.contains("inside this workspace"))
         );
+    }
+
+    #[test]
+    fn pstack_is_on_by_default_and_a_project_turns_it_off_only_from_the_user_file() {
+        let t = Tmp::new("pstack");
+        let ws = t.ws().display().to_string();
+        let defaults = parse("schema = 1").unwrap();
+        assert!(defaults.pstack && defaults.pstack_mandate);
+        assert!(defaults.pstack_for(&t.ws()).enabled);
+
+        let s = parse(&format!(
+            "schema = 1\npstack_mandate = false\n[projects.{ws:?}]\npstack = false\n"
+        ))
+        .unwrap();
+        assert!(!s.pstack_mandate);
+        assert!(!s.pstack_for(&t.ws()).enabled, "the project key applies");
+        assert_eq!(
+            s.policy_for(&t.ws(), RunKind::Interactive).policy,
+            Policy::Cedian,
+            "a pstack-only project key sets no policy"
+        );
+        let off = parse(&format!(
+            "schema = 1\npstack = false\n[projects.{ws:?}]\npstack = true\n"
+        ))
+        .unwrap();
+        assert!(
+            off.pstack_for(&t.ws()).enabled,
+            "a project may turn it back on"
+        );
+        assert!(!off.pstack_for(&t.0).enabled);
+
+        let inside = t.ws().join("cedian.toml");
+        std::fs::write(
+            &inside,
+            format!("schema = 1\n[projects.{ws:?}]\npstack = false\n"),
+        )
+        .unwrap();
+        let from_repo = resolve_with(&t.ws(), env(&[("CEDIAN_CONFIG", &inside)])).unwrap();
+        let choice = from_repo.pstack_for(&t.ws());
+        assert!(choice.enabled, "a repository cannot switch pstack");
+        assert!(
+            choice
+                .notes
+                .iter()
+                .any(|n| n.contains("inside this workspace")),
+            "{:?}",
+            choice.notes
+        );
+        std::fs::remove_file(&inside).unwrap();
+
+        std::fs::write(t.ws().join("cedian.toml"), "schema = 1\npstack = false\n").unwrap();
+        assert!(
+            matches!(
+                resolve_with(&t.ws(), env(&[("HOME", &t.0)])),
+                Err(SettingsError::InWorkspace { .. })
+            ),
+            "a workspace cedian.toml is refused, never read"
+        );
+        assert!(parse("schema = 1\n[projects.\"/x\"]\npstack = \"no\"").is_err());
     }
 
     struct Tmp(PathBuf);

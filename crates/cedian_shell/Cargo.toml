@@ -17,10 +17,10 @@ omp-rpc = { path = "../../vendor/omp-rpc" }
 sha2 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+tempfile.workspace = true
 toml = "0.8"
+toml_edit = { workspace = true, features = ["display"] }
 
 [lints]
 workspace = true
 
-[dev-dependencies]
-tempfile.workspace = true

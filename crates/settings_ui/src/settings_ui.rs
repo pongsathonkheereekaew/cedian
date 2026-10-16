@@ -4,8 +4,8 @@ mod page_data;
 pub mod pages;
 
 pub use cedian::{
-    AgentPage, CedianHost, RowState, ScopeBadge, render_row, render_row_state, render_scope_badge,
-    set_host,
+    AgentPage, CedianHost, RowState, ScopeBadge, pstack_version, render_row, render_row_state,
+    render_scope_badge, set_host,
 };
 pub use components::{ModelChoice, SettingsSectionHeader, grouped as group_models, model_picker};
 

@@ -1,8 +1,5 @@
-//! What the settings window asks of the agent panel: the Account and Models
-//! pages, the agent's settings view (Advanced) and Restart agent. The app binds these into
-//! `settings_ui` at startup.
-
 use crate::account_page::AccountPage;
+use crate::methodology_page::MethodologyPage;
 use crate::models_page::ModelsPage;
 use crate::omp_settings::OmpSettings;
 use crate::panel::CedianPanel;
@@ -21,6 +18,7 @@ struct Built {
     settings: Entity<OmpSettings>,
     account: Option<Entity<AccountPage>>,
     models: Option<Entity<ModelsPage>>,
+    methodology: Option<Entity<MethodologyPage>>,
 }
 
 struct Views {
@@ -105,6 +103,7 @@ fn built<'a>(
                 settings,
                 account: None,
                 models: None,
+                methodology: None,
             },
         );
     }
@@ -134,6 +133,7 @@ pub fn agent_page(
     let existing: Option<AnyView> = match page {
         AgentPage::Account => built.account.clone().map(Into::into),
         AgentPage::Models => built.models.clone().map(Into::into),
+        AgentPage::Methodology => built.methodology.clone().map(Into::into),
     };
     if let Some(view) = existing {
         return Some(view);
@@ -152,6 +152,11 @@ pub fn agent_page(
         AgentPage::Models => {
             let view = cx.new(|cx| ModelsPage::new(panel, settings, window, cx));
             views(cx).views.get_mut(&id)?.models = Some(view.clone());
+            view.into()
+        }
+        AgentPage::Methodology => {
+            let view = cx.new(|cx| MethodologyPage::new(panel, settings, cx));
+            views(cx).views.get_mut(&id)?.methodology = Some(view.clone());
             view.into()
         }
     };

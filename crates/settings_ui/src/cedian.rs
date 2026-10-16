@@ -105,6 +105,15 @@ pub(crate) const SIDEBAR: &[SidebarPage] = {
             Some("Which models the agent uses, by role."),
             false,
         ),
+        page(
+            "Methodology",
+            IconName::Book,
+            Agent,
+            Some(
+                "pstack, poteto's agent style: skills, playbooks and the mandate. Bundled with cedian; off runs the plain agent.",
+            ),
+            false,
+        ),
         page("Editor", IconName::Pencil, Workspace, None, false),
         page(
             "Languages & Tools",
@@ -400,6 +409,7 @@ pub struct CedianHost {
 pub enum AgentPage {
     Account,
     Models,
+    Methodology,
 }
 
 /// A page item the host draws: its rows change with the agent (one per
@@ -501,6 +511,14 @@ pub(crate) fn arrange(zed: Vec<SettingsPage>) -> Vec<SettingsPage> {
             title: "Model Roles",
             keywords: "default model thinking level roles smol slow plan advisor",
             page: AgentPage::Models,
+        })],
+    );
+    by_title.insert(
+        "Methodology",
+        vec![SettingsPageItem::CedianView(CedianView {
+            title: "pstack",
+            keywords: "pstack poteto methodology mandate skills playbooks effort reasoning role models feature refactoring bug fix judgment prose perf hillclimb version",
+            page: AgentPage::Methodology,
         })],
     );
     by_title.insert("Notifications", notification_items());
@@ -947,8 +965,31 @@ fn agent_version(_: &App) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-fn pstack_version(_: &App) -> String {
-    "not bundled yet".to_string()
+#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct PstackPin {
+    pub version: String,
+    pub commit: String,
+    pub author: String,
+    pub license: String,
+}
+
+pub fn pstack_pin() -> Option<PstackPin> {
+    serde_json::from_str(include_str!("../../../vendor/pstack-cedian/pin.json")).ok()
+}
+
+/// `0.15.24 · 1e5c90a4b6 · Lauren Tan, MIT`, for About and Methodology.
+pub fn pstack_version() -> String {
+    pstack_pin()
+        .map(|pin| {
+            format!(
+                "{} · {} · {}, {}",
+                pin.version,
+                short(&pin.commit),
+                pin.author,
+                pin.license
+            )
+        })
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 pub(crate) fn about_lines(cx: &App) -> Vec<(&'static str, String)> {
@@ -956,7 +997,7 @@ pub(crate) fn about_lines(cx: &App) -> Vec<(&'static str, String)> {
         ("cedian", cedian_version(cx)),
         ("Zed", zed_version(cx)),
         ("Agent", agent_version(cx)),
-        ("pstack", pstack_version(cx)),
+        ("pstack", pstack_version()),
     ]
 }
 
@@ -985,7 +1026,7 @@ fn about_items() -> Vec<SettingsPageItem> {
             "pstack",
             "Lauren Tan's agent style and skills.",
             None,
-            |_, _, cx| value_text(pstack_version(cx)),
+            |_, _, _| value_text(pstack_version()),
         ),
         row(
             "Copy All",
@@ -1277,6 +1318,7 @@ mod tests {
                     "AGENT",
                     "Account",
                     "Models",
+                    "Methodology",
                     "WORKSPACE",
                     "Editor",
                     "Languages & Tools",
@@ -1472,7 +1514,7 @@ mod tests {
             assert_eq!(names, ["cedian", "Zed", "Agent", "pstack"]);
             let pin = agent_pin().unwrap();
             assert!(lines[2].1.contains(&pin.version) && lines[2].1.contains(&pin.commit[..10]));
-            assert_eq!(lines[3].1, "not bundled yet");
+            assert_eq!(lines[3].1, "0.15.24 · 1e5c90a4b6 · Lauren Tan, MIT");
             let licenses = cedian_row(page(window, "About"), "Licenses").description;
             for credit in ["GPL", "MIT", "Lauren Tan"] {
                 assert!(licenses.contains(credit), "{credit}");
@@ -1504,6 +1546,7 @@ mod tests {
             for (title, which) in [
                 ("Account", AgentPage::Account),
                 ("Models", AgentPage::Models),
+                ("Methodology", AgentPage::Methodology),
             ] {
                 let view = page(window, title)
                     .items
