@@ -3898,9 +3898,19 @@ impl CedianPanel {
 
     fn render_thread_row(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
         let history = &self.sessions.history;
+        debug_assert!(
+            index < self.thread_rows.len(),
+            "the list asked for row {index} of {}",
+            self.thread_rows.len()
+        );
         let row = match self.thread_rows.get(index) {
             Some(ThreadRow::History(i)) => {
                 let i = *i;
+                debug_assert!(
+                    i < history.lines.len(),
+                    "history row {i} of {} lines",
+                    history.lines.len()
+                );
                 div()
                     .debug_selector(move || format!("cedian-history-{i}"))
                     .child(
@@ -6286,6 +6296,65 @@ mod tests {
     use gpui::{Modifiers, TestAppContext, VisualTestContext};
     use settings::SettingsStore;
     use std::time::{Duration, Instant};
+
+    /// A wrong splice range does not panic in gpui: it shows only as a wrong
+    /// item count or a scroll anchor on the wrong row.
+    #[test]
+    fn thread_list_keeps_one_item_per_row() {
+        let mut list = ThreadList::new();
+        for sections in [
+            [0, 1, 0],
+            [21, 1, 0],
+            [21, 3, 0],
+            [21, 3, 2],
+            [21, 3, 4],
+            [21, 2, 4],
+            [26, 2, 4],
+            [26, 5, 1],
+            [0, 0, 0],
+            [3, 0, 7],
+        ] {
+            list.sync(sections);
+            assert_eq!(
+                list.state.item_count(),
+                sections.iter().sum::<usize>(),
+                "after {sections:?}"
+            );
+        }
+        list.reset();
+        assert_eq!(list.state.item_count(), 0);
+        list.sync([2, 1, 1]);
+        assert_eq!(list.state.item_count(), 4, "a reset list syncs from empty");
+    }
+
+    #[test]
+    fn thread_list_keeps_the_scroll_anchor_on_its_row() {
+        let mut list = ThreadList::new();
+        list.sync([21, 1, 0]);
+        list.state.scroll_to(gpui::ListOffset {
+            item_ix: 21,
+            offset_in_item: px(0.),
+        });
+        let anchor = |list: &ThreadList| list.state.logical_scroll_top().item_ix;
+        list.sync([26, 1, 2]);
+        assert_eq!(
+            anchor(&list),
+            26,
+            "older history and new cards land around the message"
+        );
+        list.sync([26, 0, 2]);
+        assert_eq!(
+            anchor(&list),
+            26,
+            "the anchored message went; the next row takes its place"
+        );
+        list.sync([20, 0, 2]);
+        assert_eq!(
+            anchor(&list),
+            20,
+            "fewer history rows move the anchor up with them"
+        );
+    }
 
     /// OMP's refusal of a prompt for want of a model names /login and
     /// /model, terminal commands; the panel opens its picker instead.

@@ -1,0 +1,1309 @@
+22:58  up 2 days,  5:44, 1 user, load averages: 7.17 8.86 9.30
+Gnuplot not found, using plotters backend
+benchmark metric "branch misses" unavailable on this machine: macOS exposes only instructions and cycles without root; branch-misses needs kperf
+benchmark metric "cache misses" unavailable on this machine: macOS exposes only instructions and cycles without root; cache-misses needs kperf
+benchmark metric "foreground context switches" unavailable on this machine: getrusage statistics for the calling thread need RUSAGE_THREAD, which only Linux provides
+Benchmarking Thread scroll after/turns/25
+Benchmarking Thread scroll after/turns/25: Warming up for 1.0000 s
+rows: 125 in the thread, 9.0 drawn per frame over 2 frames
+rows: 125 in the thread, 8.0 drawn per frame over 3 frames
+rows: 125 in the thread, 6.8 drawn per frame over 5 frames
+rows: 125 in the thread, 6.1 drawn per frame over 9 frames
+rows: 125 in the thread, 6.5 drawn per frame over 17 frames
+rows: 125 in the thread, 6.2 drawn per frame over 33 frames
+rows: 125 in the thread, 6.3 drawn per frame over 65 frames
+rows: 125 in the thread, 6.2 drawn per frame over 129 frames
+rows: 125 in the thread, 6.1 drawn per frame over 257 frames
+rows: 125 in the thread, 6.1 drawn per frame over 513 frames
+rows: 125 in the thread, 6.1 drawn per frame over 1025 frames
+rows: 125 in the thread, 6.1 drawn per frame over 2049 frames
+Benchmarking Thread scroll after/turns/25: Collecting 10 samples in estimated 3.0133 s (6490 iterations)
+rows: 125 in the thread, 6.1 drawn per frame over 119 frames
+rows: 125 in the thread, 6.1 drawn per frame over 237 frames
+rows: 125 in the thread, 6.1 drawn per frame over 355 frames
+rows: 125 in the thread, 6.1 drawn per frame over 473 frames
+rows: 125 in the thread, 6.1 drawn per frame over 591 frames
+rows: 125 in the thread, 6.1 drawn per frame over 709 frames
+rows: 125 in the thread, 6.1 drawn per frame over 827 frames
+rows: 125 in the thread, 6.1 drawn per frame over 945 frames
+rows: 125 in the thread, 6.1 drawn per frame over 1063 frames
+rows: 125 in the thread, 6.1 drawn per frame over 1181 frames
+Benchmarking Thread scroll after/turns/25: Analyzing
+Thread scroll after/turns/25
+                        time:   [565.30 µs 588.64 µs 626.24 µs]
+                        change: [−17.807% −8.9711% +2.1037%] (p = 0.11 > 0.05)
+                        No change in performance detected.
+Found 2 outliers among 10 measurements (20.00%)
+  1 (10.00%) high mild
+  1 (10.00%) high severe
+GPUI bench report (all observed iterations): Thread scroll after/turns/25
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 4.475 M instructions (min 4.393, max 6.003, samples 22)
+  foreground instructions per iteration: median 4.282 M instructions (min 4.229, max 5.009, samples 22)
+  cycles per iteration: median 1.346 M cycles (min 1.259, max 2.897, samples 22)
+  page faults per iteration: median 0.614 page faults (min 0.113, max 74.000, samples 22)
+  allocations per iteration: median 1.407 K allocations (min 1.398, max 1.444, samples 22)
+  foreground allocations per iteration: median 1.407 K allocations (min 1.398, max 1.444, samples 22)
+  allocated bytes per iteration: median 492.404 K bytes (min 482.905, max 1643.798, samples 22)
+  IPC: median 3.336 (min 2.072, max 3.509, samples 22)
+  foreground share of instructions: median 0.959 (min 0.777, max 0.963, samples 22)
+  window dirty-to-draw:
+    samples: 10585
+    mean: 0.507ms
+    p50: 0.474ms
+    p90: 0.682ms
+    p95: 0.789ms
+    p99: 1.100ms
+    max: 7.508ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 10585
+    mean: 0.506ms
+    p50: 0.473ms
+    p90: 0.680ms
+    p95: 0.787ms
+    p99: 1.099ms
+    max: 7.508ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 142.623ms
+    samples: 196
+    mean: 0.728ms
+    p50: 0.594ms
+    p90: 0.871ms
+    p95: 1.097ms
+    p99: 4.162ms
+    max: 6.676ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+Benchmarking Thread scroll after/turns/100
+Benchmarking Thread scroll after/turns/100: Warming up for 1.0000 s
+rows: 500 in the thread, 9.0 drawn per frame over 2 frames
+rows: 500 in the thread, 8.0 drawn per frame over 3 frames
+rows: 500 in the thread, 6.8 drawn per frame over 5 frames
+rows: 500 in the thread, 6.1 drawn per frame over 9 frames
+rows: 500 in the thread, 6.5 drawn per frame over 17 frames
+rows: 500 in the thread, 6.2 drawn per frame over 33 frames
+rows: 500 in the thread, 6.3 drawn per frame over 65 frames
+rows: 500 in the thread, 6.2 drawn per frame over 129 frames
+rows: 500 in the thread, 6.1 drawn per frame over 257 frames
+rows: 500 in the thread, 6.1 drawn per frame over 513 frames
+rows: 500 in the thread, 6.1 drawn per frame over 1025 frames
+Benchmarking Thread scroll after/turns/100: Collecting 10 samples in estimated 3.0077 s (4565 iterations)
+rows: 500 in the thread, 6.1 drawn per frame over 84 frames
+rows: 500 in the thread, 6.1 drawn per frame over 167 frames
+rows: 500 in the thread, 6.1 drawn per frame over 250 frames
+rows: 500 in the thread, 6.1 drawn per frame over 333 frames
+rows: 500 in the thread, 6.1 drawn per frame over 416 frames
+rows: 500 in the thread, 6.1 drawn per frame over 499 frames
+rows: 500 in the thread, 6.1 drawn per frame over 582 frames
+rows: 500 in the thread, 6.1 drawn per frame over 665 frames
+rows: 500 in the thread, 6.1 drawn per frame over 748 frames
+rows: 500 in the thread, 6.1 drawn per frame over 831 frames
+Benchmarking Thread scroll after/turns/100: Analyzing
+Thread scroll after/turns/100
+                        time:   [651.20 µs 671.26 µs 688.06 µs]
+                        change: [−34.565% −32.340% −29.995%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 2 outliers among 10 measurements (20.00%)
+  2 (20.00%) high mild
+GPUI bench report (all observed iterations): Thread scroll after/turns/100
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 6.955 M instructions (min 6.908, max 8.812, samples 21)
+  foreground instructions per iteration: median 6.759 M instructions (min 6.495, max 7.729, samples 21)
+  cycles per iteration: median 1.837 M cycles (min 1.751, max 2.654, samples 21)
+  page faults per iteration: median 0.562 page faults (min 0.183, max 28.000, samples 21)
+  allocations per iteration: median 5.164 K allocations (min 5.155, max 5.201, samples 21)
+  foreground allocations per iteration: median 5.164 K allocations (min 5.155, max 5.201, samples 21)
+  allocated bytes per iteration: median 981.036 K bytes (min 973.006, max 2132.662, samples 21)
+  IPC: median 3.792 (min 3.066, max 3.972, samples 21)
+  foreground share of instructions: median 0.973 (min 0.804, max 0.976, samples 21)
+  window dirty-to-draw:
+    samples: 6612
+    mean: 0.622ms
+    p50: 0.588ms
+    p90: 0.737ms
+    p95: 0.860ms
+    p99: 1.070ms
+    max: 1.544ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 6612
+    mean: 0.621ms
+    p50: 0.587ms
+    p90: 0.736ms
+    p95: 0.859ms
+    p99: 1.069ms
+    max: 1.542ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 33.576ms
+    samples: 61
+    mean: 0.550ms
+    p50: 0.544ms
+    p90: 0.606ms
+    p95: 0.615ms
+    p99: 0.728ms
+    max: 0.728ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+Benchmarking Thread scroll after/turns/400
+Benchmarking Thread scroll after/turns/400: Warming up for 1.0000 s
+rows: 2000 in the thread, 9.0 drawn per frame over 2 frames
+rows: 2000 in the thread, 8.0 drawn per frame over 3 frames
+rows: 2000 in the thread, 6.8 drawn per frame over 5 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 9 frames
+rows: 2000 in the thread, 6.5 drawn per frame over 17 frames
+rows: 2000 in the thread, 6.2 drawn per frame over 33 frames
+rows: 2000 in the thread, 6.3 drawn per frame over 65 frames
+rows: 2000 in the thread, 6.2 drawn per frame over 129 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 257 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 513 frames
+Benchmarking Thread scroll after/turns/400: Collecting 10 samples in estimated 3.0458 s (2145 iterations)
+rows: 2000 in the thread, 6.3 drawn per frame over 40 frames
+rows: 2000 in the thread, 6.2 drawn per frame over 79 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 118 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 157 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 196 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 235 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 274 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 313 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 352 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 391 frames
+Benchmarking Thread scroll after/turns/400: Analyzing
+Thread scroll after/turns/400
+                        time:   [1.2127 ms 1.7660 ms 2.0493 ms]
+                        change: [−38.652% −26.455% −13.917%] (p = 0.00 < 0.05)
+                        Performance has improved.
+GPUI bench report (all observed iterations): Thread scroll after/turns/400
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 17.070 M instructions (min 16.936, max 18.579, samples 20)
+  foreground instructions per iteration: median 16.800 M instructions (min 16.473, max 17.242, samples 20)
+  cycles per iteration: median 3.985 M cycles (min 3.704, max 5.225, samples 20)
+  page faults per iteration: median 0.722 page faults (min 0.000, max 31.000, samples 20)
+  allocations per iteration: median 20.171 K allocations (min 20.161, max 20.207, samples 20)
+  foreground allocations per iteration: median 20.171 K allocations (min 20.161, max 20.207, samples 20)
+  allocated bytes per iteration: median 2.950 M bytes (min 2.931, max 4.089, samples 20)
+  IPC: median 4.371 (min 3.555, max 4.578, samples 20)
+  foreground share of instructions: median 0.988 (min 0.909, max 0.990, samples 20)
+  window dirty-to-draw:
+    samples: 3168
+    mean: 1.497ms
+    p50: 1.322ms
+    p90: 2.079ms
+    p95: 2.380ms
+    p99: 3.088ms
+    max: 9.585ms
+    frame budget overruns total: 1
+    frame budget overruns max: 1
+  window draw:
+    samples: 3168
+    mean: 1.496ms
+    p50: 1.321ms
+    p90: 2.076ms
+    p95: 2.376ms
+    p99: 3.080ms
+    max: 9.576ms
+    frame budget overruns total: 1
+    frame budget overruns max: 1
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 3452.633ms
+    samples: 3254
+    mean: 1.061ms
+    p50: 0.911ms
+    p90: 1.425ms
+    p95: 1.647ms
+    p99: 2.236ms
+    max: 6.996ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+
+Benchmarking Thread scroll cached/turns/25
+Benchmarking Thread scroll cached/turns/25: Warming up for 1.0000 s
+rows: 125 in the thread, 9.0 drawn per frame over 2 frames
+rows: 125 in the thread, 8.0 drawn per frame over 3 frames
+rows: 125 in the thread, 6.8 drawn per frame over 5 frames
+rows: 125 in the thread, 6.1 drawn per frame over 9 frames
+rows: 125 in the thread, 6.5 drawn per frame over 17 frames
+rows: 125 in the thread, 6.2 drawn per frame over 33 frames
+rows: 125 in the thread, 6.3 drawn per frame over 65 frames
+rows: 125 in the thread, 6.2 drawn per frame over 129 frames
+rows: 125 in the thread, 6.1 drawn per frame over 257 frames
+rows: 125 in the thread, 6.1 drawn per frame over 513 frames
+rows: 125 in the thread, 6.1 drawn per frame over 1025 frames
+Benchmarking Thread scroll cached/turns/25: Collecting 10 samples in estimated 3.0245 s (5940 iterations)
+rows: 125 in the thread, 6.1 drawn per frame over 109 frames
+rows: 125 in the thread, 6.1 drawn per frame over 217 frames
+rows: 125 in the thread, 6.1 drawn per frame over 325 frames
+rows: 125 in the thread, 6.1 drawn per frame over 433 frames
+rows: 125 in the thread, 6.1 drawn per frame over 541 frames
+rows: 125 in the thread, 6.1 drawn per frame over 649 frames
+rows: 125 in the thread, 6.1 drawn per frame over 757 frames
+rows: 125 in the thread, 6.1 drawn per frame over 865 frames
+rows: 125 in the thread, 6.1 drawn per frame over 973 frames
+rows: 125 in the thread, 6.1 drawn per frame over 1081 frames
+Benchmarking Thread scroll cached/turns/25: Analyzing
+Thread scroll cached/turns/25
+                        time:   [640.55 µs 743.59 µs 870.03 µs]
+GPUI bench report (all observed iterations): Thread scroll cached/turns/25
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 3.702 M instructions (min 3.564, max 6.495, samples 21)
+  foreground instructions per iteration: median 3.487 M instructions (min 3.173, max 4.142, samples 21)
+  cycles per iteration: median 1.305 M cycles (min 1.120, max 2.976, samples 21)
+  page faults per iteration: median 0.543 page faults (min 0.154, max 27.000, samples 21)
+  allocations per iteration: median 143.231 allocations (min 133.625, max 180.000, samples 21)
+  foreground allocations per iteration: median 143.230 allocations (min 133.625, max 180.000, samples 21)
+  allocated bytes per iteration: median 330.094 K bytes (min 322.011, max 1481.488, samples 21)
+  IPC: median 2.840 (min 2.183, max 3.181, samples 21)
+  foreground share of instructions: median 0.947 (min 0.638, max 0.954, samples 21)
+  window dirty-to-draw:
+    samples: 7987
+    mean: 0.594ms
+    p50: 0.494ms
+    p90: 0.929ms
+    p95: 1.104ms
+    p99: 1.759ms
+    max: 8.659ms
+    frame budget overruns total: 1
+    frame budget overruns max: 1
+  window draw:
+    samples: 7987
+    mean: 0.592ms
+    p50: 0.492ms
+    p90: 0.923ms
+    p95: 1.099ms
+    p99: 1.758ms
+    max: 8.651ms
+    frame budget overruns total: 1
+    frame budget overruns max: 1
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 683.041ms
+    samples: 967
+    mean: 0.706ms
+    p50: 0.603ms
+    p90: 0.933ms
+    p95: 1.214ms
+    p99: 2.396ms
+    max: 7.651ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+Benchmarking Thread scroll cached/turns/100
+Benchmarking Thread scroll cached/turns/100: Warming up for 1.0000 s
+rows: 500 in the thread, 9.0 drawn per frame over 2 frames
+rows: 500 in the thread, 8.0 drawn per frame over 3 frames
+rows: 500 in the thread, 6.8 drawn per frame over 5 frames
+rows: 500 in the thread, 6.1 drawn per frame over 9 frames
+rows: 500 in the thread, 6.5 drawn per frame over 17 frames
+rows: 500 in the thread, 6.2 drawn per frame over 33 frames
+rows: 500 in the thread, 6.3 drawn per frame over 65 frames
+rows: 500 in the thread, 6.2 drawn per frame over 129 frames
+rows: 500 in the thread, 6.1 drawn per frame over 257 frames
+rows: 500 in the thread, 6.1 drawn per frame over 513 frames
+rows: 500 in the thread, 6.1 drawn per frame over 1025 frames
+Benchmarking Thread scroll cached/turns/100: Collecting 10 samples in estimated 3.0150 s (4070 iterations)
+rows: 500 in the thread, 6.2 drawn per frame over 75 frames
+rows: 500 in the thread, 6.2 drawn per frame over 149 frames
+rows: 500 in the thread, 6.1 drawn per frame over 223 frames
+rows: 500 in the thread, 6.1 drawn per frame over 297 frames
+rows: 500 in the thread, 6.1 drawn per frame over 371 frames
+rows: 500 in the thread, 6.1 drawn per frame over 445 frames
+rows: 500 in the thread, 6.1 drawn per frame over 519 frames
+rows: 500 in the thread, 6.1 drawn per frame over 593 frames
+rows: 500 in the thread, 6.1 drawn per frame over 667 frames
+rows: 500 in the thread, 6.1 drawn per frame over 741 frames
+Benchmarking Thread scroll cached/turns/100: Analyzing
+Thread scroll cached/turns/100
+                        time:   [455.65 µs 472.45 µs 502.82 µs]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+GPUI bench report (all observed iterations): Thread scroll cached/turns/100
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 3.703 M instructions (min 3.578, max 6.707, samples 21)
+  foreground instructions per iteration: median 3.475 M instructions (min 3.224, max 4.531, samples 21)
+  cycles per iteration: median 1.303 M cycles (min 1.097, max 5.173, samples 21)
+  page faults per iteration: median 0.968 page faults (min 0.234, max 36.000, samples 21)
+  allocations per iteration: median 146.295 allocations (min 136.625, max 183.000, samples 21)
+  foreground allocations per iteration: median 146.292 allocations (min 136.625, max 183.000, samples 21)
+  allocated bytes per iteration: median 335.240 K bytes (min 324.904, max 1484.560, samples 21)
+  IPC: median 3.013 (min 1.228, max 3.260, samples 21)
+  foreground share of instructions: median 0.947 (min 0.560, max 0.953, samples 21)
+  window dirty-to-draw:
+    samples: 6117
+    mean: 0.516ms
+    p50: 0.443ms
+    p90: 0.761ms
+    p95: 0.939ms
+    p99: 1.518ms
+    max: 21.643ms
+    frame budget overruns total: 2
+    frame budget overruns max: 2
+  window draw:
+    samples: 6117
+    mean: 0.515ms
+    p50: 0.442ms
+    p90: 0.758ms
+    p95: 0.934ms
+    p99: 1.517ms
+    max: 21.643ms
+    frame budget overruns total: 2
+    frame budget overruns max: 2
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 310.380ms
+    samples: 400
+    mean: 0.776ms
+    p50: 0.617ms
+    p90: 0.987ms
+    p95: 1.320ms
+    p99: 2.736ms
+    max: 21.119ms
+    frame budget overruns total: 2
+    frame budget overruns max: 2
+Benchmarking Thread scroll cached/turns/400
+Benchmarking Thread scroll cached/turns/400: Warming up for 1.0000 s
+rows: 2000 in the thread, 9.0 drawn per frame over 2 frames
+rows: 2000 in the thread, 8.0 drawn per frame over 3 frames
+rows: 2000 in the thread, 6.8 drawn per frame over 5 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 9 frames
+rows: 2000 in the thread, 6.5 drawn per frame over 17 frames
+rows: 2000 in the thread, 6.2 drawn per frame over 33 frames
+rows: 2000 in the thread, 6.3 drawn per frame over 65 frames
+rows: 2000 in the thread, 6.2 drawn per frame over 129 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 257 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 513 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 1025 frames
+Benchmarking Thread scroll cached/turns/400: Collecting 10 samples in estimated 3.0243 s (5885 iterations)
+rows: 2000 in the thread, 6.1 drawn per frame over 108 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 215 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 322 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 429 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 536 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 643 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 750 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 857 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 964 frames
+rows: 2000 in the thread, 6.1 drawn per frame over 1071 frames
+Benchmarking Thread scroll cached/turns/400: Analyzing
+Thread scroll cached/turns/400
+                        time:   [432.90 µs 470.99 µs 502.07 µs]
+Found 2 outliers among 10 measurements (20.00%)
+  1 (10.00%) high mild
+  1 (10.00%) high severe
+GPUI bench report (all observed iterations): Thread scroll cached/turns/400
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 3.634 M instructions (min 3.576, max 5.102, samples 21)
+  foreground instructions per iteration: median 3.449 M instructions (min 3.411, max 4.168, samples 21)
+  cycles per iteration: median 1.150 M cycles (min 1.096, max 2.067, samples 21)
+  page faults per iteration: median 0.458 page faults (min 0.148, max 27.000, samples 21)
+  allocations per iteration: median 147.962 allocations (min 138.625, max 185.000, samples 21)
+  foreground allocations per iteration: median 147.961 allocations (min 138.625, max 185.000, samples 21)
+  allocated bytes per iteration: median 334.982 K bytes (min 326.952, max 1486.608, samples 21)
+  IPC: median 3.189 (min 1.993, max 3.284, samples 21)
+  foreground share of instructions: median 0.949 (min 0.685, max 0.954, samples 21)
+  window dirty-to-draw:
+    samples: 7932
+    mean: 0.446ms
+    p50: 0.398ms
+    p90: 0.562ms
+    p95: 0.705ms
+    p99: 1.078ms
+    max: 10.486ms
+    frame budget overruns total: 2
+    frame budget overruns max: 1
+  window draw:
+    samples: 7932
+    mean: 0.445ms
+    p50: 0.397ms
+    p90: 0.561ms
+    p95: 0.703ms
+    p99: 1.077ms
+    max: 10.486ms
+    frame budget overruns total: 2
+    frame budget overruns max: 1
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 142.804ms
+    samples: 155
+    mean: 0.921ms
+    p50: 0.626ms
+    p90: 1.347ms
+    p95: 2.437ms
+    p99: 7.287ms
+    max: 8.618ms
+    frame budget overruns total: 1
+    frame budget overruns max: 1
+
+Benchmarking Thread stream after/turns/25
+Benchmarking Thread stream after/turns/25: Warming up for 1.0000 s
+rows: 127 in the thread, 9.0 drawn per frame over 2 frames
+rows: 127 in the thread, 8.0 drawn per frame over 3 frames
+rows: 127 in the thread, 7.2 drawn per frame over 5 frames
+rows: 127 in the thread, 6.7 drawn per frame over 9 frames
+rows: 127 in the thread, 6.4 drawn per frame over 17 frames
+rows: 127 in the thread, 6.2 drawn per frame over 33 frames
+rows: 127 in the thread, 6.1 drawn per frame over 65 frames
+rows: 127 in the thread, 6.0 drawn per frame over 129 frames
+rows: 127 in the thread, 6.0 drawn per frame over 257 frames
+rows: 127 in the thread, 6.0 drawn per frame over 513 frames
+rows: 127 in the thread, 6.0 drawn per frame over 1025 frames
+Benchmarking Thread stream after/turns/25: Collecting 10 samples in estimated 3.0255 s (5940 iterations)
+rows: 127 in the thread, 6.1 drawn per frame over 109 frames
+rows: 127 in the thread, 6.0 drawn per frame over 217 frames
+rows: 127 in the thread, 6.0 drawn per frame over 325 frames
+rows: 127 in the thread, 6.0 drawn per frame over 433 frames
+rows: 127 in the thread, 6.0 drawn per frame over 541 frames
+rows: 127 in the thread, 6.0 drawn per frame over 649 frames
+rows: 127 in the thread, 6.0 drawn per frame over 757 frames
+rows: 127 in the thread, 6.0 drawn per frame over 865 frames
+rows: 127 in the thread, 6.0 drawn per frame over 973 frames
+rows: 127 in the thread, 6.0 drawn per frame over 1081 frames
+Benchmarking Thread stream after/turns/25: Analyzing
+Thread stream after/turns/25
+                        time:   [465.68 µs 495.14 µs 514.83 µs]
+                        change: [−39.451% −35.815% −32.385%] (p = 0.00 < 0.05)
+                        Performance has improved.
+GPUI bench report (all observed iterations): Thread stream after/turns/25
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 4.208 M instructions (min 4.179, max 6.087, samples 21)
+  foreground instructions per iteration: median 4.023 M instructions (min 4.015, max 4.477, samples 21)
+  cycles per iteration: median 1.215 M cycles (min 1.191, max 2.077, samples 21)
+  page faults per iteration: median 0.486 page faults (min 0.130, max 20.000, samples 21)
+  allocations per iteration: median 1.410 K allocations (min 1.410, max 1.471, samples 21)
+  foreground allocations per iteration: median 1.410 K allocations (min 1.410, max 1.471, samples 21)
+  allocated bytes per iteration: median 515.840 K bytes (min 495.918, max 2347.919, samples 21)
+  IPC: median 3.461 (min 2.906, max 3.510, samples 21)
+  foreground share of instructions: median 0.956 (min 0.736, max 0.961, samples 21)
+  window dirty-to-draw:
+    samples: 7987
+    mean: 0.455ms
+    p50: 0.464ms
+    p90: 0.483ms
+    p95: 0.538ms
+    p99: 0.635ms
+    max: 6.791ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 7987
+    mean: 0.454ms
+    p50: 0.464ms
+    p90: 0.482ms
+    p95: 0.537ms
+    p99: 0.634ms
+    max: 6.791ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 10.291ms
+    samples: 5
+    mean: 2.058ms
+    p50: 0.782ms
+    p90: 5.517ms
+    p95: 5.517ms
+    p99: 5.517ms
+    max: 5.517ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+Benchmarking Thread stream after/turns/100
+Benchmarking Thread stream after/turns/100: Warming up for 1.0000 s
+rows: 502 in the thread, 9.0 drawn per frame over 2 frames
+rows: 502 in the thread, 8.0 drawn per frame over 3 frames
+rows: 502 in the thread, 7.2 drawn per frame over 5 frames
+rows: 502 in the thread, 6.7 drawn per frame over 9 frames
+rows: 502 in the thread, 6.4 drawn per frame over 17 frames
+rows: 502 in the thread, 6.2 drawn per frame over 33 frames
+rows: 502 in the thread, 6.1 drawn per frame over 65 frames
+rows: 502 in the thread, 6.0 drawn per frame over 129 frames
+rows: 502 in the thread, 6.0 drawn per frame over 257 frames
+rows: 502 in the thread, 6.0 drawn per frame over 513 frames
+rows: 502 in the thread, 6.0 drawn per frame over 1025 frames
+Benchmarking Thread stream after/turns/100: Collecting 10 samples in estimated 3.0133 s (3575 iterations)
+rows: 502 in the thread, 6.1 drawn per frame over 66 frames
+rows: 502 in the thread, 6.0 drawn per frame over 131 frames
+rows: 502 in the thread, 6.0 drawn per frame over 196 frames
+rows: 502 in the thread, 6.0 drawn per frame over 261 frames
+rows: 502 in the thread, 6.0 drawn per frame over 326 frames
+rows: 502 in the thread, 6.0 drawn per frame over 391 frames
+rows: 502 in the thread, 6.0 drawn per frame over 456 frames
+rows: 502 in the thread, 6.0 drawn per frame over 521 frames
+rows: 502 in the thread, 6.0 drawn per frame over 586 frames
+rows: 502 in the thread, 6.0 drawn per frame over 651 frames
+Benchmarking Thread stream after/turns/100: Analyzing
+Thread stream after/turns/100
+                        time:   [572.71 µs 606.40 µs 641.76 µs]
+                        change: [−42.821% −39.331% −35.436%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+GPUI bench report (all observed iterations): Thread stream after/turns/100
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 6.707 M instructions (min 6.683, max 8.652, samples 21)
+  foreground instructions per iteration: median 6.525 M instructions (min 6.507, max 7.263, samples 21)
+  cycles per iteration: median 1.692 M cycles (min 1.665, max 2.525, samples 21)
+  page faults per iteration: median 0.523 page faults (min 0.166, max 25.750, samples 21)
+  allocations per iteration: median 5.166 K allocations (min 5.166, max 5.231, samples 21)
+  foreground allocations per iteration: median 5.166 K allocations (min 5.166, max 5.231, samples 21)
+  allocated bytes per iteration: median 996.835 K bytes (min 983.658, max 2839.852, samples 21)
+  IPC: median 3.978 (min 3.221, max 4.020, samples 21)
+  foreground share of instructions: median 0.972 (min 0.812, max 0.975, samples 21)
+  window dirty-to-draw:
+    samples: 5622
+    mean: 0.629ms
+    p50: 0.561ms
+    p90: 0.704ms
+    p95: 0.963ms
+    p99: 1.409ms
+    max: 14.770ms
+    frame budget overruns total: 4
+    frame budget overruns max: 1
+  window draw:
+    samples: 5622
+    mean: 0.629ms
+    p50: 0.560ms
+    p90: 0.703ms
+    p95: 0.962ms
+    p99: 1.402ms
+    max: 14.770ms
+    frame budget overruns total: 4
+    frame budget overruns max: 1
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 158.326ms
+    samples: 131
+    mean: 1.209ms
+    p50: 0.583ms
+    p90: 2.984ms
+    p95: 4.243ms
+    p99: 9.921ms
+    max: 13.795ms
+    frame budget overruns total: 2
+    frame budget overruns max: 1
+Benchmarking Thread stream after/turns/400
+Benchmarking Thread stream after/turns/400: Warming up for 1.0000 s
+rows: 2002 in the thread, 9.0 drawn per frame over 2 frames
+rows: 2002 in the thread, 8.0 drawn per frame over 3 frames
+rows: 2002 in the thread, 7.2 drawn per frame over 5 frames
+rows: 2002 in the thread, 6.7 drawn per frame over 9 frames
+rows: 2002 in the thread, 6.4 drawn per frame over 17 frames
+rows: 2002 in the thread, 6.2 drawn per frame over 33 frames
+rows: 2002 in the thread, 6.1 drawn per frame over 65 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 129 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 257 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 513 frames
+Benchmarking Thread stream after/turns/400: Collecting 10 samples in estimated 3.0367 s (2695 iterations)
+rows: 2002 in the thread, 6.1 drawn per frame over 50 frames
+rows: 2002 in the thread, 6.1 drawn per frame over 99 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 148 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 197 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 246 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 295 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 344 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 393 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 442 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 491 frames
+Benchmarking Thread stream after/turns/400: Analyzing
+Thread stream after/turns/400
+                        time:   [913.70 µs 921.24 µs 930.73 µs]
+                        change: [−53.404% −51.326% −48.719%] (p = 0.00 < 0.05)
+                        Performance has improved.
+GPUI bench report (all observed iterations): Thread stream after/turns/400
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 16.770 M instructions (min 16.704, max 18.906, samples 20)
+  foreground instructions per iteration: median 16.554 M instructions (min 16.525, max 17.259, samples 20)
+  cycles per iteration: median 3.553 M cycles (min 3.486, max 4.593, samples 20)
+  page faults per iteration: median 0.734 page faults (min 0.000, max 50.000, samples 20)
+  allocations per iteration: median 20.174 K allocations (min 20.173, max 20.238, samples 20)
+  foreground allocations per iteration: median 20.174 K allocations (min 20.173, max 20.238, samples 20)
+  allocated bytes per iteration: median 2.948 M bytes (min 2.941, max 4.797, samples 20)
+  IPC: median 4.729 (min 4.116, max 4.797, samples 20)
+  foreground share of instructions: median 0.987 (min 0.913, max 0.990, samples 20)
+  window dirty-to-draw:
+    samples: 3718
+    mean: 0.953ms
+    p50: 0.903ms
+    p90: 1.083ms
+    p95: 1.251ms
+    p99: 1.518ms
+    max: 2.000ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 3718
+    mean: 0.953ms
+    p50: 0.903ms
+    p90: 1.083ms
+    p95: 1.250ms
+    p99: 1.517ms
+    max: 1.997ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 2616.152ms
+    samples: 3718
+    mean: 0.704ms
+    p50: 0.667ms
+    p90: 0.795ms
+    p95: 0.920ms
+    p99: 1.118ms
+    max: 1.454ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+
+Benchmarking Thread stream cached/turns/25
+Benchmarking Thread stream cached/turns/25: Warming up for 1.0000 s
+rows: 127 in the thread, 9.0 drawn per frame over 2 frames
+rows: 127 in the thread, 8.0 drawn per frame over 3 frames
+rows: 127 in the thread, 7.2 drawn per frame over 5 frames
+rows: 127 in the thread, 6.7 drawn per frame over 9 frames
+rows: 127 in the thread, 6.4 drawn per frame over 17 frames
+rows: 127 in the thread, 6.2 drawn per frame over 33 frames
+rows: 127 in the thread, 6.1 drawn per frame over 65 frames
+rows: 127 in the thread, 6.0 drawn per frame over 129 frames
+rows: 127 in the thread, 6.0 drawn per frame over 257 frames
+rows: 127 in the thread, 6.0 drawn per frame over 513 frames
+rows: 127 in the thread, 6.0 drawn per frame over 1025 frames
+Benchmarking Thread stream cached/turns/25: Collecting 10 samples in estimated 3.0259 s (6050 iterations)
+rows: 127 in the thread, 6.1 drawn per frame over 111 frames
+rows: 127 in the thread, 6.0 drawn per frame over 221 frames
+rows: 127 in the thread, 6.0 drawn per frame over 331 frames
+rows: 127 in the thread, 6.0 drawn per frame over 441 frames
+rows: 127 in the thread, 6.0 drawn per frame over 551 frames
+rows: 127 in the thread, 6.0 drawn per frame over 661 frames
+rows: 127 in the thread, 6.0 drawn per frame over 771 frames
+rows: 127 in the thread, 6.0 drawn per frame over 881 frames
+rows: 127 in the thread, 6.0 drawn per frame over 991 frames
+rows: 127 in the thread, 6.0 drawn per frame over 1101 frames
+Benchmarking Thread stream cached/turns/25: Analyzing
+Thread stream cached/turns/25
+                        time:   [479.22 µs 498.59 µs 517.31 µs]
+GPUI bench report (all observed iterations): Thread stream cached/turns/25
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 4.211 M instructions (min 4.183, max 6.208, samples 21)
+  foreground instructions per iteration: median 4.026 M instructions (min 4.015, max 4.757, samples 21)
+  cycles per iteration: median 1.226 M cycles (min 1.188, max 3.436, samples 21)
+  page faults per iteration: median 0.482 page faults (min 0.103, max 38.000, samples 21)
+  allocations per iteration: median 1.410 K allocations (min 1.410, max 1.471, samples 21)
+  foreground allocations per iteration: median 1.410 K allocations (min 1.410, max 1.471, samples 21)
+  allocated bytes per iteration: median 516.452 K bytes (min 495.939, max 2347.919, samples 21)
+  IPC: median 3.462 (min 1.807, max 3.532, samples 21)
+  foreground share of instructions: median 0.956 (min 0.739, max 0.961, samples 21)
+  window dirty-to-draw:
+    samples: 8097
+    mean: 0.455ms
+    p50: 0.443ms
+    p90: 0.483ms
+    p95: 0.541ms
+    p99: 0.657ms
+    max: 7.455ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 8097
+    mean: 0.455ms
+    p50: 0.442ms
+    p90: 0.482ms
+    p95: 0.540ms
+    p99: 0.656ms
+    max: 7.455ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 15.256ms
+    samples: 8
+    mean: 1.907ms
+    p50: 0.572ms
+    p90: 7.016ms
+    p95: 7.016ms
+    p99: 7.016ms
+    max: 7.016ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+Benchmarking Thread stream cached/turns/100
+Benchmarking Thread stream cached/turns/100: Warming up for 1.0000 s
+rows: 502 in the thread, 9.0 drawn per frame over 2 frames
+rows: 502 in the thread, 8.0 drawn per frame over 3 frames
+rows: 502 in the thread, 7.2 drawn per frame over 5 frames
+rows: 502 in the thread, 6.7 drawn per frame over 9 frames
+rows: 502 in the thread, 6.4 drawn per frame over 17 frames
+rows: 502 in the thread, 6.2 drawn per frame over 33 frames
+rows: 502 in the thread, 6.1 drawn per frame over 65 frames
+rows: 502 in the thread, 6.0 drawn per frame over 129 frames
+rows: 502 in the thread, 6.0 drawn per frame over 257 frames
+rows: 502 in the thread, 6.0 drawn per frame over 513 frames
+rows: 502 in the thread, 6.0 drawn per frame over 1025 frames
+Benchmarking Thread stream cached/turns/100: Collecting 10 samples in estimated 3.0069 s (5005 iterations)
+rows: 502 in the thread, 6.1 drawn per frame over 92 frames
+rows: 502 in the thread, 6.0 drawn per frame over 183 frames
+rows: 502 in the thread, 6.0 drawn per frame over 274 frames
+rows: 502 in the thread, 6.0 drawn per frame over 365 frames
+rows: 502 in the thread, 6.0 drawn per frame over 456 frames
+rows: 502 in the thread, 6.0 drawn per frame over 547 frames
+rows: 502 in the thread, 6.0 drawn per frame over 638 frames
+rows: 502 in the thread, 6.0 drawn per frame over 729 frames
+rows: 502 in the thread, 6.0 drawn per frame over 820 frames
+rows: 502 in the thread, 6.0 drawn per frame over 911 frames
+Benchmarking Thread stream cached/turns/100: Analyzing
+Thread stream cached/turns/100
+                        time:   [587.80 µs 603.28 µs 613.51 µs]
+GPUI bench report (all observed iterations): Thread stream cached/turns/100
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 6.705 M instructions (min 6.676, max 8.639, samples 21)
+  foreground instructions per iteration: median 6.528 M instructions (min 6.510, max 7.257, samples 21)
+  cycles per iteration: median 1.703 M cycles (min 1.660, max 2.566, samples 21)
+  page faults per iteration: median 0.523 page faults (min 0.140, max 25.750, samples 21)
+  allocations per iteration: median 5.166 K allocations (min 5.166, max 5.231, samples 21)
+  foreground allocations per iteration: median 5.166 K allocations (min 5.166, max 5.231, samples 21)
+  allocated bytes per iteration: median 998.238 K bytes (min 983.789, max 2839.852, samples 21)
+  IPC: median 3.934 (min 3.317, max 4.036, samples 21)
+  foreground share of instructions: median 0.972 (min 0.807, max 0.975, samples 21)
+  window dirty-to-draw:
+    samples: 7052
+    mean: 0.563ms
+    p50: 0.562ms
+    p90: 0.605ms
+    p95: 0.612ms
+    p99: 0.681ms
+    max: 1.074ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 7052
+    mean: 0.562ms
+    p50: 0.561ms
+    p90: 0.605ms
+    p95: 0.612ms
+    p99: 0.680ms
+    max: 1.070ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+Benchmarking Thread stream cached/turns/400
+Benchmarking Thread stream cached/turns/400: Warming up for 1.0000 s
+rows: 2002 in the thread, 9.0 drawn per frame over 2 frames
+rows: 2002 in the thread, 8.0 drawn per frame over 3 frames
+rows: 2002 in the thread, 7.2 drawn per frame over 5 frames
+rows: 2002 in the thread, 6.7 drawn per frame over 9 frames
+rows: 2002 in the thread, 6.4 drawn per frame over 17 frames
+rows: 2002 in the thread, 6.2 drawn per frame over 33 frames
+rows: 2002 in the thread, 6.1 drawn per frame over 65 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 129 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 257 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 513 frames
+Benchmarking Thread stream cached/turns/400: Collecting 10 samples in estimated 3.0334 s (2090 iterations)
+rows: 2002 in the thread, 6.2 drawn per frame over 39 frames
+rows: 2002 in the thread, 6.1 drawn per frame over 77 frames
+rows: 2002 in the thread, 6.1 drawn per frame over 115 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 153 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 191 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 229 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 267 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 305 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 343 frames
+rows: 2002 in the thread, 6.0 drawn per frame over 381 frames
+Benchmarking Thread stream cached/turns/400: Analyzing
+Thread stream cached/turns/400
+                        time:   [1.0304 ms 1.0690 ms 1.1116 ms]
+GPUI bench report (all observed iterations): Thread stream cached/turns/400
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 16.777 M instructions (min 16.709, max 18.536, samples 20)
+  foreground instructions per iteration: median 16.561 M instructions (min 16.536, max 16.886, samples 20)
+  cycles per iteration: median 3.770 M cycles (min 3.477, max 4.778, samples 20)
+  page faults per iteration: median 0.522 page faults (min 0.000, max 7.000, samples 20)
+  allocations per iteration: median 20.174 K allocations (min 20.173, max 20.238, samples 20)
+  foreground allocations per iteration: median 20.174 K allocations (min 20.173, max 20.238, samples 20)
+  allocated bytes per iteration: median 2.949 M bytes (min 2.941, max 4.797, samples 20)
+  IPC: median 4.485 (min 3.686, max 4.807, samples 20)
+  foreground share of instructions: median 0.988 (min 0.911, max 0.990, samples 20)
+  window dirty-to-draw:
+    samples: 3113
+    mean: 1.161ms
+    p50: 1.081ms
+    p90: 1.432ms
+    p95: 1.536ms
+    p99: 1.841ms
+    max: 4.180ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 3113
+    mean: 1.160ms
+    p50: 1.080ms
+    p90: 1.431ms
+    p95: 1.534ms
+    p99: 1.837ms
+    max: 4.176ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 2662.327ms
+    samples: 3114
+    mean: 0.855ms
+    p50: 0.797ms
+    p90: 1.056ms
+    p95: 1.135ms
+    p99: 1.354ms
+    max: 3.617ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+
+Benchmarking History scroll after/lines/100
+Benchmarking History scroll after/lines/100: Warming up for 1.0000 s
+rows: 100 in the thread, 19.5 drawn per frame over 2 frames
+rows: 100 in the thread, 17.3 drawn per frame over 3 frames
+rows: 100 in the thread, 15.8 drawn per frame over 5 frames
+rows: 100 in the thread, 14.7 drawn per frame over 9 frames
+rows: 100 in the thread, 13.9 drawn per frame over 17 frames
+rows: 100 in the thread, 13.7 drawn per frame over 33 frames
+rows: 100 in the thread, 13.4 drawn per frame over 65 frames
+rows: 100 in the thread, 13.2 drawn per frame over 129 frames
+rows: 100 in the thread, 13.1 drawn per frame over 257 frames
+rows: 100 in the thread, 13.0 drawn per frame over 513 frames
+rows: 100 in the thread, 13.0 drawn per frame over 1025 frames
+Benchmarking History scroll after/lines/100: Collecting 10 samples in estimated 3.0182 s (5555 iterations)
+rows: 100 in the thread, 13.2 drawn per frame over 102 frames
+rows: 100 in the thread, 13.1 drawn per frame over 203 frames
+rows: 100 in the thread, 13.1 drawn per frame over 304 frames
+rows: 100 in the thread, 13.0 drawn per frame over 405 frames
+rows: 100 in the thread, 13.0 drawn per frame over 506 frames
+rows: 100 in the thread, 13.0 drawn per frame over 607 frames
+rows: 100 in the thread, 13.0 drawn per frame over 708 frames
+rows: 100 in the thread, 13.0 drawn per frame over 809 frames
+rows: 100 in the thread, 13.0 drawn per frame over 910 frames
+rows: 100 in the thread, 13.0 drawn per frame over 1011 frames
+Benchmarking History scroll after/lines/100: Analyzing
+History scroll after/lines/100
+                        time:   [463.85 µs 486.07 µs 501.36 µs]
+                        change: [−38.738% −35.712% −32.078%] (p = 0.00 < 0.05)
+                        Performance has improved.
+GPUI bench report (all observed iterations): History scroll after/lines/100
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 4.059 M instructions (min 3.998, max 5.338, samples 21)
+  foreground instructions per iteration: median 3.848 M instructions (min 3.651, max 4.255, samples 21)
+  cycles per iteration: median 1.233 M cycles (min 1.197, max 2.777, samples 21)
+  page faults per iteration: median 0.439 page faults (min 0.082, max 17.000, samples 21)
+  allocations per iteration: median 288.521 allocations (min 287.465, max 334.000, samples 21)
+  foreground allocations per iteration: median 288.518 allocations (min 287.464, max 334.000, samples 21)
+  allocated bytes per iteration: median 369.352 K bytes (min 365.599, max 1544.926, samples 21)
+  IPC: median 3.280 (min 1.922, max 3.345, samples 21)
+  foreground share of instructions: median 0.956 (min 0.692, max 0.959, samples 21)
+  window dirty-to-draw:
+    samples: 7602
+    mean: 0.453ms
+    p50: 0.427ms
+    p90: 0.541ms
+    p95: 0.590ms
+    p99: 0.756ms
+    max: 26.640ms
+    frame budget overruns total: 4
+    frame budget overruns max: 3
+  window draw:
+    samples: 7602
+    mean: 0.452ms
+    p50: 0.426ms
+    p90: 0.540ms
+    p95: 0.589ms
+    p99: 0.755ms
+    max: 26.640ms
+    frame budget overruns total: 4
+    frame budget overruns max: 3
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 81.982ms
+    samples: 44
+    mean: 1.863ms
+    p50: 0.834ms
+    p90: 5.661ms
+    p95: 5.755ms
+    p99: 8.270ms
+    max: 8.270ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+Benchmarking History scroll after/lines/500
+Benchmarking History scroll after/lines/500: Warming up for 1.0000 s
+rows: 500 in the thread, 19.5 drawn per frame over 2 frames
+rows: 500 in the thread, 17.3 drawn per frame over 3 frames
+rows: 500 in the thread, 15.8 drawn per frame over 5 frames
+rows: 500 in the thread, 14.7 drawn per frame over 9 frames
+rows: 500 in the thread, 13.9 drawn per frame over 17 frames
+rows: 500 in the thread, 13.7 drawn per frame over 33 frames
+rows: 500 in the thread, 13.4 drawn per frame over 65 frames
+rows: 500 in the thread, 13.2 drawn per frame over 129 frames
+rows: 500 in the thread, 13.1 drawn per frame over 257 frames
+rows: 500 in the thread, 13.0 drawn per frame over 513 frames
+rows: 500 in the thread, 13.0 drawn per frame over 1025 frames
+rows: 500 in the thread, 13.0 drawn per frame over 2049 frames
+Benchmarking History scroll after/lines/500: Collecting 10 samples in estimated 3.0170 s (7425 iterations)
+rows: 500 in the thread, 13.2 drawn per frame over 136 frames
+rows: 500 in the thread, 13.1 drawn per frame over 271 frames
+rows: 500 in the thread, 13.0 drawn per frame over 406 frames
+rows: 500 in the thread, 13.0 drawn per frame over 541 frames
+rows: 500 in the thread, 13.0 drawn per frame over 676 frames
+rows: 500 in the thread, 13.0 drawn per frame over 811 frames
+rows: 500 in the thread, 13.0 drawn per frame over 946 frames
+rows: 500 in the thread, 13.0 drawn per frame over 1081 frames
+rows: 500 in the thread, 13.0 drawn per frame over 1216 frames
+rows: 500 in the thread, 13.0 drawn per frame over 1351 frames
+Benchmarking History scroll after/lines/500: Analyzing
+History scroll after/lines/500
+                        time:   [419.70 µs 442.29 µs 452.38 µs]
+                        change: [−47.186% −43.699% −40.084%] (p = 0.00 < 0.05)
+                        Performance has improved.
+GPUI bench report (all observed iterations): History scroll after/lines/500
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 4.068 M instructions (min 3.995, max 6.370, samples 22)
+  foreground instructions per iteration: median 3.862 M instructions (min 3.781, max 4.419, samples 22)
+  cycles per iteration: median 1.232 M cycles (min 1.191, max 2.166, samples 22)
+  page faults per iteration: median 0.504 page faults (min 0.083, max 27.500, samples 22)
+  allocations per iteration: median 291.164 allocations (min 290.278, max 337.000, samples 22)
+  foreground allocations per iteration: median 291.160 allocations (min 290.278, max 337.000, samples 22)
+  allocated bytes per iteration: median 391.392 K bytes (min 387.141, max 1567.198, samples 22)
+  IPC: median 3.301 (min 2.828, max 3.361, samples 22)
+  foreground share of instructions: median 0.957 (min 0.694, max 0.961, samples 22)
+  window dirty-to-draw:
+    samples: 11520
+    mean: 0.390ms
+    p50: 0.382ms
+    p90: 0.473ms
+    p95: 0.514ms
+    p99: 0.582ms
+    max: 0.969ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 11520
+    mean: 0.389ms
+    p50: 0.381ms
+    p90: 0.472ms
+    p95: 0.513ms
+    p99: 0.582ms
+    max: 0.966ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 0.518ms
+    samples: 1
+    mean: 0.519ms
+    p50: 0.519ms
+    p90: 0.519ms
+    p95: 0.519ms
+    p99: 0.519ms
+    max: 0.519ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+Benchmarking History scroll after/lines/2000
+Benchmarking History scroll after/lines/2000: Warming up for 1.0000 s
+rows: 2000 in the thread, 19.5 drawn per frame over 2 frames
+rows: 2000 in the thread, 17.3 drawn per frame over 3 frames
+rows: 2000 in the thread, 15.8 drawn per frame over 5 frames
+rows: 2000 in the thread, 14.7 drawn per frame over 9 frames
+rows: 2000 in the thread, 13.9 drawn per frame over 17 frames
+rows: 2000 in the thread, 13.7 drawn per frame over 33 frames
+rows: 2000 in the thread, 13.4 drawn per frame over 65 frames
+rows: 2000 in the thread, 13.2 drawn per frame over 129 frames
+rows: 2000 in the thread, 13.1 drawn per frame over 257 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 513 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 1025 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 2049 frames
+Benchmarking History scroll after/lines/2000: Collecting 10 samples in estimated 3.0160 s (7590 iterations)
+rows: 2000 in the thread, 13.2 drawn per frame over 139 frames
+rows: 2000 in the thread, 13.1 drawn per frame over 277 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 415 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 553 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 691 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 829 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 967 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 1105 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 1243 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 1381 frames
+Benchmarking History scroll after/lines/2000: Analyzing
+History scroll after/lines/2000
+                        time:   [436.43 µs 474.54 µs 490.82 µs]
+                        change: [−46.772% −41.440% −36.132%] (p = 0.00 < 0.05)
+                        Performance has improved.
+GPUI bench report (all observed iterations): History scroll after/lines/2000
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 4.087 M instructions (min 4.020, max 5.403, samples 22)
+  foreground instructions per iteration: median 3.887 M instructions (min 3.793, max 4.315, samples 22)
+  cycles per iteration: median 1.240 M cycles (min 1.207, max 1.846, samples 22)
+  page faults per iteration: median 0.558 page faults (min 0.083, max 21.500, samples 22)
+  allocations per iteration: median 293.164 allocations (min 292.278, max 339.000, samples 22)
+  foreground allocations per iteration: median 293.160 allocations (min 292.278, max 339.000, samples 22)
+  allocated bytes per iteration: median 465.440 K bytes (min 461.189, max 1641.246, samples 22)
+  IPC: median 3.300 (min 2.872, max 3.337, samples 22)
+  foreground share of instructions: median 0.957 (min 0.702, max 0.961, samples 22)
+  window dirty-to-draw:
+    samples: 11685
+    mean: 0.402ms
+    p50: 0.388ms
+    p90: 0.511ms
+    p95: 0.562ms
+    p99: 0.667ms
+    max: 3.015ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 11685
+    mean: 0.401ms
+    p50: 0.387ms
+    p90: 0.510ms
+    p95: 0.561ms
+    p99: 0.667ms
+    max: 3.013ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 5.410ms
+    samples: 6
+    mean: 0.902ms
+    p50: 0.604ms
+    p90: 2.374ms
+    p95: 2.374ms
+    p99: 2.374ms
+    max: 2.374ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+
+Benchmarking History scroll cached/lines/100
+Benchmarking History scroll cached/lines/100: Warming up for 1.0000 s
+rows: 100 in the thread, 19.5 drawn per frame over 2 frames
+rows: 100 in the thread, 17.3 drawn per frame over 3 frames
+rows: 100 in the thread, 15.8 drawn per frame over 5 frames
+rows: 100 in the thread, 14.7 drawn per frame over 9 frames
+rows: 100 in the thread, 13.9 drawn per frame over 17 frames
+rows: 100 in the thread, 13.7 drawn per frame over 33 frames
+rows: 100 in the thread, 13.4 drawn per frame over 65 frames
+rows: 100 in the thread, 13.2 drawn per frame over 129 frames
+rows: 100 in the thread, 13.1 drawn per frame over 257 frames
+rows: 100 in the thread, 13.0 drawn per frame over 513 frames
+rows: 100 in the thread, 13.0 drawn per frame over 1025 frames
+rows: 100 in the thread, 13.0 drawn per frame over 2049 frames
+Benchmarking History scroll cached/lines/100: Collecting 10 samples in estimated 3.0109 s (6985 iterations)
+rows: 100 in the thread, 13.2 drawn per frame over 128 frames
+rows: 100 in the thread, 13.1 drawn per frame over 255 frames
+rows: 100 in the thread, 13.1 drawn per frame over 382 frames
+rows: 100 in the thread, 13.0 drawn per frame over 509 frames
+rows: 100 in the thread, 13.0 drawn per frame over 636 frames
+rows: 100 in the thread, 13.0 drawn per frame over 763 frames
+rows: 100 in the thread, 13.0 drawn per frame over 890 frames
+rows: 100 in the thread, 13.0 drawn per frame over 1017 frames
+rows: 100 in the thread, 13.0 drawn per frame over 1144 frames
+rows: 100 in the thread, 13.0 drawn per frame over 1271 frames
+Benchmarking History scroll cached/lines/100: Analyzing
+History scroll cached/lines/100
+                        time:   [421.41 µs 453.83 µs 469.14 µs]
+GPUI bench report (all observed iterations): History scroll cached/lines/100
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 4.039 M instructions (min 3.982, max 5.367, samples 22)
+  foreground instructions per iteration: median 3.855 M instructions (min 3.758, max 4.292, samples 22)
+  cycles per iteration: median 1.229 M cycles (min 1.195, max 2.024, samples 22)
+  page faults per iteration: median 0.433 page faults (min 0.083, max 21.500, samples 22)
+  allocations per iteration: median 287.169 allocations (min 286.278, max 333.000, samples 22)
+  foreground allocations per iteration: median 287.165 allocations (min 286.278, max 333.000, samples 22)
+  allocated bytes per iteration: median 364.320 K bytes (min 360.069, max 1540.126, samples 22)
+  IPC: median 3.283 (min 2.586, max 3.349, samples 22)
+  foreground share of instructions: median 0.956 (min 0.700, max 0.960, samples 22)
+  window dirty-to-draw:
+    samples: 11080
+    mean: 0.402ms
+    p50: 0.387ms
+    p90: 0.500ms
+    p95: 0.528ms
+    p99: 0.631ms
+    max: 6.959ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 11080
+    mean: 0.401ms
+    p50: 0.386ms
+    p90: 0.500ms
+    p95: 0.527ms
+    p99: 0.630ms
+    max: 6.955ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 20.431ms
+    samples: 17
+    mean: 1.202ms
+    p50: 0.672ms
+    p90: 2.329ms
+    p95: 6.189ms
+    p99: 6.189ms
+    max: 6.189ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+Benchmarking History scroll cached/lines/500
+Benchmarking History scroll cached/lines/500: Warming up for 1.0000 s
+rows: 500 in the thread, 19.5 drawn per frame over 2 frames
+rows: 500 in the thread, 17.3 drawn per frame over 3 frames
+rows: 500 in the thread, 15.8 drawn per frame over 5 frames
+rows: 500 in the thread, 14.7 drawn per frame over 9 frames
+rows: 500 in the thread, 13.9 drawn per frame over 17 frames
+rows: 500 in the thread, 13.7 drawn per frame over 33 frames
+rows: 500 in the thread, 13.4 drawn per frame over 65 frames
+rows: 500 in the thread, 13.2 drawn per frame over 129 frames
+rows: 500 in the thread, 13.1 drawn per frame over 257 frames
+rows: 500 in the thread, 13.0 drawn per frame over 513 frames
+rows: 500 in the thread, 13.0 drawn per frame over 1025 frames
+rows: 500 in the thread, 13.0 drawn per frame over 2049 frames
+Benchmarking History scroll cached/lines/500: Collecting 10 samples in estimated 3.0165 s (7150 iterations)
+rows: 500 in the thread, 13.2 drawn per frame over 131 frames
+rows: 500 in the thread, 13.1 drawn per frame over 261 frames
+rows: 500 in the thread, 13.1 drawn per frame over 391 frames
+rows: 500 in the thread, 13.0 drawn per frame over 521 frames
+rows: 500 in the thread, 13.0 drawn per frame over 651 frames
+rows: 500 in the thread, 13.0 drawn per frame over 781 frames
+rows: 500 in the thread, 13.0 drawn per frame over 911 frames
+rows: 500 in the thread, 13.0 drawn per frame over 1041 frames
+rows: 500 in the thread, 13.0 drawn per frame over 1171 frames
+rows: 500 in the thread, 13.0 drawn per frame over 1301 frames
+Benchmarking History scroll cached/lines/500: Analyzing
+History scroll cached/lines/500
+                        time:   [453.97 µs 495.93 µs 517.77 µs]
+GPUI bench report (all observed iterations): History scroll cached/lines/500
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 4.056 M instructions (min 3.991, max 6.226, samples 22)
+  foreground instructions per iteration: median 3.856 M instructions (min 3.776, max 4.406, samples 22)
+  cycles per iteration: median 1.233 M cycles (min 1.199, max 2.456, samples 22)
+  page faults per iteration: median 0.346 page faults (min 0.099, max 21.500, samples 22)
+  allocations per iteration: median 290.164 allocations (min 289.278, max 337.000, samples 22)
+  foreground allocations per iteration: median 290.160 allocations (min 289.278, max 336.000, samples 22)
+  allocated bytes per iteration: median 367.392 K bytes (min 363.141, max 1543.230, samples 22)
+  IPC: median 3.307 (min 2.099, max 3.342, samples 22)
+  foreground share of instructions: median 0.957 (min 0.607, max 0.960, samples 22)
+  window dirty-to-draw:
+    samples: 11245
+    mean: 0.421ms
+    p50: 0.409ms
+    p90: 0.526ms
+    p95: 0.588ms
+    p99: 0.689ms
+    max: 5.591ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 11245
+    mean: 0.420ms
+    p50: 0.409ms
+    p90: 0.526ms
+    p95: 0.587ms
+    p99: 0.688ms
+    max: 5.587ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 14.447ms
+    samples: 13
+    mean: 1.111ms
+    p50: 0.772ms
+    p90: 1.099ms
+    p95: 5.235ms
+    p99: 5.235ms
+    max: 5.235ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+Benchmarking History scroll cached/lines/2000
+Benchmarking History scroll cached/lines/2000: Warming up for 1.0000 s
+rows: 2000 in the thread, 19.5 drawn per frame over 2 frames
+rows: 2000 in the thread, 17.3 drawn per frame over 3 frames
+rows: 2000 in the thread, 15.8 drawn per frame over 5 frames
+rows: 2000 in the thread, 14.7 drawn per frame over 9 frames
+rows: 2000 in the thread, 13.9 drawn per frame over 17 frames
+rows: 2000 in the thread, 13.7 drawn per frame over 33 frames
+rows: 2000 in the thread, 13.4 drawn per frame over 65 frames
+rows: 2000 in the thread, 13.2 drawn per frame over 129 frames
+rows: 2000 in the thread, 13.1 drawn per frame over 257 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 513 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 1025 frames
+Benchmarking History scroll cached/lines/2000: Collecting 10 samples in estimated 3.0337 s (4180 iterations)
+rows: 2000 in the thread, 13.3 drawn per frame over 77 frames
+rows: 2000 in the thread, 13.2 drawn per frame over 153 frames
+rows: 2000 in the thread, 13.1 drawn per frame over 229 frames
+rows: 2000 in the thread, 13.1 drawn per frame over 305 frames
+rows: 2000 in the thread, 13.1 drawn per frame over 381 frames
+rows: 2000 in the thread, 13.1 drawn per frame over 457 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 533 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 609 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 685 frames
+rows: 2000 in the thread, 13.0 drawn per frame over 761 frames
+Benchmarking History scroll cached/lines/2000: Analyzing
+History scroll cached/lines/2000
+                        time:   [681.66 µs 702.42 µs 727.06 µs]
+GPUI bench report (all observed iterations): History scroll cached/lines/2000
+  note: includes Criterion warmup/calibration
+  instructions per iteration: median 4.110 M instructions (min 4.033, max 5.400, samples 21)
+  foreground instructions per iteration: median 3.888 M instructions (min 3.637, max 4.471, samples 21)
+  cycles per iteration: median 1.689 M cycles (min 1.429, max 2.152, samples 21)
+  page faults per iteration: median 0.602 page faults (min 0.134, max 17.000, samples 21)
+  allocations per iteration: median 292.829 allocations (min 291.520, max 338.000, samples 21)
+  foreground allocations per iteration: median 292.825 allocations (min 291.519, max 338.000, samples 21)
+  allocated bytes per iteration: median 370.807 K bytes (min 365.926, max 1545.246, samples 21)
+  IPC: median 2.545 (min 2.225, max 3.019, samples 21)
+  foreground share of instructions: median 0.952 (min 0.700, max 0.958, samples 21)
+  window dirty-to-draw:
+    samples: 6227
+    mean: 0.621ms
+    p50: 0.557ms
+    p90: 0.847ms
+    p95: 1.004ms
+    p99: 1.289ms
+    max: 6.885ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  window draw:
+    samples: 6227
+    mean: 0.619ms
+    p50: 0.555ms
+    p90: 0.845ms
+    p95: 0.999ms
+    p99: 1.285ms
+    max: 6.877ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+  invalidations per frame: mean 1.00, max 1
+  foreground executor work (task polls, actions, input dispatch):
+    note: excludes window draw/present, reported separately above
+    total: 214.710ms
+    samples: 309
+    mean: 0.695ms
+    p50: 0.595ms
+    p90: 0.829ms
+    p95: 1.015ms
+    p99: 2.650ms
+    max: 6.169ms
+    frame budget overruns total: 0
+    frame budget overruns max: 0
+
