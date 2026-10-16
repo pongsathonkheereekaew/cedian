@@ -924,6 +924,29 @@ impl CedianPanel {
         self.notice.as_deref()
     }
 
+    /// The picker's one line: the session's model and thinking level, or,
+    /// with no model, what the person does to get one.
+    pub fn picker_summary(&self) -> String {
+        let Some(model) = self.picker.model.as_deref() else {
+            let next = match self.connection {
+                Connection::Ready { .. }
+                    if !self.picker.models.is_empty() || !self.account.accounts.is_empty() =>
+                {
+                    "Pick one below"
+                }
+                Connection::Ready { .. } => "Sign in in Settings > Account",
+                Connection::NotStarted => "Open a folder to start the agent",
+                Connection::Starting | Connection::Checking => "The agent is starting",
+                Connection::Stopped(_) | Connection::Taken { .. } => "The agent is not running",
+            };
+            return format!("No model · {next}");
+        };
+        match self.picker.thinking {
+            Some(level) => format!("Model: {model} · Thinking: {}", level.as_str()),
+            None => format!("Model: {model}"),
+        }
+    }
+
     /// OMP runs and has no model (after a first login, before a pick): a
     /// prompt would be refused with terminal instructions, so Send is off
     /// and the picker carries the hint.
@@ -4184,12 +4207,7 @@ impl CedianPanel {
 
     fn render_picker(&self, cx: &mut Context<Self>) -> AnyElement {
         let picker = &self.picker;
-        let level_name = |l: Option<omp_rpc::ThinkingLevel>| l.map_or("?", |l| l.as_str());
-        let summary = format!(
-            "Model: {} · Thinking: {}",
-            picker.model.as_deref().unwrap_or("?"),
-            level_name(picker.thinking)
-        );
+        let summary = self.picker_summary();
         let button = |id: String, label: String| {
             div()
                 .debug_selector({
@@ -6037,6 +6055,7 @@ impl Render for CedianPanel {
                 h_flex()
                     .justify_end()
                     .gap_2()
+                    .pr_2()
                     .child(
                         div()
                             .debug_selector(|| "cedian-review-toggle".to_string())
@@ -6075,7 +6094,7 @@ impl Render for CedianPanel {
                                     .on_click(cx.listener(|this, _, _, cx| this.open_browser(cx))),
                             ),
                     )
-                    .child(Button::new("cedian-settings", "agent settings").on_click(
+                    .child(Button::new("cedian-settings", "Agent settings").on_click(
                         cx.listener(|this, _, window, cx| this.open_settings(window, cx)),
                     )),
             )
@@ -6208,13 +6227,15 @@ impl Render for CedianPanel {
                 h_flex()
                     .gap_2()
                     .child(
-                        Label::new(footer)
-                            .size(LabelSize::Small)
-                            .color(if stopped || taken {
-                                Color::Error
-                            } else {
-                                Color::Muted
-                            }),
+                        div().flex_1().min_w_0().child(
+                            Label::new(footer)
+                                .size(LabelSize::Small)
+                                .color(if stopped || taken {
+                                    Color::Error
+                                } else {
+                                    Color::Muted
+                                }),
+                        ),
                     )
                     .when(taken, |row| {
                         row.child(
@@ -6389,6 +6410,45 @@ mod tests {
                 assert_eq!(
                     panel.notice(),
                     Some("cedian agent did not run the prompt: busy")
+                );
+            })
+            .unwrap();
+    }
+
+    /// With no model the picker line says what to do next, never a bare
+    /// "Model: ? · Thinking: ?".
+    #[gpui::test]
+    async fn the_model_line_says_what_to_do_when_there_is_no_model(cx: &mut TestAppContext) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        window
+            .update(cx, |panel, _, _| {
+                panel.connection = Connection::Stopped("no config".into());
+                assert_eq!(
+                    panel.picker_summary(),
+                    "No model · The agent is not running"
+                );
+                panel.connection = Connection::Ready {
+                    session_id: "s".into(),
+                    resumed: false,
+                    policy_note: None,
+                };
+                assert_eq!(
+                    panel.picker_summary(),
+                    "No model · Sign in in Settings > Account"
+                );
+                panel
+                    .account
+                    .accounts
+                    .insert("anthropic".into(), Vec::new());
+                assert_eq!(panel.picker_summary(), "No model · Pick one below");
+                panel.picker.model = Some("anthropic/claude".into());
+                assert_eq!(panel.picker_summary(), "Model: anthropic/claude");
+                panel.picker.thinking = Some(omp_rpc::ThinkingLevel::High);
+                assert_eq!(
+                    panel.picker_summary(),
+                    "Model: anthropic/claude · Thinking: high"
                 );
             })
             .unwrap();
@@ -7010,7 +7070,7 @@ mod tests {
         assert_eq!(target(Some(origin.into()), cx), Some(front_panel));
     }
 
-    /// The panel's "agent settings" opens the settings window on Advanced,
+    /// The panel's "Agent settings" opens the settings window on Advanced,
     /// where the agent's settings live.
     #[gpui::test]
     async fn agent_settings_opens_the_settings_window_on_advanced(cx: &mut TestAppContext) {

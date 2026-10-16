@@ -381,7 +381,7 @@ impl AccountPage {
                     "Agent".into(),
                     Some("Sign-in goes through the agent of the open project.".into()),
                     None,
-                    Some(&RowState::Unavailable("Agent not running".into())),
+                    Some(&RowState::NotRunning("Agent not running".into())),
                     control,
                     cx,
                 )

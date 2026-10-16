@@ -449,13 +449,23 @@ impl Switch {
     }
 }
 
+/// A light theme's on-switch gets a white knob, as in dark themes; a disabled
+/// one keeps the text colour, since its 0.2 opacity would make white vanish.
+fn switch_thumb_color(is_on: bool, disabled: bool, light: bool, base_color: Hsla) -> Hsla {
+    if is_on && !disabled && light {
+        gpui::white()
+    } else {
+        base_color
+    }
+}
+
 impl RenderOnce for Switch {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let is_on = self.toggle_state == ToggleState::Selected;
         let adjust_ratio = if is_light(cx) { 1.5 } else { 1.0 };
 
         let base_color = cx.theme().colors().text;
-        let thumb_color = base_color;
+        let thumb_color = switch_thumb_color(is_on, self.disabled, is_light(cx), base_color);
         let (bg_color, border_color) = self.color.get_colors(is_on, cx);
 
         let bg_hover_color = if is_on {
@@ -1096,5 +1106,28 @@ impl Component for Switch {
                 ),
             ])
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_an_enabled_on_switch_in_a_light_theme_gets_a_white_knob() {
+        let base_color = gpui::black();
+        assert_eq!(
+            switch_thumb_color(true, false, true, base_color),
+            gpui::white()
+        );
+        assert_eq!(switch_thumb_color(true, true, true, base_color), base_color);
+        assert_eq!(
+            switch_thumb_color(false, false, true, base_color),
+            base_color
+        );
+        assert_eq!(
+            switch_thumb_color(true, false, false, base_color),
+            base_color
+        );
     }
 }

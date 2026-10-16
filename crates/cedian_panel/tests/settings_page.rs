@@ -137,12 +137,11 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
     );
 
     let no_folder = Project::test(fs::RealFs::new(None, cx.executor()), [], cx).await;
-    let panel = cx
-        .add_window(|window, cx| CedianPanel::new(no_folder, window, cx))
-        .root(cx)
-        .unwrap();
+    let panel_window = cx.add_window(|window, cx| CedianPanel::new(no_folder, window, cx));
+    let panel = panel_window.root(cx).unwrap();
     let settings = page.root(cx).unwrap();
-    let models = cx.add_window(|window, cx| ModelsPage::new(panel, settings, window, cx));
+    let models = cx
+        .add_window(|window, cx| ModelsPage::new(panel, panel_window.into(), settings, window, cx));
     models
         .update(cx, |m, _, cx| m.pick("plan", "anthropic/opus", cx))
         .unwrap();
