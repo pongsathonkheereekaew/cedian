@@ -612,10 +612,9 @@ mod tests {
     fn the_safe_tier_is_written_for_every_read_tool() {
         let mut settings = Settings::default();
         assert!(
-            spawn_policy(&settings, Policy::Cedian, &[])
+            !spawn_policy(&settings, Policy::Cedian, &[])
                 .tool_policies
-                .get("read")
-                .is_none(),
+                .contains_key("read"),
             "allow writes nothing: the scope alone decides"
         );
         settings.permissions.safe = Verdict::Ask;

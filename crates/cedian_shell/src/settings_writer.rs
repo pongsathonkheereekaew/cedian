@@ -346,7 +346,7 @@ mod tests {
         let path = dir.join("cedian.toml");
         std::fs::write(&path, "schema = 1\n").unwrap();
         let key = project.to_string_lossy().into_owned();
-        for folder in [project.clone(), parent, PathBuf::from("/")] {
+        for folder in [project, parent, PathBuf::from("/")] {
             let error = write_project(
                 &path,
                 &key,
