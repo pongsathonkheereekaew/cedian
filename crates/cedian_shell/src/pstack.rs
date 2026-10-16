@@ -246,22 +246,8 @@ impl PstackModels {
     /// Replace the sheet at `path` in one rename, so a skill never reads
     /// half of it.
     pub fn write(&self, path: &Path) -> Result<(), String> {
-        write_atomically(path, self.render().as_bytes())
+        crate::settings_writer::write_atomically(path, self.render().as_bytes())
     }
-}
-
-fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let dir = path
-        .parent()
-        .ok_or_else(|| format!("{} has no folder", path.display()))?;
-    std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
-    let mut temp = tempfile::NamedTempFile::new_in(dir)
-        .map_err(|e| format!("cannot write in {}: {e}", dir.display()))?;
-    std::io::Write::write_all(&mut temp, bytes)
-        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-    temp.persist(path)
-        .map_err(|e| format!("cannot replace {}: {}", path.display(), e.error))?;
-    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -283,21 +269,11 @@ impl Default for Switches {
 /// every other key and comment. A file that does not parse, or would not
 /// parse afterwards, is left as it is.
 pub fn write_switches(path: &Path, switches: Switches) -> Result<(), String> {
-    let current = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            format!("schema = {}\n", crate::SETTINGS_SCHEMA)
-        }
-        Err(e) => return Err(format!("cannot read {}: {e}", path.display())),
-    };
-    let mut document: toml_edit::DocumentMut = current
-        .parse()
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-    document["pstack"] = toml_edit::value(switches.pstack);
-    document["pstack_mandate"] = toml_edit::value(switches.mandate);
-    let text = document.to_string();
-    crate::parse_settings(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-    write_atomically(path, text.as_bytes())
+    crate::settings_writer::edit(path, |document| {
+        document["pstack"] = toml_edit::value(switches.pstack);
+        document["pstack_mandate"] = toml_edit::value(switches.mandate);
+        Ok(())
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

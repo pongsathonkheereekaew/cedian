@@ -15,6 +15,8 @@ pub mod models_page;
 pub mod omp_link;
 pub mod omp_settings;
 pub mod panel;
+pub mod permissions_page;
+pub mod projects_page;
 pub mod review;
 pub mod sessions;
 pub mod settings_host;

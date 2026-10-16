@@ -3,6 +3,8 @@ use crate::methodology_page::MethodologyPage;
 use crate::models_page::ModelsPage;
 use crate::omp_settings::OmpSettings;
 use crate::panel::CedianPanel;
+use crate::permissions_page::{OpenProjects, PermissionsPage};
+use crate::projects_page::ProjectsPage;
 use collections::HashMap;
 use gpui::{
     AnyView, AnyWindowHandle, App, AppContext as _, Entity, Global, Subscription, Window, WindowId,
@@ -19,6 +21,7 @@ struct Built {
     account: Option<Entity<AccountPage>>,
     models: Option<Entity<ModelsPage>>,
     methodology: Option<Entity<MethodologyPage>>,
+    root: std::path::PathBuf,
 }
 
 struct Views {
@@ -95,7 +98,7 @@ fn built<'a>(
             .read(cx)
             .abs_path()
             .to_path_buf();
-        let settings = cx.new(|cx| OmpSettings::new(project, root, window, cx));
+        let settings = cx.new(|cx| OmpSettings::new(project, root.clone(), window, cx));
         views(cx).views.insert(
             id,
             Built {
@@ -104,6 +107,7 @@ fn built<'a>(
                 account: None,
                 models: None,
                 methodology: None,
+                root,
             },
         );
     }
@@ -134,6 +138,7 @@ pub fn agent_page(
         AgentPage::Account => built.account.clone().map(Into::into),
         AgentPage::Models => built.models.clone().map(Into::into),
         AgentPage::Methodology => built.methodology.clone().map(Into::into),
+        AgentPage::Permissions | AgentPage::Projects => None,
     };
     if let Some(view) = existing {
         return Some(view);
@@ -159,8 +164,48 @@ pub fn agent_page(
             views(cx).views.get_mut(&id)?.methodology = Some(view.clone());
             view.into()
         }
+        AgentPage::Permissions => {
+            let projects = open_projects(Some(built_root(id, cx)?), cx);
+            cx.new(|_| PermissionsPage::new(projects)).into()
+        }
+        AgentPage::Projects => {
+            let projects = open_projects(Some(built_root(id, cx)?), cx);
+            cx.new(|_| ProjectsPage::new(projects)).into()
+        }
     };
     Some(view)
+}
+
+fn built_root(id: WindowId, cx: &App) -> Option<std::path::PathBuf> {
+    Some(cx.try_global::<Views>()?.views.get(&id)?.root.clone())
+}
+
+/// `current` and the first folder of every open workspace, canonical, as
+/// `cedian.toml` keys name them.
+fn open_projects(current: Option<std::path::PathBuf>, cx: &App) -> OpenProjects {
+    let canonical = |path: std::path::PathBuf| path.canonicalize().unwrap_or(path);
+    let all = cx
+        .windows()
+        .into_iter()
+        .filter_map(|handle| handle.downcast::<MultiWorkspace>()?.read(cx).ok())
+        .flat_map(|multi| multi.workspaces().cloned().collect::<Vec<_>>())
+        .filter_map(|workspace| {
+            let root = workspace
+                .read(cx)
+                .project()
+                .read(cx)
+                .visible_worktrees(cx)
+                .next()?
+                .read(cx)
+                .abs_path()
+                .to_path_buf();
+            Some(canonical(root))
+        })
+        .collect();
+    OpenProjects {
+        current: current.map(canonical),
+        all,
+    }
 }
 
 pub fn restart_agent(origin: Option<AnyWindowHandle>, cx: &mut App) {
