@@ -4,11 +4,15 @@
 //! `config.yml` changes on disk, and on `config_update`.
 
 use crate::omp_link::LaunchSpec;
+use cedian_omp::model_roles::{ModelRoles, RoleModel, Thinking};
 use cedian_omp::omp_config::{Entry, Setting, layered, overlay_keys};
 use cedian_omp::{Layer, OmpConfig};
 use collections::HashSet;
 use editor::Editor;
+use futures::FutureExt as _;
 use futures::StreamExt as _;
+use futures::channel::oneshot;
+use futures::future::Shared;
 use gpui::{App, Context, Entity, FocusHandle, Focusable, Render, Task, Window};
 use project::Project;
 use serde_json::Value;
@@ -35,6 +39,9 @@ pub struct OmpSettings {
     value: Entity<Editor>,
     selected: Option<String>,
     _watch: Option<Task<()>>,
+    /// The last write's completion: the next write waits for it. The write
+    /// itself is detached, so closing Settings does not cancel it.
+    last_write: Option<Shared<oneshot::Receiver<()>>>,
 }
 
 impl OmpSettings {
@@ -70,6 +77,7 @@ impl OmpSettings {
             value,
             selected: None,
             _watch: None,
+            last_write: None,
         };
         // `omp` runs to choose the binary and read its allows: off the UI
         // thread (ADR-0057 decision 4).
@@ -179,18 +187,40 @@ impl OmpSettings {
         self.write(cx, move |config, cwd| config.reset(cwd, &key));
     }
 
-    /// Set one `modelRoles` entry: OMP takes the record whole, so read it,
-    /// change the entry, write it back (ADR-0045 decision 3).
+    /// The `modelRoles` record as the agent reports it.
+    pub fn roles(&self) -> ModelRoles {
+        ModelRoles::from_value(
+            self.setting("modelRoles")
+                .and_then(|setting| setting.entry.value.as_ref()),
+        )
+    }
+
+    /// Set one role: OMP takes the record whole, so the others are written
+    /// back unchanged (ADR-0045 decision 3).
     pub fn set_role(&mut self, role: &str, model: &str, cx: &mut Context<Self>) {
-        let mut roles = match self
-            .setting("modelRoles")
-            .and_then(|s| s.entry.value.clone())
-        {
-            Some(Value::Object(map)) => map,
-            _ => serde_json::Map::new(),
-        };
-        roles.insert(role.to_string(), Value::String(model.to_string()));
-        self.set_value("modelRoles", &Value::Object(roles).to_string(), cx);
+        let mut roles = self.roles();
+        roles.set(role, RoleModel::parse(model));
+        self.set_roles(&roles, cx);
+    }
+
+    /// Write the whole record. The page shows it at once, so a second change
+    /// before the agent's re-read builds on this one, not on the old record.
+    pub fn set_roles(&mut self, roles: &ModelRoles, cx: &mut Context<Self>) {
+        let value = roles.to_config_value();
+        if let Some(setting) = self.settings.iter_mut().find(|s| s.key == "modelRoles") {
+            setting.entry.value = serde_json::from_str(&value).ok();
+        }
+        self.set_value("modelRoles", &value, cx);
+    }
+
+    /// The agent's `defaultThinkingLevel`, once read.
+    pub fn default_thinking(&self) -> Option<Thinking> {
+        let value = self.setting("defaultThinkingLevel")?.entry.value.as_ref()?;
+        Thinking::parse(value.as_str()?)
+    }
+
+    pub fn set_default_thinking(&mut self, level: Thinking, cx: &mut Context<Self>) {
+        self.set_value("defaultThinkingLevel", level.as_str(), cx);
     }
 
     fn write(
@@ -204,9 +234,22 @@ impl OmpSettings {
             return;
         };
         let workdir = self.workdir.clone();
-        let task = cx.background_spawn(async move { op(&config, &workdir) });
+        let previous = self.last_write.take();
+        let (done, outcome) = oneshot::channel();
+        let (written, last_write) = oneshot::channel();
+        self.last_write = Some(last_write.shared());
+        cx.background_spawn(async move {
+            if let Some(previous) = previous {
+                previous.await.ok();
+            }
+            done.send(op(&config, &workdir)).ok();
+            written.send(()).ok();
+        })
+        .detach();
         cx.spawn(async move |this, cx| {
-            let outcome = task.await;
+            let Ok(outcome) = outcome.await else {
+                return;
+            };
             this.update(cx, |this, cx| {
                 this.message = Some(match outcome {
                     Ok(out) => match out.overridden_by {

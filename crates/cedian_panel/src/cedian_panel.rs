@@ -1,6 +1,7 @@
 //! cedian inside the Zed fork (S9a spike): the dock panel that talks to OMP
 //! through the cedian headless crates, and the agent-edit import.
 
+pub mod account_page;
 pub mod app_settings;
 pub mod attention;
 pub mod browser;
@@ -9,6 +10,7 @@ pub mod debug_tool;
 pub mod dialogs;
 pub mod import;
 pub mod instruments;
+pub mod models_page;
 pub mod omp_link;
 pub mod omp_settings;
 pub mod panel;
@@ -23,7 +25,7 @@ pub use cedian_omp::{Toast, ToastLevel};
 pub use omp_link::SessionSetting;
 pub use omp_settings::OmpSettings;
 pub use panel::{
-    BROWSER_GATE, CedianPanel, Connection, DIALOG_TIMEOUT, InlineEdit, ModelPicker, Onboarding,
-    RevertTurn, TASK_ID, ToggleFocus, Turn, init,
+    Account, BROWSER_GATE, CedianPanel, Connection, DIALOG_TIMEOUT, InlineEdit, KeyRestart,
+    ModelPicker, RevertTurn, TASK_ID, ToggleFocus, Turn, init,
 };
 pub use sessions::{History, SessionManager};

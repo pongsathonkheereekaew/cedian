@@ -2960,6 +2960,7 @@ dependencies = [
  "serde",
  "serde_json",
  "settings",
+ "settings_ui",
  "task",
  "terminal_view",
  "text",

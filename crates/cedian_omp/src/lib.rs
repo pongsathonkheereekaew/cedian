@@ -10,11 +10,14 @@
 )]
 
 pub mod agent_dirs;
+pub mod agent_import;
+pub mod api_keys;
 pub mod dialog;
 pub mod driver;
 pub mod errors;
 pub mod event_router;
 pub mod history;
+pub mod model_roles;
 pub mod omp_config;
 pub mod protected;
 pub mod runtime;

@@ -3,7 +3,11 @@ mod components;
 mod page_data;
 pub mod pages;
 
-pub use cedian::{CedianHost, set_host};
+pub use cedian::{
+    AgentPage, CedianHost, RowState, ScopeBadge, render_row, render_row_state, render_scope_badge,
+    set_host,
+};
+pub use components::{ModelChoice, SettingsSectionHeader, grouped as group_models, model_picker};
 
 use agent_skills::SkillIndex;
 use anyhow::{Context as _, Result};
@@ -58,8 +62,8 @@ use zed_actions::{
 
 use crate::components::{
     EnumVariantDropdown, NumberField, NumberFieldMode, NumberFieldType, SettingsInputField,
-    SettingsSectionHeader, font_picker, icon_theme_picker, render_ollama_model_picker,
-    text_field_a11y_state, theme_picker,
+    font_picker, icon_theme_picker, render_ollama_model_picker, text_field_a11y_state,
+    theme_picker,
 };
 use crate::pages::{
     CustomAgentForm, LlmProviderForm, McpServerForm, render_input_audio_device_dropdown,
@@ -1099,6 +1103,7 @@ enum SettingsPageItem {
     DynamicItem(DynamicItem),
     ActionLink(ActionLink),
     CedianRow(cedian::CedianRow),
+    CedianView(cedian::CedianView),
 }
 
 impl std::fmt::Debug for SettingsPageItem {
@@ -1118,6 +1123,7 @@ impl std::fmt::Debug for SettingsPageItem {
                 write!(f, "ActionLink({})", action_link.title)
             }
             SettingsPageItem::CedianRow(row) => write!(f, "CedianRow({})", row.title),
+            SettingsPageItem::CedianView(view) => write!(f, "CedianView({})", view.title),
         }
     }
 }
@@ -1366,6 +1372,15 @@ impl SettingsPageItem {
                     cedian::render_cedian_row(row, settings_window, window, cx).map(apply_padding),
                 )
                 .when(bottom_border, |this| this.child(Divider::horizontal()))
+                .into_any_element(),
+            SettingsPageItem::CedianView(view) => v_flex()
+                .px_8()
+                .child(cedian::render_cedian_view(
+                    view,
+                    settings_window,
+                    window,
+                    cx,
+                ))
                 .into_any_element(),
             SettingsPageItem::ActionLink(action_link) => v_flex()
                 .group("setting-item")
@@ -2270,7 +2285,7 @@ impl SettingsWindow {
                             any_found_since_last_header = true;
                         }
                     }
-                    SettingsPageItem::CedianRow(_) => {
+                    SettingsPageItem::CedianRow(_) | SettingsPageItem::CedianView(_) => {
                         if !USER.contains(current_file) {
                             page_filter[index] = false;
                         } else {
@@ -2538,6 +2553,19 @@ impl SettingsWindow {
                         });
                         push_candidates(&mut fuzzy_match_candidates, key_index, row.title);
                         push_candidates(&mut fuzzy_match_candidates, key_index, row.description);
+                    }
+                    SettingsPageItem::CedianView(view) => {
+                        documents.push(SearchDocument {
+                            id: key_index,
+                            words: split_into_words(&[
+                                page.title,
+                                header_str,
+                                view.title,
+                                view.keywords,
+                            ]),
+                        });
+                        push_candidates(&mut fuzzy_match_candidates, key_index, view.title);
+                        push_candidates(&mut fuzzy_match_candidates, key_index, view.keywords);
                     }
                 }
                 push_candidates(&mut fuzzy_match_candidates, key_index, page.title);

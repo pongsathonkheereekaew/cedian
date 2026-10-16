@@ -1,9 +1,9 @@
-//! `cedian agent import`: bring the person's OMP skills (and, on request,
-//! settings and model roles) into cedian's agent config dir (ADR-0078
-//! decision 5). The source is only read. Only the files named here are
-//! copied, an allow-list: auth (`agent.db`), `.env` and token files never
-//! are. A dry run by default; an existing target is refused without
-//! `--force`, before anything is written.
+//! Import from OMP (`cedian agent import`, Settings > Account): bring the
+//! person's OMP skills (and, on request, settings and model roles) into
+//! cedian's agent config dir (ADR-0078 decision 5). The source is only read.
+//! Only the files named here are copied, an allow-list: auth (`agent.db`),
+//! `.env` and token files never are. A dry run by default; an existing
+//! target is refused without `--force`, before anything is written.
 
 use std::path::{Path, PathBuf};
 
@@ -151,7 +151,30 @@ fn copy(from: &Path, to: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_dir::TestDir;
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("cedian-{tag}-{}", std::process::id()));
+            std::fs::remove_dir_all(&dir).ok();
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(std::fs::canonicalize(&dir).unwrap())
+        }
+    }
+
+    impl std::ops::Deref for TestDir {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
 
     fn omp_home(t: &TestDir) -> PathBuf {
         let agent = t.join("home/.omp/agent");

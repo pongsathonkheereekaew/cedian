@@ -403,7 +403,9 @@ pub struct CedianPanel {
     retrying: bool,
     /// The model and thinking-level picker (ADR-0057 decision 3).
     picker: ModelPicker,
-    onboarding: Option<Onboarding>,
+    account: Account,
+    /// The session has no model: the panel shows the providers to log in.
+    onboarding: bool,
     /// OMP's notices, oldest first, until dismissed (ADR-0057 decision 3),
     /// each with the id its Dismiss button names.
     toasts: Vec<(u64, cedian_omp::Toast)>,
@@ -518,22 +520,43 @@ pub struct ModelPicker {
     pub error: Option<String>,
 }
 
-/// Onboarding, while OMP's session has no model: OMP's login providers
-/// and the login the person runs (ADR-0057 decision 3).
+/// Sign-in to OMP's providers: Settings > Account, and the panel while the
+/// session has no model (ADR-0057 decision 3).
 #[derive(Debug, Clone, Default)]
-pub struct Onboarding {
+pub struct Account {
     pub providers: Vec<omp_rpc::LoginProvider>,
+    /// The provider list is being read.
+    pub checking: bool,
+    /// Each signed-in provider's stored credentials, as Log out lists them.
+    pub accounts: HashMap<String, Vec<omp_rpc::LogoutAccount>>,
+    /// Providers whose stored credentials could not be read, with why.
+    pub account_read_errors: HashMap<String, String>,
     /// The provider whose login runs now.
     pub running: Option<String>,
     /// OMP's sign-in page for the running login, kept as a link.
     pub url: Option<omp_rpc::OpenUrlUiRequest>,
     /// The dialogs OMP opened during the running login (its code prompt).
     pub dialogs: Vec<String>,
+    /// OMP's refusal of the provider list or of the last login or logout.
+    pub error: Option<String>,
+    /// A saved API key reaches OMP when it next starts (ADR-0082).
+    pub key_restart: KeyRestart,
+    /// Settings > Account is open: it also shows who is signed in.
+    pub shown_in_settings: bool,
     /// A login finished and the picker is being re-read: when OMP still has
     /// no model, the providers are read again.
-    pub logged_in: bool,
-    /// OMP's refusal of the provider list or of the last login.
-    pub error: Option<String>,
+    logged_in: bool,
+}
+
+/// Where a saved API key is on its way to OMP.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum KeyRestart {
+    #[default]
+    None,
+    /// A turn runs: OMP restarts when it ends.
+    AfterTurn,
+    /// OMP was restarted with the key.
+    Restarted,
 }
 
 /// Whether the system browser may open a login's page: `https`, or
@@ -632,7 +655,8 @@ impl CedianPanel {
             toasts: Vec::new(),
             next_toast: 0,
             picker: ModelPicker::default(),
-            onboarding: None,
+            account: Account::default(),
+            onboarding: false,
             session_notes: Vec::new(),
             retrying: false,
             calls: HashMap::default(),
@@ -840,8 +864,12 @@ impl CedianPanel {
         &self.picker
     }
 
-    pub fn onboarding(&self) -> Option<&Onboarding> {
-        self.onboarding.as_ref()
+    pub fn onboarding(&self) -> Option<&Account> {
+        self.onboarding.then_some(&self.account)
+    }
+
+    pub fn account(&self) -> &Account {
+        &self.account
     }
 
     /// Open or close the picker; opening reads OMP's choices.
@@ -875,6 +903,13 @@ impl CedianPanel {
 
     pub fn omp_policy_badge(&self) -> Option<&str> {
         self.omp_policy.as_deref()
+    }
+
+    /// Re-read the models OMP offers, for Settings > Models.
+    pub fn refresh_models(&self) {
+        if let Some(link) = &self.link {
+            link.refresh_picker();
+        }
     }
 
     pub fn connection(&self) -> &Connection {
@@ -2448,7 +2483,12 @@ impl CedianPanel {
         self.follow_ups.clear();
         self.retrying = false;
         self.picker = ModelPicker::default();
-        self.onboarding = None;
+        self.onboarding = false;
+        self.account.running = None;
+        self.account.url = None;
+        self.account.dialogs.clear();
+        self.account.key_restart = KeyRestart::None;
+        self.account.shown_in_settings = false;
         self.toasts.clear();
         self.session_notes.clear();
         self.edit_turn = None;
@@ -2546,7 +2586,7 @@ impl CedianPanel {
     }
 
     fn on_link_event(&mut self, event: LinkEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let was_running = matches!(self.turn, Turn::Queued | Turn::Streaming | Turn::Stopping);
+        let was_running = self.turn_running();
         if let LinkEvent::PromptTimed { .. }
         | LinkEvent::PromptCancelled
         | LinkEvent::PromptStopped(_)
@@ -2560,6 +2600,10 @@ impl CedianPanel {
             self.attention.push(Attention::TurnFinished);
         }
         self.send_next_if_due(window, cx);
+        if self.account.key_restart == KeyRestart::AfterTurn && !self.turn_running() {
+            self.restart(window, cx);
+            self.account.key_restart = KeyRestart::Restarted;
+        }
         self.tell(window, cx);
     }
 
@@ -2611,12 +2655,10 @@ impl CedianPanel {
                     cx,
                 );
                 self.forget_subagents();
-                self.onboarding = None;
-                let has_model = model.is_some();
+                self.onboarding = model.is_none();
                 self.picker.model = model;
-                if !has_model && let Some(link) = &self.link {
-                    self.onboarding = Some(Onboarding::default());
-                    link.login_providers();
+                if self.onboarding {
+                    self.refresh_account();
                 }
                 if thinking.is_some() {
                     self.picker.thinking = thinking;
@@ -2768,12 +2810,10 @@ impl CedianPanel {
             }
             LinkEvent::Event(RouterEvent::UiRequest(ExtensionUiRequest::Cancel(cancel))) => {
                 self.dialogs.shift_remove(&cancel.target_id);
-                if let Some(onboarding) = &mut self.onboarding
-                    && onboarding.dialogs.contains(&cancel.target_id)
-                {
-                    onboarding.running = None;
-                    onboarding.url = None;
-                    onboarding.dialogs.clear();
+                if self.account.dialogs.contains(&cancel.target_id) {
+                    self.account.running = None;
+                    self.account.url = None;
+                    self.account.dialogs.clear();
                 }
             }
             LinkEvent::Event(RouterEvent::UiRequest(ExtensionUiRequest::OpenUrl(request))) => {
@@ -2795,10 +2835,8 @@ impl CedianPanel {
                         cx.background_executor().timer(DIALOG_TIMEOUT).await;
                         this.update(cx, |this, cx| this.expire(&expiring, cx)).ok();
                     }));
-                    if let Some(onboarding) = &mut self.onboarding
-                        && onboarding.running.is_some()
-                    {
-                        onboarding.dialogs.push(id.clone());
+                    if self.account.running.is_some() {
+                        self.account.dialogs.push(id.clone());
                     }
                     self.dialogs.insert(id, dialog);
                 }
@@ -2854,40 +2892,72 @@ impl CedianPanel {
                 self.push_note(text);
             }
             LinkEvent::LoginProviders(result) => {
-                if let Some(onboarding) = &mut self.onboarding {
-                    match result {
-                        Ok(providers) => onboarding.providers = providers,
-                        Err(e) => onboarding.error = Some(e),
-                    }
-                }
-            }
-            LinkEvent::LoggedIn { provider, result } => {
-                // A cancelled login's late result leaves a later one running.
-                if let Some(onboarding) = &mut self.onboarding {
-                    if onboarding.running.as_deref() == Some(provider.as_str()) {
-                        onboarding.running = None;
-                        onboarding.url = None;
-                        onboarding.dialogs.clear();
-                    }
-                    match result {
-                        Ok(()) => {
-                            if let Some(link) = &self.link {
-                                link.refresh_picker();
-                                onboarding.logged_in = true;
+                self.account.checking = false;
+                match result {
+                    Ok(providers) => {
+                        self.account.accounts.retain(|id, _| {
+                            providers
+                                .iter()
+                                .any(|provider| provider.id == *id && provider.authenticated)
+                        });
+                        self.account.account_read_errors.clear();
+                        if let Some(link) = &self.link {
+                            for provider in self.accounts_to_read(&providers) {
+                                link.logout_accounts(provider);
                             }
                         }
-                        Err(e) => onboarding.error = Some(format!("login with {provider}: {e}")),
+                        self.account.providers = providers;
                     }
+                    Err(e) => self.account.error = Some(e),
                 }
             }
+            LinkEvent::LogoutAccounts { provider, result } => match result {
+                Ok(accounts) => {
+                    self.account.account_read_errors.remove(&provider);
+                    self.account.accounts.insert(provider, accounts);
+                }
+                Err(e) => {
+                    self.account.account_read_errors.insert(provider, e);
+                }
+            },
+            LinkEvent::LoggedIn { provider, result } => {
+                // A cancelled login's late result leaves a later one running.
+                if self.account.running.as_deref() == Some(provider.as_str()) {
+                    self.account.running = None;
+                    self.account.url = None;
+                    self.account.dialogs.clear();
+                }
+                match result {
+                    Ok(()) => {
+                        if let Some(link) = &self.link {
+                            link.refresh_picker();
+                            self.account.logged_in = true;
+                        }
+                        if self.account.shown_in_settings {
+                            self.refresh_account();
+                        }
+                    }
+                    Err(e) => self.account.error = Some(format!("login with {provider}: {e}")),
+                }
+            }
+            LinkEvent::LoggedOut { provider, result } => {
+                match result {
+                    Ok(()) => {
+                        if let Some(link) = &self.link {
+                            link.refresh_picker();
+                        }
+                    }
+                    Err(e) => self.account.error = Some(format!("log out of {provider}: {e}")),
+                }
+                self.refresh_account();
+            }
             LinkEvent::Picker(Ok(state)) => {
-                if state.model.is_some() {
-                    self.onboarding = None;
-                } else if let Some(onboarding) = &mut self.onboarding
-                    && std::mem::take(&mut onboarding.logged_in)
-                    && let Some(link) = &self.link
+                self.onboarding = state.model.is_none();
+                if std::mem::take(&mut self.account.logged_in)
+                    && self.onboarding
+                    && !self.account.shown_in_settings
                 {
-                    link.login_providers();
+                    self.refresh_account();
                 }
                 self.picker.models = state.models;
                 self.picker.levels = state.levels;
@@ -2898,7 +2968,7 @@ impl CedianPanel {
             LinkEvent::PickerChanged(Ok(change)) => {
                 if change.model.is_some() {
                     self.picker.model = change.model;
-                    self.onboarding = None;
+                    self.onboarding = false;
                 }
                 if change.thinking.is_some() {
                     self.picker.thinking = change.thinking;
@@ -4207,11 +4277,11 @@ impl CedianPanel {
     /// agent could read the page and its tokens. Any other `open_url` is
     /// only shown, so OMP or an extension cannot open pages unasked.
     fn open_url(&mut self, request: omp_rpc::OpenUrlUiRequest, cx: &mut Context<Self>) {
-        match &mut self.onboarding {
-            Some(onboarding) if onboarding.running.is_some() => match login_link(&request.url) {
+        match &mut self.account {
+            account if account.running.is_some() => match login_link(&request.url) {
                 Ok(link) => {
                     cx.open_url(&link);
-                    onboarding.url = Some(request);
+                    account.url = Some(request);
                 }
                 Err(e) => self.push_toast(cedian_omp::Toast {
                     level: cedian_omp::ToastLevel::Warning,
@@ -4232,15 +4302,43 @@ impl CedianPanel {
         self.toasts.drain(..excess);
     }
 
-    fn start_login(&mut self, provider: String, cx: &mut Context<Self>) {
-        let (Some(link), Some(onboarding)) = (&self.link, &mut self.onboarding) else {
+    /// Settings > Account opened: read the providers and who is signed in.
+    pub fn show_account(&mut self) {
+        self.account.shown_in_settings = true;
+        self.refresh_account();
+    }
+
+    pub fn hide_account(&mut self) {
+        self.account.shown_in_settings = false;
+    }
+
+    fn accounts_to_read(&self, providers: &[omp_rpc::LoginProvider]) -> Vec<String> {
+        if !self.account.shown_in_settings {
+            return Vec::new();
+        }
+        providers
+            .iter()
+            .filter(|provider| provider.authenticated)
+            .map(|provider| provider.id.clone())
+            .collect()
+    }
+
+    pub fn refresh_account(&mut self) {
+        if let Some(link) = &self.link {
+            self.account.checking = true;
+            link.login_providers();
+        }
+    }
+
+    pub fn start_login(&mut self, provider: String, cx: &mut Context<Self>) {
+        let Some(link) = &self.link else {
             return;
         };
-        if onboarding.running.is_some() {
+        if self.account.running.is_some() {
             return;
         }
-        onboarding.running = Some(provider.clone());
-        onboarding.error = None;
+        self.account.running = Some(provider.clone());
+        self.account.error = None;
         link.login(provider);
         cx.notify();
     }
@@ -4248,13 +4346,10 @@ impl CedianPanel {
     /// Cancel on a running login: OMP has no call to stop one, so its
     /// open prompts are dismissed (OMP's login then fails on its own) and
     /// the view leaves "signing in…" now.
-    fn cancel_login(&mut self, cx: &mut Context<Self>) {
-        let Some(onboarding) = &mut self.onboarding else {
-            return;
-        };
-        onboarding.running = None;
-        onboarding.url = None;
-        for id in std::mem::take(&mut onboarding.dialogs) {
+    pub fn cancel_login(&mut self, cx: &mut Context<Self>) {
+        self.account.running = None;
+        self.account.url = None;
+        for id in std::mem::take(&mut self.account.dialogs) {
             if self.dialogs.contains_key(&id) {
                 self.answer(&id, UserAnswer::Dismiss, cx);
             }
@@ -4262,10 +4357,41 @@ impl CedianPanel {
         cx.notify();
     }
 
+    /// Log out of every stored credential of `provider`.
+    pub fn log_out(&mut self, provider: &str, cx: &mut Context<Self>) {
+        let Some(link) = &self.link else {
+            return;
+        };
+        // Unread credentials would log out of nothing and report success.
+        let Some(accounts) = self.account.accounts.get(provider) else {
+            return;
+        };
+        self.account.error = None;
+        let credentials = accounts.iter().map(|a| a.credential_id).collect();
+        link.logout(provider.to_string(), credentials);
+        cx.notify();
+    }
+
+    /// A saved API key reaches OMP when it next starts (ADR-0082): now when
+    /// no turn runs, else when the turn ends.
+    pub fn restart_for_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.turn_running() {
+            self.account.key_restart = KeyRestart::AfterTurn;
+        } else {
+            self.restart(window, cx);
+            self.account.key_restart = KeyRestart::Restarted;
+        }
+        cx.notify();
+    }
+
+    fn turn_running(&self) -> bool {
+        matches!(self.turn, Turn::Queued | Turn::Streaming | Turn::Stopping)
+    }
+
     /// No model yet: OMP's providers, each with Log in, and the running
     /// login's sign-in link.
     fn render_onboarding(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let onboarding = self.onboarding.as_ref()?;
+        let onboarding = self.onboarding()?;
         let running = onboarding.running.clone();
         let providers = onboarding.providers.iter().map(|provider| {
             let selector = format!("cedian-login-{}", provider.id);
@@ -6203,14 +6329,14 @@ mod tests {
         init(cx);
         let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
-        let running = |provider: &str| Onboarding {
+        let running = |provider: &str| Account {
             running: Some(provider.to_string()),
             dialogs: vec!["login-code".to_string()],
             ..Default::default()
         };
         window
             .update(cx, |panel, window, cx| {
-                panel.onboarding = Some(running("anthropic"));
+                panel.account = running("anthropic");
                 panel.on_link_event(
                     LinkEvent::Event(RouterEvent::UiRequest(ExtensionUiRequest::Cancel(
                         omp_rpc::CancelUiRequest {
@@ -6221,17 +6347,13 @@ mod tests {
                     window,
                     cx,
                 );
-                assert_eq!(
-                    panel.onboarding.as_ref().unwrap().running,
-                    None,
-                    "cedian agent cancelled"
-                );
+                assert_eq!(panel.account.running, None, "cedian agent cancelled");
 
-                panel.onboarding = Some(running("anthropic"));
+                panel.account = running("anthropic");
                 panel.cancel_login(cx);
-                assert_eq!(panel.onboarding.as_ref().unwrap().running, None, "Cancel");
+                assert_eq!(panel.account.running, None, "Cancel");
 
-                panel.onboarding = Some(running("openai-codex"));
+                panel.account = running("openai-codex");
                 panel.on_link_event(
                     LinkEvent::LoggedIn {
                         provider: "anthropic".into(),
@@ -6240,10 +6362,235 @@ mod tests {
                     window,
                     cx,
                 );
-                assert_eq!(
-                    panel.onboarding.as_ref().unwrap().running.as_deref(),
-                    Some("openai-codex")
+                assert_eq!(panel.account.running.as_deref(), Some("openai-codex"));
+            })
+            .unwrap();
+    }
+
+    /// Settings > Account reads the providers whether or not the session
+    /// has a model; Log out's credentials come per signed-in provider, and a
+    /// refusal is kept for the row that caused it.
+    #[gpui::test]
+    async fn the_account_follows_the_agents_providers_and_logouts(cx: &mut TestAppContext) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let provider = |id: &str, authenticated| omp_rpc::LoginProvider {
+            id: id.into(),
+            name: id.to_uppercase(),
+            available: true,
+            authenticated,
+        };
+        window
+            .update(cx, |panel, window, cx| {
+                panel.account.checking = true;
+                panel.account.accounts.insert(
+                    "gone".into(),
+                    vec![omp_rpc::LogoutAccount {
+                        credential_id: 9,
+                        provider: "gone".into(),
+                        label: "old".into(),
+                        detail: String::new(),
+                        r#type: omp_rpc::LogoutAccountType::Oauth,
+                        active: false,
+                    }],
                 );
+                panel.on_link_event(
+                    LinkEvent::LoginProviders(Ok(vec![
+                        provider("anthropic", true),
+                        provider("openai", false),
+                    ])),
+                    window,
+                    cx,
+                );
+                assert!(!panel.account.checking);
+                assert_eq!(panel.account.providers.len(), 2);
+                assert!(
+                    panel.account.accounts.is_empty(),
+                    "a provider no longer signed in drops its credentials"
+                );
+                assert!(panel.onboarding().is_none(), "no session, no onboarding");
+
+                panel.on_link_event(
+                    LinkEvent::LogoutAccounts {
+                        provider: "anthropic".into(),
+                        result: Ok(vec![omp_rpc::LogoutAccount {
+                            credential_id: 1,
+                            provider: "anthropic".into(),
+                            label: "pond@example.com".into(),
+                            detail: String::new(),
+                            r#type: omp_rpc::LogoutAccountType::Oauth,
+                            active: true,
+                        }]),
+                    },
+                    window,
+                    cx,
+                );
+                assert_eq!(panel.account.accounts["anthropic"][0].credential_id, 1);
+
+                panel.on_link_event(
+                    LinkEvent::LoggedOut {
+                        provider: "anthropic".into(),
+                        result: Err("no longer stored".into()),
+                    },
+                    window,
+                    cx,
+                );
+                assert_eq!(
+                    panel.account.error.as_deref(),
+                    Some("log out of anthropic: no longer stored")
+                );
+            })
+            .unwrap();
+    }
+
+    /// A saved API key restarts the agent now when it is idle, and only
+    /// after the turn when one runs (ADR-0082). With no folder open, a
+    /// restart shows as "open a folder first".
+    #[gpui::test]
+    async fn a_saved_key_restarts_the_agent_when_the_turn_ends(cx: &mut TestAppContext) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let restarted = |panel: &CedianPanel| matches!(&panel.connection, Connection::Stopped(reason) if reason == "open a folder first");
+        window
+            .update(cx, |panel, window, cx| {
+                panel.connection = Connection::NotStarted;
+                panel.restart_for_key(window, cx);
+                assert!(restarted(panel), "idle: at once");
+
+                panel.connection = Connection::NotStarted;
+                panel.set_turn(Turn::Streaming);
+                panel.restart_for_key(window, cx);
+                panel.on_link_event(LinkEvent::Queued("still running".into()), window, cx);
+                assert!(!restarted(panel), "not while the turn runs");
+                panel.on_link_event(LinkEvent::PromptFailed("done".into()), window, cx);
+                assert_eq!(panel.turn, Turn::Idle);
+                assert!(restarted(panel), "when the turn ends");
+            })
+            .unwrap();
+    }
+
+    /// A key saved mid-turn, then a manual Restart: the fresh agent is the
+    /// one the key reaches, so it is not restarted again.
+    #[gpui::test]
+    async fn a_manual_restart_takes_a_pending_key_restart(cx: &mut TestAppContext) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        window
+            .update(cx, |panel, window, cx| {
+                panel.set_turn(Turn::Streaming);
+                panel.restart_for_key(window, cx);
+                panel.restart(window, cx);
+                panel.on_link_event(
+                    LinkEvent::Ready {
+                        session_id: "fresh".into(),
+                        session_file: None,
+                        resumed: false,
+                        policy_note: None,
+                        model: Some("anthropic/opus".into()),
+                        thinking: None,
+                        title: None,
+                    },
+                    window,
+                    cx,
+                );
+                assert!(
+                    matches!(&panel.connection, Connection::Ready { session_id, .. } if session_id == "fresh"),
+                    "restarted twice: {:?}",
+                    panel.connection
+                );
+            })
+            .unwrap();
+    }
+
+    /// Log out needs the provider's stored credentials: until they are
+    /// read it is off, and a failed read says so on the row.
+    #[gpui::test]
+    async fn log_out_waits_for_the_providers_credentials(cx: &mut TestAppContext) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let anthropic = omp_rpc::LoginProvider {
+            id: "anthropic".into(),
+            name: "Anthropic".into(),
+            available: true,
+            authenticated: true,
+        };
+        window
+            .update(cx, |panel, window, cx| {
+                panel.show_account();
+                panel.on_link_event(
+                    LinkEvent::LoginProviders(Ok(vec![anthropic.clone()])),
+                    window,
+                    cx,
+                );
+                let row = crate::account_page::provider_row(&panel.account, &anthropic);
+                assert_eq!(
+                    row.action,
+                    crate::account_page::ProviderAction::LogOutDisabled
+                );
+                assert_eq!(row.error, None);
+
+                panel.on_link_event(
+                    LinkEvent::LogoutAccounts {
+                        provider: "anthropic".into(),
+                        result: Err("store locked".into()),
+                    },
+                    window,
+                    cx,
+                );
+                let row = crate::account_page::provider_row(&panel.account, &anthropic);
+                assert_eq!(
+                    row.action,
+                    crate::account_page::ProviderAction::LogOutDisabled
+                );
+                assert_eq!(
+                    row.error.as_deref(),
+                    Some("Cannot read who is signed in: store locked")
+                );
+
+                panel.on_link_event(
+                    LinkEvent::LogoutAccounts {
+                        provider: "anthropic".into(),
+                        result: Ok(Vec::new()),
+                    },
+                    window,
+                    cx,
+                );
+                let row = crate::account_page::provider_row(&panel.account, &anthropic);
+                assert_eq!(row.action, crate::account_page::ProviderAction::LogOut);
+                assert_eq!(row.error, None);
+            })
+            .unwrap();
+    }
+
+    /// Who is signed in is read only while Settings > Account is open: a
+    /// restart forgets it, and so does closing the page.
+    #[gpui::test]
+    async fn signed_in_accounts_are_read_only_while_the_account_page_is_open(
+        cx: &mut TestAppContext,
+    ) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let providers = vec![omp_rpc::LoginProvider {
+            id: "anthropic".into(),
+            name: "Anthropic".into(),
+            available: true,
+            authenticated: true,
+        }];
+        window
+            .update(cx, |panel, window, cx| {
+                panel.show_account();
+                assert_eq!(panel.accounts_to_read(&providers), ["anthropic"]);
+                panel.hide_account();
+                assert!(panel.accounts_to_read(&providers).is_empty(), "closed");
+
+                panel.show_account();
+                panel.restart(window, cx);
+                assert!(panel.accounts_to_read(&providers).is_empty(), "restarted");
             })
             .unwrap();
     }
@@ -6489,12 +6836,22 @@ mod tests {
         });
         let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let state = std::env::temp_dir().join(format!("cedian-cmd-enter-{}", std::process::id()));
+        std::fs::create_dir_all(&state).unwrap();
+        let (events, _) = mpsc::unbounded::<LinkEvent>();
+        let link =
+            OmpLink::audit_only(events, &state, cedian_omp::SpawnPolicy::default().approvals)
+                .unwrap();
+        window
+            .update(cx, |panel, _, _| panel.link = Some(link))
+            .unwrap();
         let mut vcx = VisualTestContext::from_window(window.into(), cx);
         let press = |vcx: &mut VisualTestContext, turn: Turn, keys: &str| {
             window
                 .update(vcx, |panel, window, cx| {
                     panel.notice = None;
                     panel.after_stop = None;
+                    panel.follow_ups.clear();
                     panel.turn = turn;
                     panel.set_prompt("hello", window, cx);
                     window.focus(&panel.input.focus_handle(cx), cx);
@@ -6504,29 +6861,36 @@ mod tests {
             vcx.simulate_keystrokes(keys);
             vcx.run_until_parked();
             window
-                .read_with(vcx, |panel, _| {
+                .read_with(vcx, |panel, cx| {
                     (
-                        panel.notice().map(str::to_string),
+                        panel.turn.clone(),
+                        panel.follow_ups.len(),
+                        panel.input.read(cx).text(cx),
                         panel.next_prompt().map(str::to_string),
                     )
                 })
                 .unwrap()
         };
-        let (notice, _) = press(&mut vcx, Turn::Idle, "enter");
-        assert!(notice.is_some(), "Enter sends when idle");
-        let (notice, next) = press(&mut vcx, Turn::Streaming, "enter");
-        assert_eq!(next, None, "Enter during a turn does not steer");
+        let (turn, queued, composer, next) = press(&mut vcx, Turn::Streaming, "enter");
         assert_eq!(
-            notice.as_deref(),
-            Some("cedian agent is not running; restart it"),
-            "Enter during a turn queues"
+            turn,
+            Turn::Streaming,
+            "Enter during a turn leaves it running"
         );
-        let (_, next) = press(&mut vcx, Turn::Streaming, "cmd-enter");
+        assert_eq!(queued, 1, "Enter during a turn queues the message");
+        assert_eq!(
+            composer, "hello",
+            "the composer keeps it until the agent takes it"
+        );
+        assert_eq!(next, None, "Enter during a turn does not steer");
+        let (_, queued, _, next) = press(&mut vcx, Turn::Streaming, "cmd-enter");
+        assert_eq!(queued, 0, "Cmd+Enter does not queue");
         assert_eq!(
             next.as_deref(),
             Some("hello"),
             "Cmd+Enter steers the running turn"
         );
+        std::fs::remove_dir_all(&state).ok();
     }
 
     /// Settings acts on the workspace window that opened it, even when
@@ -6551,12 +6915,21 @@ mod tests {
             (window, panel)
         };
         let (_front, front_panel) = open(cx).await;
+        let unloaded = {
+            let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+            cx.add_window(|window, cx| workspace::MultiWorkspace::test_new(project, window, cx))
+        };
         let (origin, origin_panel) = open(cx).await;
         let target = |origin: Option<gpui::AnyWindowHandle>, cx: &mut TestAppContext| {
             cx.update(|cx| crate::settings_host::target(origin, cx).map(|(_, _, panel)| panel))
         };
         assert_eq!(target(Some(origin.into()), cx), Some(origin_panel));
         assert_eq!(target(None, cx), Some(front_panel.clone()));
+        assert_eq!(
+            target(Some(unloaded.into()), cx),
+            Some(front_panel.clone()),
+            "a window whose panel has not loaded falls back to the stack"
+        );
         origin
             .update(cx, |_, window, _| window.remove_window())
             .unwrap();
