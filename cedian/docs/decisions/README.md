@@ -89,3 +89,4 @@ One file per decision. Never edit an accepted ADR's decision — write a new ADR
 | [0083](0083-pstack-reaches-the-agent-through-the-spawn-profile.md) | pstack reaches the agent through the spawn profile; its switches live in `cedian.toml` and its model sheet in the agent's config dir |
 | [0084](0084-reads-scoped-to-the-project.md) | The agent's read tools see the project; anything outside asks, protected paths are denied |
 | [0085](0085-subagent-events-name-the-tree.md) | A subagent's events name the directory it works in; a write is attributed to the worker whose tree holds it |
+| [0086](0086-cedian-v0-1-is-declared.md) | cedian v0.1 is declared (Proposed) |
