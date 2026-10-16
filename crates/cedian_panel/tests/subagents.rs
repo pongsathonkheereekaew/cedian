@@ -282,7 +282,10 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
                 .find(|l| l.contains("fix the casing in w1"));
             let working_in = p
                 .subagents()
-                .working_in(&ws.join(".worktrees/w1"))
+                .working_in(
+                    &cedian_worker::canonical_path(&ws.join(".worktrees/w1")),
+                    cedian_worker::canonical_path,
+                )
                 .map(|row| row.id.clone());
             (line, working_in)
         })

@@ -246,7 +246,10 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         window
             .update(cx, |p, _, _| p
                 .subagents()
-                .working_in(&ws.join(".worktrees/w1"))
+                .working_in(
+                    &cedian_worker::canonical_path(&ws.join(".worktrees/w1")),
+                    cedian_worker::canonical_path
+                )
                 .map(|row| row.id.clone()))
             .unwrap()
             .as_deref(),
