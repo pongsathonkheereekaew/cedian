@@ -4,37 +4,23 @@
 //! running workers it belongs to. Commits are already read by
 //! [`WorkerHead::is_stuck`]; spawn and completion touch the field directly.
 
-use crate::brief::{Brief, WorkerScope};
+use crate::brief::Brief;
 use crate::registry::{Registry, WorkerError, WorkerStatus};
 use std::path::Path;
 
-/// Note progress on every running worker whose brief covers `path`
-/// (worktree-relative, `/` separators). Returns how many rows were touched.
-pub fn note_import(state: &Path, path: &str) -> Result<usize, WorkerError> {
+/// Note progress on `worker`, the running worker an imported edit was
+/// attributed to (`WorkerScope::attribute`). Whether a row was touched.
+pub fn note_import(state: &Path, worker: &str) -> Result<bool, WorkerError> {
     let _lock = Registry::lock(state)?;
     let (mut registry, _) = Registry::open(state)?;
-    let mut n = 0;
-    let ids: Vec<String> = registry
-        .all()
-        .filter(|h| h.status == WorkerStatus::Running)
-        .map(|h| h.id.clone())
-        .collect();
-    for id in ids {
-        let Ok(brief) = Brief::latest(state, &id) else {
-            continue;
-        };
-        let Ok(scope) = WorkerScope::new([(id.as_str(), &brief)]) else {
-            continue;
-        };
-        if scope.covers(path) {
-            registry.note_progress(&id)?;
-            n += 1;
-        }
-    }
-    if n > 0 {
+    let running = registry
+        .get(worker)
+        .is_some_and(|head| head.status == WorkerStatus::Running);
+    if running {
+        registry.note_progress(worker)?;
         registry.save(state)?;
     }
-    Ok(n)
+    Ok(running)
 }
 
 /// Note progress on every running worker whose brief lists `gate` in
@@ -104,18 +90,19 @@ mod tests {
     }
 
     #[test]
-    fn import_advances_only_workers_that_cover_the_path() {
+    fn import_advances_only_the_attributed_worker() {
         let repo = fixture();
         let state = repo.join(".cedian-state");
         std::fs::create_dir_all(&state).unwrap();
         scene(
             &state,
-            &[("w1", "notes.txt", "v"), ("w2", "other.txt", "v")],
+            &[("w1", "notes.txt", "v"), ("w2", "notes.txt", "v")],
         );
-        assert_eq!(note_import(&state, "notes.txt").unwrap(), 1);
+        assert!(note_import(&state, "w1").unwrap());
         let (reg, _) = Registry::open(&state).unwrap();
         assert!(reg.get("w1").unwrap().last_progress.unwrap() > 1);
         assert_eq!(reg.get("w2").unwrap().last_progress, Some(1));
+        assert!(!note_import(&state, "w9").unwrap(), "no such worker");
         let _ = std::fs::remove_dir_all(&repo);
     }
 
@@ -151,7 +138,7 @@ mod tests {
                 .unwrap();
             reg.save(&state).unwrap();
         }
-        assert_eq!(note_import(&state, "notes.txt").unwrap(), 0);
+        assert!(!note_import(&state, "w1").unwrap());
         assert_eq!(note_evidence(&state, "v").unwrap(), 0);
         let (reg, _) = Registry::open(&state).unwrap();
         assert_eq!(reg.get("w1").unwrap().last_progress, Some(1));

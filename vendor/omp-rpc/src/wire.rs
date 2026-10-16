@@ -3361,6 +3361,12 @@ pub struct SubagentSnapshot {
 	pub progress: Option<Map<String, Value>>,
 	#[serde(rename = "parentToolCallId", default, skip_serializing_if = "Option::is_none")]
 	pub parent_tool_call_id: Option<String>,
+	/// Absolute path of the directory the subagent works in: its isolated worktree when OMP made one, else its cwd.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cwd: Option<String>,
+	/// Set only when OMP made an isolated worktree for this subagent; then equals `cwd`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub worktree: Option<String>,
 }
 
 /// Incremental subagent transcript read.
@@ -4098,6 +4104,12 @@ pub struct SubagentLifecyclePayload {
 	/// The subagent runs as a detached background job.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detached: Option<bool>,
+	/// Absolute path of the directory the subagent works in: its isolated worktree when OMP made one, else its cwd.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cwd: Option<String>,
+	/// Set only when OMP made an isolated worktree for this subagent; then equals `cwd`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub worktree: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4117,6 +4129,12 @@ pub struct SubagentProgressPayload {
 	pub session_file: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detached: Option<bool>,
+	/// Absolute path of the directory the subagent works in: its isolated worktree when OMP made one, else its cwd.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cwd: Option<String>,
+	/// Set only when OMP made an isolated worktree for this subagent; then equals `cwd`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub worktree: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4712,13 +4730,34 @@ pub struct HostUriResult {
 	pub error: Option<String>,
 }
 
-/// Server request for host-owned tools and URI schemes, discriminated by `type`.
+/// One DAP protocol message on a host debug session; the server sends requests, the host sends responses and events. The host decides what each request, including `terminate` and `disconnect`, does to its own session.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostDapMessage {
+	#[serde(rename = "sessionId")]
+	pub session_id: String,
+	pub message: Map<String, Value>,
+}
+
+/// Ends a host debug session. From the server it means the agent detached (terminate, idle timeout, shutdown), not that the host must stop debugging; from the host it fails pending requests with `error`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostDapClose {
+	#[serde(rename = "sessionId")]
+	pub session_id: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<String>,
+}
+
+/// Server request for host-owned tools, URI schemes, and debug sessions, discriminated by `type`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RpcHostRequest {
 	HostToolCall(HostToolCallRequest),
 	HostToolCancel(HostToolCancelRequest),
 	HostUriRequest(HostUriRequest),
 	HostUriCancel(HostUriCancelRequest),
+	/// One DAP protocol message on a host debug session; the server sends requests, the host sends responses and events. The host decides what each request, including `terminate` and `disconnect`, does to its own session.
+	HostDapMessage(HostDapMessage),
+	/// Ends a host debug session. From the server it means the agent detached (terminate, idle timeout, shutdown), not that the host must stop debugging; from the host it fails pending requests with `error`.
+	HostDapClose(HostDapClose),
 }
 
 impl RpcHostRequest {
@@ -4729,6 +4768,8 @@ impl RpcHostRequest {
 			Some("host_tool_cancel") => |value| serde_json::from_value(value).map(Self::HostToolCancel),
 			Some("host_uri_request") => |value| serde_json::from_value(value).map(Self::HostUriRequest),
 			Some("host_uri_cancel") => |value| serde_json::from_value(value).map(Self::HostUriCancel),
+			Some("host_dap_message") => |value| serde_json::from_value(value).map(Self::HostDapMessage),
+			Some("host_dap_close") => |value| serde_json::from_value(value).map(Self::HostDapClose),
 			other => {
 				return Err(serde_json::Error::custom(format!("unknown RpcHostRequest type {other:?}")));
 			}
@@ -4744,6 +4785,8 @@ impl Serialize for RpcHostRequest {
 			Self::HostToolCancel(member) => serialize_tagged(member, &[("type", "host_tool_cancel")], serializer),
 			Self::HostUriRequest(member) => serialize_tagged(member, &[("type", "host_uri_request")], serializer),
 			Self::HostUriCancel(member) => serialize_tagged(member, &[("type", "host_uri_cancel")], serializer),
+			Self::HostDapMessage(member) => serialize_tagged(member, &[("type", "host_dap_message")], serializer),
+			Self::HostDapClose(member) => serialize_tagged(member, &[("type", "host_dap_close")], serializer),
 		}
 	}
 }
@@ -4765,6 +4808,10 @@ pub enum RpcInbound {
 	HostToolResult(HostToolResult),
 	/// Completes a pending host URI request.
 	HostUriResult(HostUriResult),
+	/// One DAP protocol message on a host debug session; the server sends requests, the host sends responses and events. The host decides what each request, including `terminate` and `disconnect`, does to its own session.
+	HostDapMessage(HostDapMessage),
+	/// Ends a host debug session. From the server it means the agent detached (terminate, idle timeout, shutdown), not that the host must stop debugging; from the host it fails pending requests with `error`.
+	HostDapClose(HostDapClose),
 }
 
 impl RpcInbound {
@@ -4775,6 +4822,8 @@ impl RpcInbound {
 			Some("host_tool_update") => |value| serde_json::from_value(value).map(Self::HostToolUpdate),
 			Some("host_tool_result") => |value| serde_json::from_value(value).map(Self::HostToolResult),
 			Some("host_uri_result") => |value| serde_json::from_value(value).map(Self::HostUriResult),
+			Some("host_dap_message") => |value| serde_json::from_value(value).map(Self::HostDapMessage),
+			Some("host_dap_close") => |value| serde_json::from_value(value).map(Self::HostDapClose),
 			other => {
 				return Err(serde_json::Error::custom(format!("unknown RpcInbound type {other:?}")));
 			}
@@ -4790,6 +4839,8 @@ impl Serialize for RpcInbound {
 			Self::HostToolUpdate(member) => serialize_tagged(member, &[("type", "host_tool_update")], serializer),
 			Self::HostToolResult(member) => serialize_tagged(member, &[("type", "host_tool_result")], serializer),
 			Self::HostUriResult(member) => serialize_tagged(member, &[("type", "host_uri_result")], serializer),
+			Self::HostDapMessage(member) => serialize_tagged(member, &[("type", "host_dap_message")], serializer),
+			Self::HostDapClose(member) => serialize_tagged(member, &[("type", "host_dap_close")], serializer),
 		}
 	}
 }
@@ -4977,7 +5028,7 @@ impl<'de> Deserialize<'de> for RpcNotification {
 pub enum RpcServerFrame {
 	/// Response to a command, correlated by `id`.
 	Response(RpcResponse),
-	/// Server request for host-owned tools and URI schemes, discriminated by `type`.
+	/// Server request for host-owned tools, URI schemes, and debug sessions, discriminated by `type`.
 	RpcHostRequest(RpcHostRequest),
 	/// Unsolicited outbound frame (everything except responses and host tool/URI requests), discriminated by `type`.
 	RpcNotification(RpcNotification),
@@ -4990,7 +5041,7 @@ impl RpcServerFrame {
 	pub fn from_value(value: Value) -> Result<Self, serde_json::Error> {
 		let decode: fn(Value) -> Result<Self, serde_json::Error> = match value.get("type").and_then(Value::as_str) {
 			Some("response") => |value| serde_json::from_value(value).map(Self::Response),
-			Some("host_tool_call" | "host_tool_cancel" | "host_uri_request" | "host_uri_cancel") => |value| serde_json::from_value(value).map(Self::RpcHostRequest),
+			Some("host_tool_call" | "host_tool_cancel" | "host_uri_request" | "host_uri_cancel" | "host_dap_message" | "host_dap_close") => |value| serde_json::from_value(value).map(Self::RpcHostRequest),
 			Some("ready" | "prompt_result" | "session_settled" | "extension_error" | "extension_ui_request" | "available_commands_update" | "subagent_lifecycle" | "subagent_progress" | "subagent_event" | "live_phase" | "live_levels" | "live_transcript" | "live_end" | "btw_delta" | "btw_record" | "command_output" | "session_info_update" | "config_update" | "rpc_frame_error" | "agent_start" | "agent_end" | "turn_start" | "turn_end" | "message_start" | "message_update" | "message_end" | "tool_execution_start" | "tool_execution_update" | "tool_stream_update" | "tool_execution_end" | "auto_compaction_start" | "auto_compaction_end" | "auto_retry_start" | "auto_retry_end" | "cache_warming_start" | "cache_warming_end" | "retry_fallback_applied" | "retry_fallback_succeeded" | "model_changed" | "config_warnings_changed" | "advisor_cost_changed" | "advisor_yielded" | "ttsr_triggered" | "todo_reminder" | "todo_auto_clear" | "irc_message" | "notice" | "thinking_level_changed" | "goal_updated" | "queue_update") => |value| serde_json::from_value(value).map(Self::RpcNotification),
 			_ => |value| Ok(Self::Unknown(value)),
 		};
@@ -5163,6 +5214,16 @@ pub struct SetHostUriSchemesParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetHostUriSchemesResult {
 	pub schemes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHostDebugParams {
+	pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHostDebugResult {
+	pub enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -6227,6 +6288,22 @@ impl Command for SetHostUriSchemesCommand {
 
 	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
 		serde_json::from_value::<SetHostUriSchemesResult>(data.unwrap_or_else(|| Value::Object(Map::new()))).map(|result| result.schemes)
+	}
+}
+
+/// Route the `debug` tool's launch/attach to the host's debugger session over `host_dap_message` frames.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHostDebugCommand {
+	pub enabled: bool,
+}
+
+impl Command for SetHostDebugCommand {
+	const NAME: &'static str = "set_host_debug";
+	const TIMEOUT_MS: Option<u64> = None;
+	type Output = bool;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<SetHostDebugResult>(data.unwrap_or_else(|| Value::Object(Map::new()))).map(|result| result.enabled)
 	}
 }
 

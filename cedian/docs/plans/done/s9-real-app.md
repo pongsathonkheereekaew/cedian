@@ -144,7 +144,7 @@ Decided with the owner on 2026-10-10 ([ADR-0058](../../decisions/0058-u12-benchm
 
 ## Exit evidence
 
-Closed 2026-10-14 as a partial exit ([ADR-0068](../../decisions/0068-s9-closes-as-a-partial-exit.md)). S9's own exit holds; one of the slices it closes (S5) does not.
+Closed 2026-10-14 as a partial exit ([ADR-0068](../../decisions/0068-s9-closes-as-a-partial-exit.md)). S9's own exit holds; one of the slices it closes (S5) did not until 2026-10-16, when the fork named the directory a subagent works in ([ADR-0085](../../decisions/0085-subagent-events-name-the-tree.md)).
 
 | Exit item (ROADMAP S9) | Holds | Evidence |
 |---|---|---|
@@ -154,7 +154,7 @@ Closed 2026-10-14 as a partial exit ([ADR-0068](../../decisions/0068-s9-closes-a
 | The ADR-0026 benchmark re-run on the app | yes | U12 (pass `u12`, 2026-10-11): B1–B10 in both mandate arms, the release frame time (p99 1.0 to 1.9 ms), per-turn overhead, in [docs/benchmarks/2026-10-11](../../benchmarks/2026-10-11/README.md) |
 | Stand-ins B, D, G, H, I deleted | yes | U6 (B, fork `224b092227`), U7 (D, `bcc37a9269`), G (`c41e5623c8`), U11 (H, `408b973bb7`; I, `192a35846a`) |
 | Closes S4 (ADR-0038) | yes | U7 and U9: one Chromium per workspace shared with OMP, a browser-wide frame sequence, `stale-frame` real, the gate consuming the evidence in the app |
-| Closes S5 (ADR-0038) | **no** | every implementable item is in the app (2026-10-13); OMP's subagent events name no worktree, so which subagent works in which tree is unknown until OMP names it (ROADMAP Follow-ups) |
+| Closes S5 (ADR-0038) | yes (2026-10-16) | every implementable item was in the app on 2026-10-13; the last item landed in S10 through the fork: the subagent events name the directory the subagent works in, the panel row shows it, and a write under a worker's tree is attributed to that worker and judged by its brief ([ADR-0085](../../decisions/0085-subagent-events-name-the-tree.md); fork tests on the payloads, `cedian_panel` replay tests with `cwd` in the frames) |
 
 Left for S10 or later, each a ROADMAP Follow-ups row: Tab completion with a predictor not tied to a Zed account; the mandate arm's ~5 s post-turn work and b3's fake-LSP verdict (the next benchmark pass); the record lanes' predicates; the parity core's remaining gaps; the long tail of "Zed" strings.
 

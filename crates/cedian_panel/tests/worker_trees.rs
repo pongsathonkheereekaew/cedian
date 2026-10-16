@@ -35,6 +35,7 @@
 use cedian_omp::SubagentStatus;
 use cedian_panel::worker_trees::read;
 use cedian_panel::{CedianPanel, Connection, Turn};
+use cedian_review::HunkStatus;
 use cedian_worker::{Registry, TreeClass, WorkerStatus};
 use gpui::{TestAppContext, VisualTestContext, WindowHandle};
 use project::Project;
@@ -200,6 +201,101 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         rendered(&mut vcx, "cedian-worker-plain-remove").is_some(),
         "a tree with no row of its own still shows"
     );
+
+    // 2b. A `task` call's subagent works in w1's tree (`work in w1`): its
+    // row names the tree and `working_in` links it to w1. Of the two files
+    // it writes (open, so the call's import reads them), `notes.txt` is in
+    // w1's brief and advances w1; `other.txt` is not, so it is out of
+    // scope, audited naming the subagent and the worker, and Merge is
+    // refused until a person accepts it.
+    std::fs::write(ws.join(".worktrees/w1/other.txt"), "before\n").unwrap();
+    let mut open = Vec::new();
+    for file in ["notes.txt", "other.txt"] {
+        open.push(
+            project
+                .update(cx, |project, cx| {
+                    project.open_local_buffer(ws.join(".worktrees/w1").join(file), cx)
+                })
+                .await
+                .unwrap(),
+        );
+    }
+    let progress = || {
+        Registry::open(&state)
+            .unwrap()
+            .0
+            .get("w1")
+            .unwrap()
+            .last_progress
+    };
+    let spawned = progress();
+    submit(cx, &window, "work in w1");
+    wait(cx, &window, "other.txt out of scope", |p| {
+        p.turn() == &Turn::Idle && p.review().out_of_scope_count() == 1
+    });
+    let line = window
+        .update(cx, |p, _, _| {
+            p.transcript()
+                .into_iter()
+                .find(|l| l.contains("fix the casing in w1"))
+        })
+        .unwrap()
+        .expect("the subagent's row");
+    assert!(line.ends_with(" in .worktrees/w1"), "{line}");
+    assert_eq!(
+        window
+            .update(cx, |p, _, _| p
+                .subagents()
+                .working_in(
+                    &cedian_worker::canonical_path(&ws.join(".worktrees/w1")),
+                    cedian_worker::canonical_path
+                )
+                .map(|row| row.id.clone()))
+            .unwrap()
+            .as_deref(),
+        Some("sa-w1")
+    );
+    assert!(progress() > spawned, "notes.txt advanced w1");
+    let audit = std::fs::read_to_string(state.join("audit.jsonl")).unwrap();
+    let breach: serde_json::Value = audit
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .find(|row| row["item"]["event"] == "out_of_scope")
+        .unwrap_or_else(|| panic!("an out_of_scope row: {audit}"));
+    assert_eq!(
+        (&breach["item"]["subagent"], &breach["item"]["workers"]),
+        (&serde_json::json!("sa-w1"), &serde_json::json!(["w1"]))
+    );
+    click(&mut vcx, "cedian-worker-w1-merge");
+    wait(cx, &window, "the merge refusal", |p| {
+        p.notice().is_some_and(|n| n.contains("merge refused"))
+    });
+    window
+        .update(cx, |p, _, cx| {
+            let review = p.review();
+            let (path, key) = review
+                .files()
+                .iter()
+                .find_map(|file| {
+                    let hunk = file
+                        .hunks()
+                        .iter()
+                        .find(|h| h.status == HunkStatus::OutOfScope)?;
+                    Some((review.path(file, cx), hunk.key.clone()))
+                })
+                .expect("the out-of-scope hunk");
+            p.accept_hunk(&path, &key, cx);
+        })
+        .unwrap();
+    assert_eq!(
+        window
+            .update(cx, |p, _, _| p.review().out_of_scope_count())
+            .unwrap(),
+        0,
+        "a person accepted it"
+    );
+    drop(open);
+    std::fs::remove_file(ws.join(".worktrees/w1/other.txt")).unwrap();
 
     // 3. A tracked edit in the tree: the row reads `wip`.
     std::fs::write(ws.join(".worktrees/w1/notes.txt"), "base\nworker edit\n").unwrap();

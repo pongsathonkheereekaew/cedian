@@ -2,8 +2,8 @@
 //! request or `cedian worker spawn` must carry before anything is created.
 //! One validator, so the agent and headless paths cannot disagree.
 //!
-//! [`WorkerScope`] compiles the briefs' globs into the turn's write scope
-//! (ADR-0063): the rule lives here, so the panel never re-implements it.
+//! [`WorkerScope`] compiles the briefs' globs per worker tree and attributes
+//! a write to its tree: the rule lives here, so the panel never re-implements it.
 
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::Serialize;
@@ -21,61 +21,110 @@ pub struct Scope {
     pub deny: Vec<String>,
 }
 
-/// One turn's write scope: the compiled globs of one or more briefs
-/// (ADR-0063 decision 1–2). `src/**` covers the subtree (`src/lib.rs`,
-/// `src/a/b.rs`); a path is worktree-relative with `/` separators. A path is
-/// in scope when some brief's `scope.write` matches it and no brief's
-/// `scope.deny` does.
+/// One turn's write scope, keyed by worker tree: each running worker's
+/// compiled brief, rooted at its worktree. A write is attributed to the tree
+/// it lands in and checked against that tree's brief alone. `src/**` covers
+/// the subtree (`src/lib.rs`, `src/a/b.rs`); globs are tree-relative.
 #[derive(Debug)]
 pub struct WorkerScope {
-    briefs: Vec<BriefScope>,
+    trees: Vec<TreeScope>,
 }
 
 #[derive(Debug)]
-struct BriefScope {
-    /// The running worker whose brief this is (ADR-0063 decision 4): the
-    /// union cannot say which worker a path belongs to, so each is named.
+struct TreeScope {
     worker: String,
+    root: PathBuf,
     write: GlobSet,
     deny: GlobSet,
 }
 
+/// Which running worker's tree a write landed in, and whether its brief
+/// allows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attribution<'a> {
+    pub worker: &'a str,
+    /// Tree-relative, `/` separators.
+    pub rel: String,
+    pub in_scope: bool,
+}
+
 impl WorkerScope {
-    /// Compile `briefs` — each `(worker id, brief)` — into one scope. A glob
-    /// that will not compile is an error naming it, never a silent non-match.
+    /// Compile `briefs` — each `(worker id, worktree path relative to
+    /// `repo`, brief)`. A glob that will not compile is an error naming it,
+    /// never a silent non-match.
     pub fn new<'a>(
-        briefs: impl IntoIterator<Item = (&'a str, &'a Brief)>,
+        repo: &Path,
+        briefs: impl IntoIterator<Item = (&'a str, &'a str, &'a Brief)>,
     ) -> Result<Self, ScopeError> {
-        let mut out = Vec::new();
-        for (worker, brief) in briefs {
-            out.push(BriefScope {
+        let mut trees = Vec::new();
+        for (worker, worktree, brief) in briefs {
+            trees.push(TreeScope {
                 worker: worker.to_string(),
+                root: canonical_path(&repo.join(worktree)),
                 write: compile(&brief.scope.write)?,
                 deny: compile(&brief.scope.deny)?,
             });
         }
-        Ok(Self { briefs: out })
+        Ok(Self { trees })
     }
 
-    /// Whether `path` (worktree-relative, `/` separators) is writable.
-    pub fn covers(&self, path: &str) -> bool {
-        self.briefs.iter().any(|b| b.write.is_match(path))
-            && !self.briefs.iter().any(|b| b.deny.is_match(path))
-    }
-
-    /// The running workers the scope was built from, named in the audit row
-    /// a breach writes (ADR-0063 decision 4).
-    pub fn workers(&self) -> impl Iterator<Item = &str> {
-        self.briefs.iter().map(|b| b.worker.as_str())
-    }
-
-    /// Workers whose own brief covers `path` (write matches, deny does not).
-    /// Used for import progress (ADR-0033 decision 5): an edit advances only
-    /// the workers that may write that path, not every running worker.
-    pub fn covering<'a>(&'a self, path: &'a str) -> impl Iterator<Item = &'a str> + 'a {
-        self.briefs.iter().filter_map(move |b| {
-            (b.write.is_match(path) && !b.deny.is_match(path)).then_some(b.worker.as_str())
+    /// The running worker whose tree holds `abs`, the tree-relative path,
+    /// and whether that worker's brief allows it. `None`: under no running
+    /// worker's tree.
+    pub fn attribute(&self, abs: &Path) -> Option<Attribution<'_>> {
+        let abs = canonical_path(abs);
+        let (tree, rel) = self
+            .trees
+            .iter()
+            .filter_map(|tree| Some((tree, abs.strip_prefix(&tree.root).ok()?)))
+            .max_by_key(|(tree, _)| tree.root.components().count())?;
+        let rel = rel
+            .components()
+            .map(|part| part.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        let in_scope = tree.write.is_match(&rel) && !tree.deny.is_match(&rel);
+        Some(Attribution {
+            worker: &tree.worker,
+            rel,
+            in_scope,
         })
+    }
+
+    /// Where `worker`'s tree is, when it is one the scope was built from.
+    pub fn root(&self, worker: &str) -> Option<&Path> {
+        self.trees
+            .iter()
+            .find(|tree| tree.worker == worker)
+            .map(|tree| tree.root.as_path())
+    }
+
+    /// The running workers the scope was built from.
+    pub fn workers(&self) -> impl Iterator<Item = &str> {
+        self.trees.iter().map(|tree| tree.worker.as_str())
+    }
+}
+
+/// `path` as the filesystem spells it — symlinks resolved, so `/var` and
+/// `/private/var` meet — with the part that does not exist yet kept as
+/// written. A tree root and a write must be compared in one spelling.
+pub fn canonical_path(path: &Path) -> PathBuf {
+    let mut existing = path;
+    let mut missing = Vec::new();
+    loop {
+        if let Ok(real) = std::fs::canonicalize(existing) {
+            return missing
+                .iter()
+                .rev()
+                .fold(real, |joined, part| joined.join(part));
+        }
+        match (existing.parent(), existing.file_name()) {
+            (Some(parent), Some(name)) => {
+                missing.push(name);
+                existing = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
     }
 }
 
@@ -448,67 +497,112 @@ mod tests {
         }
     }
 
+    fn one_tree(brief: &Brief) -> WorkerScope {
+        WorkerScope::new(Path::new("/ws"), [("w1", ".worktrees/w1", brief)]).unwrap()
+    }
+
+    fn in_scope(scope: &WorkerScope, abs: &str) -> Option<bool> {
+        scope.attribute(Path::new(abs)).map(|a| a.in_scope)
+    }
+
     /// `src/**` covers the subtree; a sibling tree is not in scope.
     #[test]
     fn a_subtree_glob_covers_its_files() {
-        let brief = scope_brief(&["src/**"], &[]);
-        let scope = WorkerScope::new([("w1", &brief)]).unwrap();
-        assert!(scope.covers("src/lib.rs"), "a file one level down");
-        assert!(scope.covers("src/a/b.rs"), "a file deeper still");
-        assert!(!scope.covers("docs/x.md"), "outside the subtree");
-        assert!(!scope.covers("srcs/lib.rs"), "a prefix is not the subtree");
+        let scope = one_tree(&scope_brief(&["src/**"], &[]));
+        let w1 = "/ws/.worktrees/w1";
+        assert_eq!(in_scope(&scope, &format!("{w1}/src/lib.rs")), Some(true));
+        assert_eq!(in_scope(&scope, &format!("{w1}/src/a/b.rs")), Some(true));
+        assert_eq!(in_scope(&scope, &format!("{w1}/docs/x.md")), Some(false));
+        assert_eq!(in_scope(&scope, &format!("{w1}/srcs/lib.rs")), Some(false));
     }
 
     #[test]
     fn a_deny_glob_wins_over_a_write_glob() {
-        let brief = scope_brief(&["src/**"], &["src/secret/**"]);
-        let scope = WorkerScope::new([("w1", &brief)]).unwrap();
-        assert!(scope.covers("src/lib.rs"));
-        assert!(!scope.covers("src/secret/key.rs"), "the deny wins");
-    }
-
-    /// Several running briefs union (ADR-0063 decision 1): a path one allows
-    /// is in scope, and a path any denies is out.
-
-    #[test]
-    fn covering_names_only_workers_whose_brief_allows_the_path() {
-        let a = scope_brief(&["src/**"], &[]);
-        let b = scope_brief(&["docs/**"], &["docs/private.md"]);
-        let scope = WorkerScope::new([("wa", &a), ("wb", &b)]).unwrap();
-        assert_eq!(scope.covering("src/lib.rs").collect::<Vec<_>>(), vec!["wa"]);
-        assert_eq!(scope.covering("docs/x.md").collect::<Vec<_>>(), vec!["wb"]);
-        assert!(scope.covering("docs/private.md").next().is_none());
-        assert!(scope.covering("other.txt").next().is_none());
-    }
-
-    #[test]
-    fn several_briefs_union() {
-        let a = scope_brief(&["src/**"], &[]);
-        let b = scope_brief(&["docs/**"], &["docs/private.md"]);
-        let scope = WorkerScope::new([("wa", &a), ("wb", &b)]).unwrap();
-        assert!(scope.covers("src/lib.rs"), "the first brief allows it");
-        assert!(scope.covers("docs/x.md"), "only the second allows it");
-        assert!(!scope.covers("docs/private.md"), "the second denies it");
-        assert!(!scope.covers("other.txt"), "no brief allows it");
+        let scope = one_tree(&scope_brief(&["src/**"], &["src/secret/**"]));
+        assert_eq!(in_scope(&scope, "/ws/.worktrees/w1/src/lib.rs"), Some(true));
         assert_eq!(
-            scope.workers().collect::<Vec<_>>(),
-            vec!["wa", "wb"],
-            "the scope names the workers it was built from"
+            in_scope(&scope, "/ws/.worktrees/w1/src/secret/key.rs"),
+            Some(false),
+            "the deny wins"
         );
+    }
+
+    /// Each write is attributed to the tree it lands in and checked against
+    /// that tree's brief alone: another brief allowing the path does not help.
+    #[test]
+    fn a_write_is_attributed_to_its_own_tree_and_brief() {
+        let a = scope_brief(&["src/**"], &[]);
+        let b = scope_brief(&["docs/**"], &["docs/private.md"]);
+        let scope = WorkerScope::new(
+            Path::new("/ws"),
+            [("wa", ".worktrees/wa", &a), ("wb", ".worktrees/wb", &b)],
+        )
+        .unwrap();
+        let attribution = scope
+            .attribute(Path::new("/ws/.worktrees/wa/src/lib.rs"))
+            .unwrap();
+        assert_eq!(
+            (
+                attribution.worker,
+                attribution.rel.as_str(),
+                attribution.in_scope
+            ),
+            ("wa", "src/lib.rs", true)
+        );
+        let crossed = scope
+            .attribute(Path::new("/ws/.worktrees/wb/src/lib.rs"))
+            .unwrap();
+        assert_eq!((crossed.worker, crossed.in_scope), ("wb", false));
+        assert_eq!(in_scope(&scope, "/ws/.worktrees/wb/docs/x.md"), Some(true));
+        assert_eq!(
+            in_scope(&scope, "/ws/.worktrees/wb/docs/private.md"),
+            Some(false)
+        );
+        assert_eq!(in_scope(&scope, "/ws/src/lib.rs"), None, "under no tree");
+        assert_eq!(in_scope(&scope, "/ws/.worktrees/wab/src/lib.rs"), None);
+        assert_eq!(scope.workers().collect::<Vec<_>>(), vec!["wa", "wb"]);
     }
 
     /// A malformed glob is an error naming the pattern, never a non-match.
     #[test]
     fn a_malformed_glob_is_an_error_naming_it() {
         let brief = scope_brief(&["src/**", "src/["], &[]);
-        let err = WorkerScope::new([("w1", &brief)]).unwrap_err();
+        let err =
+            WorkerScope::new(Path::new("/ws"), [("w1", ".worktrees/w1", &brief)]).unwrap_err();
         assert_eq!(err.pattern, "src/[");
         assert!(err.to_string().contains("src/["), "{err}");
         let deny_only = scope_brief(&["src/**"], &["["]);
         assert_eq!(
-            WorkerScope::new([("w1", &deny_only)]).unwrap_err().pattern,
+            WorkerScope::new(Path::new("/ws"), [("w1", ".worktrees/w1", &deny_only)])
+                .unwrap_err()
+                .pattern,
             "["
         );
+    }
+
+    /// A tree reached through a symlink and a write named by its real path
+    /// (or the reverse) are the same tree.
+    #[test]
+    fn a_symlinked_root_and_a_real_write_path_meet() {
+        let dir = std::env::temp_dir().join(format!("cedian-scope-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let real = dir.join("real");
+        std::fs::create_dir_all(real.join(".worktrees/w1/src")).unwrap();
+        std::os::unix::fs::symlink(&real, dir.join("alias")).unwrap();
+        let brief = scope_brief(&["src/**"], &[]);
+        let scope =
+            WorkerScope::new(&dir.join("alias"), [("w1", ".worktrees/w1", &brief)]).unwrap();
+        let written = real.join(".worktrees/w1/src/new.rs");
+        assert_eq!(
+            scope.attribute(&written).map(|a| (a.worker, a.in_scope)),
+            Some(("w1", true))
+        );
+        let through_alias = dir.join("alias/.worktrees/w1/docs/x.md");
+        assert_eq!(
+            scope.attribute(&through_alias).map(|a| a.in_scope),
+            Some(false)
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

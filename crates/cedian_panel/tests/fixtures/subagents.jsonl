@@ -19,8 +19,8 @@
 {"dir":"out","frame":{"command":"prompt","id":"req_5","success":true,"type":"response"}}
 {"dir":"out","frame":{"type":"agent_start"}}
 {"dir":"out","frame":{"args":{"description":"map the code"},"toolCallId":"call-task","toolName":"task","type":"tool_execution_start"}}
-{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-1","agent":"explore","agentSource":"bundled","status":"started","index":0,"parentToolCallId":"call-task","description":"map the router"}}}
-{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-2","agent":"explore","agentSource":"bundled","status":"started","index":1,"parentToolCallId":"call-task","description":"map the panel"}}}
+{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-1","agent":"explore","agentSource":"bundled","status":"started","index":0,"parentToolCallId":"call-task","description":"map the router","cwd":"${CEDIAN_CWD}"}}}
+{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-2","agent":"explore","agentSource":"bundled","status":"started","index":1,"parentToolCallId":"call-task","description":"map the panel","cwd":"${CEDIAN_CWD}"}}}
 {"dir":"out","frame":{"type":"subagent_progress","payload":{"index":0,"agent":"explore","agentSource":"bundled","task":"Map the router.","parentToolCallId":"call-task","progress":{"id":"sa-1","status":"running","description":"reading event_router.rs"}}}}
 {"dir":"in","frame":{"id":"req_6","message":"focus on routing","subagentId":"sa-1","type":"steer_subagent"}}
 {"dir":"out","frame":{"command":"steer_subagent","id":"req_6","success":true,"type":"response"}}
@@ -29,10 +29,10 @@
 {"dir":"out","frame":{"command":"steer_subagent","id":"req_7","success":false,"type":"response","error":"Subagent not running: sa-2"}}
 {"dir":"in","frame":{"id":"req_8","subagentId":"sa-2","type":"cancel_subagent"}}
 {"dir":"out","frame":{"command":"cancel_subagent","data":{"cancelled":false},"id":"req_8","success":true,"type":"response"}}
-{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-2","agent":"explore","agentSource":"bundled","status":"completed","index":1,"parentToolCallId":"call-task"}}}
+{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-2","agent":"explore","agentSource":"bundled","status":"completed","index":1,"parentToolCallId":"call-task","cwd":"${CEDIAN_CWD}"}}}
 {"dir":"in","frame":{"id":"req_9","subagentId":"sa-1","type":"cancel_subagent"}}
 {"dir":"out","frame":{"command":"cancel_subagent","data":{"cancelled":true},"id":"req_9","success":true,"type":"response"}}
-{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-1","agent":"explore","agentSource":"bundled","status":"aborted","index":0,"parentToolCallId":"call-task"}}}
+{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-1","agent":"explore","agentSource":"bundled","status":"aborted","index":0,"parentToolCallId":"call-task","cwd":"${CEDIAN_CWD}"}}}
 {"dir":"out","frame":{"isError":false,"result":{"content":[{"text":"1 of 2 subagents done","type":"text"}],"details":{}},"toolCallId":"call-task","toolName":"task","type":"tool_execution_end"}}
 {"dir":"out","frame":{"agentInvoked":true,"id":"req_5","sessionSettled":true,"status":"completed","type":"prompt_result"}}
 {"dir":"out","frame":{"type":"session_settled"}}
@@ -45,10 +45,22 @@
 {"dir":"in","frame":{"id":"ht-w1","result":{"content":[{"text":"worktree w1 at ${CEDIAN_CWD}/.worktrees/w1 (branch cedian-worker/w1, base HEAD)","type":"text"}]},"type":"host_tool_result"}}
 {"dir":"out","frame":{"agentInvoked":true,"id":"req_10","sessionSettled":true,"status":"completed","type":"prompt_result"}}
 {"dir":"out","frame":{"type":"session_settled"}}
+{"dir":"in","frame":{"id":"req_w1","message":"work in w1","type":"prompt"}}
+{"dir":"out","frame":{"command":"prompt","id":"req_w1","success":true,"type":"response"}}
+{"dir":"out","frame":{"type":"agent_start"}}
+{"dir":"out","frame":{"args":{"description":"fix the casing in w1","cwd":"${CEDIAN_CWD}/.worktrees/w1"},"toolCallId":"call-task-w1","toolName":"task","type":"tool_execution_start"}}
+{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-w1","agent":"task","agentSource":"bundled","status":"started","index":0,"parentToolCallId":"call-task-w1","description":"fix the casing in w1","cwd":"${CEDIAN_CWD}/.worktrees/w1"}}}
+{"dir":"fs","frame":{"type":"fs_write","path":".worktrees/w1/notes.txt","content":"base\nfixed casing\n"}}
+{"dir":"fs","frame":{"type":"fs_write","path":".worktrees/w1/other.txt","content":"outside the brief\n"}}
+{"dir":"fs","frame":{"type":"fs_sleep","ms":1500}}
+{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-w1","agent":"task","agentSource":"bundled","status":"completed","index":0,"parentToolCallId":"call-task-w1","description":"fix the casing in w1","cwd":"${CEDIAN_CWD}/.worktrees/w1"}}}
+{"dir":"out","frame":{"isError":false,"result":{"content":[{"text":"1 subagent done","type":"text"}],"details":{}},"toolCallId":"call-task-w1","toolName":"task","type":"tool_execution_end"}}
+{"dir":"out","frame":{"agentInvoked":true,"id":"req_w1","sessionSettled":true,"status":"completed","type":"prompt_result"}}
+{"dir":"out","frame":{"type":"session_settled"}}
 {"dir":"in","frame":{"id":"req_11","message":"one more","type":"prompt"}}
 {"dir":"out","frame":{"command":"prompt","id":"req_11","success":true,"type":"response"}}
 {"dir":"out","frame":{"type":"agent_start"}}
 {"dir":"out","frame":{"args":{"description":"map the docs"},"toolCallId":"call-task-2","toolName":"task","type":"tool_execution_start"}}
-{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-3","agent":"explore","agentSource":"bundled","status":"started","index":0,"parentToolCallId":"call-task-2","description":"map the docs"}}}
+{"dir":"out","frame":{"type":"subagent_lifecycle","payload":{"id":"sa-3","agent":"explore","agentSource":"bundled","status":"started","index":0,"parentToolCallId":"call-task-2","description":"map the docs","cwd":"${CEDIAN_CWD}"}}}
 {"dir":"in","frame":{"id":"req_12","type":"abort_and_restore_queue"}}
 {"dir":"out","frame":{"command":"abort_and_restore_queue","data":{"steering":[],"followUp":[]},"id":"req_12","success":true,"type":"response"}}

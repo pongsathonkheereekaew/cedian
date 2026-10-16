@@ -16,6 +16,7 @@ use omp_rpc::wire::{
 };
 use parking_lot::Mutex;
 use std::collections::{BTreeSet, HashMap};
+use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 
 /// Classified view of one OMP frame for cedian consumers.
@@ -75,6 +76,9 @@ pub enum RouterEvent {
         status: SubagentStatus,
         parent_tool_call_id: Option<String>,
         description: Option<String>,
+        /// The directory it works in; `isolated` when OMP made that tree.
+        cwd: Option<PathBuf>,
+        isolated: bool,
     },
     /// A running subagent reported progress; its id is `progress.id`.
     SubagentProgress {
@@ -82,6 +86,8 @@ pub enum RouterEvent {
         agent: String,
         parent_tool_call_id: Option<String>,
         description: Option<String>,
+        cwd: Option<PathBuf>,
+        isolated: bool,
     },
     /// A dialog or UI notice from OMP: approvals and `ask` wait for an
     /// answer (`crate::dialog`); the rest are fire-and-forget.
@@ -422,6 +428,8 @@ fn classify_notification(frame: &RpcNotification) -> RouterEvent {
                 status: p.status.into(),
                 parent_tool_call_id: p.parent_tool_call_id.clone(),
                 description: p.description.clone(),
+                cwd: p.cwd.as_ref().map(PathBuf::from),
+                isolated: p.worktree.is_some(),
             }
         }
         RpcNotification::SubagentProgress(event) => {
@@ -433,6 +441,8 @@ fn classify_notification(frame: &RpcNotification) -> RouterEvent {
                     agent: p.agent.clone(),
                     parent_tool_call_id: p.parent_tool_call_id.clone(),
                     description: text("description").map(str::to_string),
+                    cwd: p.cwd.as_ref().map(PathBuf::from),
+                    isolated: p.worktree.is_some(),
                 },
                 None => RouterEvent::Unknown {
                     frame_type: "subagent_progress".to_string(),
@@ -1042,11 +1052,27 @@ mod tests {
                 status,
                 parent_tool_call_id,
                 description,
+                cwd,
+                isolated,
             } => {
                 assert_eq!((id.as_str(), agent.as_str()), ("sa-1", "explore"));
                 assert_eq!(status, SubagentStatus::Running);
                 assert_eq!(parent_tool_call_id.as_deref(), Some("call-task"));
                 assert_eq!(description.as_deref(), Some("map the router"));
+                assert_eq!((cwd, isolated), (None, false), "a frame without cwd");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        let isolated_lifecycle = frame(serde_json::json!({
+            "type": "subagent_lifecycle",
+            "payload": {"id": "sa-2", "agent": "task", "agentSource": "bundled",
+                        "status": "started", "index": 1, "cwd": "/ws/.omp-tree",
+                        "worktree": "/ws/.omp-tree"},
+        }));
+        match classify_notification(&isolated_lifecycle) {
+            RouterEvent::SubagentLifecycle { cwd, isolated, .. } => {
+                assert_eq!(cwd, Some(PathBuf::from("/ws/.omp-tree")));
+                assert!(isolated, "worktree set means OMP made the tree");
             }
             other => panic!("unexpected {other:?}"),
         }
@@ -1054,14 +1080,21 @@ mod tests {
             "type": "subagent_progress",
             "payload": {"index": 0, "agent": "explore", "agentSource": "bundled",
                         "task": "long assignment", "parentToolCallId": "call-task",
+                        "cwd": "/ws/.worktrees/w1",
                         "progress": {"id": "sa-1", "status": "running", "description": "reading"}},
         }));
         match classify_notification(&progress) {
             RouterEvent::SubagentProgress {
-                id, description, ..
+                id,
+                description,
+                cwd,
+                isolated,
+                ..
             } => {
                 assert_eq!(id, "sa-1");
                 assert_eq!(description.as_deref(), Some("reading"));
+                assert_eq!(cwd, Some(PathBuf::from("/ws/.worktrees/w1")));
+                assert!(!isolated, "cwd without worktree is a tree cedian made");
             }
             other => panic!("unexpected {other:?}"),
         }

@@ -182,19 +182,19 @@ impl AuditLog {
         self.append(item, None)
     }
 
-    /// A changed file outside the running workers' briefs (ADR-0033
-    /// decision 3, ADR-0063 decision 4): the call that wrote it, the
-    /// worktree-relative path, and the workers the turn's scope was built
-    /// from (the interim names all of them, not the one it belongs to).
+    /// A changed file its worker's brief does not allow (ADR-0033
+    /// decision 3): the call that wrote it, the path, the worker whose tree
+    /// it landed in, and the subagent working in that tree when one is known.
     pub fn out_of_scope(
         &mut self,
         tool_call_id: &str,
         path: &str,
         workers: &[String],
+        subagent: Option<&str>,
     ) -> Result<(), String> {
         let item = json!({
             "kind": "scope", "event": "out_of_scope", "tool_call_id": tool_call_id,
-            "path": path, "workers": workers,
+            "path": path, "workers": workers, "subagent": subagent,
         });
         self.append(item, None)
     }
@@ -404,15 +404,23 @@ mod tests {
     fn an_out_of_scope_write_is_one_row() {
         let dir = TestDir::new("audit-scope");
         let mut log = AuditLog::open(&dir, Approvals::Omp).unwrap();
-        log.out_of_scope("c7", "/src/main.rs", &["w1".to_string()])
+        log.out_of_scope("c7", "/src/main.rs", &["w1".to_string()], Some("sa-1"))
+            .unwrap();
+        log.out_of_scope("c8", "/src/lib.rs", &["w1".to_string()], None)
             .unwrap();
         drop(log);
         let rows = replay(&dir);
-        assert_eq!(rows.len(), 1);
+        assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["item"]["kind"], "scope");
         assert_eq!(rows[0]["item"]["event"], "out_of_scope");
         assert_eq!(rows[0]["item"]["tool_call_id"], "c7");
         assert_eq!(rows[0]["item"]["path"], "/src/main.rs");
         assert_eq!(rows[0]["item"]["workers"], json!(["w1"]));
+        assert_eq!(rows[0]["item"]["subagent"], "sa-1");
+        assert_eq!(
+            rows[1]["item"]["subagent"],
+            Value::Null,
+            "no subagent known"
+        );
     }
 }
