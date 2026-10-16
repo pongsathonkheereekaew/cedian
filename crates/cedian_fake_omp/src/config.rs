@@ -17,6 +17,7 @@ const DEFAULTS: &[(&str, &str, &str)] = &[
     ("modelRoles", "record", "{}"),
     ("defaultThinkingLevel", "enum", r#""high""#),
     ("tools.approval", "record", "{}"),
+    ("tools.readScope", "record", "{}"),
     ("bash.patterns", "array", "[]"),
 ];
 

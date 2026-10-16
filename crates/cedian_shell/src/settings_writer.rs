@@ -143,6 +143,12 @@ pub fn write_project(path: &Path, key: &str, change: ProjectChange) -> Result<()
             if let Some(why) = project_key_problem(&folder.to_string_lossy()) {
                 return Err(format!("{}: {why}", folder.display()));
             }
+            if crate::settings::contains_project(folder, Path::new(key)) {
+                return Err(format!(
+                    "{} contains the project, so it cannot be a read folder",
+                    folder.display()
+                ));
+            }
         }
     }
     edit(path, |document| {
@@ -323,6 +329,43 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("not an absolute path"), "{err}");
+    }
+
+    #[test]
+    fn a_read_folder_is_never_the_project_or_one_of_its_ancestors() {
+        let dir = TestDir::new("read-folder-guard");
+        let project = dir.join("parent/project");
+        let sibling = dir.join("parent/sibling");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&sibling).unwrap();
+        let project = project.canonicalize().unwrap();
+        let parent = project.parent().unwrap().to_path_buf();
+        let sibling = sibling.canonicalize().unwrap();
+        let path = dir.join("cedian.toml");
+        std::fs::write(&path, "schema = 1\n").unwrap();
+        let key = project.to_string_lossy().into_owned();
+        for folder in [project, parent, PathBuf::from("/")] {
+            let error = write_project(
+                &path,
+                &key,
+                ProjectChange::ReadFolders(vec![folder.clone()]),
+            )
+            .unwrap_err();
+            assert!(
+                error.contains("contains the project"),
+                "{folder:?}: {error}"
+            );
+        }
+        write_project(
+            &path,
+            &key,
+            ProjectChange::ReadFolders(vec![sibling.clone()]),
+        )
+        .unwrap();
+        assert_eq!(
+            load_user_file(&path).unwrap().project_read_folders(&key),
+            [sibling]
+        );
     }
 
     #[test]

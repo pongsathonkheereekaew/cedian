@@ -51,6 +51,6 @@ pub use session::{
 pub use sessions::SessionEntry;
 pub use spawn_profile::{
     ApprovalMode, Approvals, BashRule, PRIVACY_PINS, PSTACK_MANDATE_FILE, PrivacyPin,
-    PstackProfile, Sessions, SpawnPlan, SpawnPolicy, SpawnProfile, ToolPolicy, agent_env,
-    omp_config_get, omp_version, resolve_on_path, scrub_env,
+    PstackProfile, READ_TOOLS, ReadScope, Sessions, SpawnPlan, SpawnPolicy, SpawnProfile,
+    ToolPolicy, agent_env, omp_config_get, omp_version, resolve_on_path, scrub_env,
 };

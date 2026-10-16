@@ -30,22 +30,28 @@ pub struct ProtectedRoots {
 }
 
 impl ProtectedRoots {
-    /// Workspace plus the launch's overlay dir and optional OMP state root.
-    pub fn for_launch(workspace: PathBuf, state_dir: &Path, omp_state: Option<PathBuf>) -> Self {
+    /// Workspace plus the launch's overlay dir, the agent's config dir and
+    /// optional OMP state root. Refused when `AgentDirs::from_env` fails
+    /// (ADR-0084).
+    pub fn for_launch(
+        workspace: PathBuf,
+        state_dir: &Path,
+        omp_state: Option<PathBuf>,
+    ) -> Result<Self, crate::OmpError> {
         let mut session_dirs = vec![state_dir.join("omp")];
-        let config = crate::AgentDirs::from_env().ok().map(|dirs| dirs.config);
+        let config = crate::AgentDirs::from_env()?.config;
         let persons_omp = std::env::var_os("HOME")
             .filter(|home| !home.is_empty())
             .map(|home| PathBuf::from(home).join(".omp"));
-        for dir in omp_state.into_iter().chain(config).chain(persons_omp) {
+        for dir in omp_state.into_iter().chain(Some(config)).chain(persons_omp) {
             if !session_dirs.contains(&dir) {
                 session_dirs.push(dir);
             }
         }
-        Self {
+        Ok(Self {
             workspace,
             session_dirs,
-        }
+        })
     }
 
     /// Classify `path` as protected, or `None` when it may be written.
@@ -270,6 +276,13 @@ mod tests {
             "Allow tool: write\nPath: src/main.rs",
             &roots
         ));
+        // A read of a protected path never reaches a dialog (the fork denies
+        // it, ADR-0084); should one, the gate still refuses it.
+        let read = format!(
+            "Allow tool: read\nReason: outside the project: {0}/x\nPath: {0}/x",
+            session.display()
+        );
+        assert!(approval_targets_protected(&read, &roots));
         let _ = fs::remove_dir_all(&dir);
     }
 

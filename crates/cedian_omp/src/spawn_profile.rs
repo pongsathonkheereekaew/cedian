@@ -79,6 +79,52 @@ pub struct BashRule {
 /// mode, so pinning them would prompt on their read-tier calls too.
 pub const EXEC_TOOLS: &[&str] = &["bash", "eval", "browser", "task", "vibe_spawn", "vibe_send"];
 
+/// The agent's read-tier tools, the ones `tools.readScope` bounds (ADR-0084)
+/// and the Safe actions tier is written for.
+pub const READ_TOOLS: &[&str] = &["read", "grep", "glob", "find", "ast_grep", "lsp"];
+
+/// Where the read tools read without asking (ADR-0084): the agent's
+/// `tools.readScope`. Paths are absolute; the agent canonicalizes them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadScope {
+    /// The project. Reads inside pass.
+    pub roots: Vec<PathBuf>,
+    /// `read_folders` from the user's `cedian.toml`: reads inside pass.
+    pub allow: Vec<PathBuf>,
+    /// Directory names denied under any root or allowed folder.
+    pub protected_names: Vec<String>,
+    /// Directories denied wherever they are (`~/.omp`, the agent's and
+    /// cedian's own dirs).
+    pub protected_paths: Vec<PathBuf>,
+    /// A path in none of the above: `true` asks, `false` passes. The
+    /// overlay writes `false` under [`Approvals::Omp`], where the person's
+    /// OMP config decides approvals (ADR-0035); protected paths are denied
+    /// under every policy.
+    pub outside_asks: bool,
+}
+
+impl ReadScope {
+    fn overlay(&self) -> Result<Value, OmpError> {
+        let paths = |label: &str, paths: &[PathBuf]| -> Result<Vec<String>, OmpError> {
+            paths.iter().map(|path| check_path(label, path)).collect()
+        };
+        for name in &self.protected_names {
+            if name.is_empty() || name.contains(['/', '\\']) || name.chars().any(char::is_control) {
+                return Err(OmpError::InvalidSpawnProfile(format!(
+                    "bad protected name: {name:?}"
+                )));
+            }
+        }
+        Ok(json!({
+            "roots": paths("read scope root", &self.roots)?,
+            "allow": paths("read folder", &self.allow)?,
+            "protectedNames": self.protected_names,
+            "protectedPaths": paths("protected path", &self.protected_paths)?,
+            "outside": if self.outside_asks { "prompt" } else { "allow" },
+        }))
+    }
+}
+
 /// Who decides OMP's approval mode and `computer`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Approvals {
@@ -174,6 +220,9 @@ pub struct SpawnPolicy {
     /// pstack bundled with cedian (ADR-0079); `None` runs the plain agent.
     /// A reviewer never gets it: its plan is refused.
     pub pstack: Option<PstackProfile>,
+    /// Where the read tools read without asking (ADR-0084). `None` leaves
+    /// the agent's tools unscoped: the reviewer, whose sandbox bounds it.
+    pub read_scope: Option<ReadScope>,
 }
 
 /// What a session with pstack on gets (ADR-0079 decision 3).
@@ -200,6 +249,7 @@ impl Default for SpawnPolicy {
             sandbox: None,
             browser_cdp_url: None,
             pstack: None,
+            read_scope: None,
         }
     }
 }
@@ -311,6 +361,13 @@ impl SpawnPolicy {
         if let Some(pstack) = &self.pstack {
             let skills = check_path("pstack skills_dir", &pstack.skills_dir)?;
             overlay["skills"] = json!({"customDirectories": [skills]});
+        }
+        if let Some(scope) = &self.read_scope {
+            let mut scope = scope.clone();
+            // The opt-in hands approvals to the person's OMP config; a
+            // cedian deny still applies (ADR-0012, ADR-0035).
+            scope.outside_asks &= self.approvals != Approvals::Omp;
+            overlay["tools"]["readScope"] = scope.overlay()?;
         }
         if self.approvals == Approvals::Reviewer {
             overlay["browser"] = json!({"relay": false});
@@ -855,6 +912,59 @@ mod tests {
             &json!({"match": "cargo test*", "approval": "allow"})
         );
         assert_eq!(overlay["bash"]["allowCompoundCommands"], false);
+        assert!(
+            overlay["tools"].get("readScope").is_none(),
+            "no scope means no key, so the agent's tools stay as upstream"
+        );
+    }
+
+    fn read_scope() -> ReadScope {
+        ReadScope {
+            roots: vec![PathBuf::from("/ws")],
+            allow: vec![PathBuf::from("/shared")],
+            protected_names: vec![".git".to_string(), ".cedian".to_string()],
+            protected_paths: vec![PathBuf::from("/home/me/.omp")],
+            outside_asks: true,
+        }
+    }
+
+    #[test]
+    fn overlay_carries_the_read_scope_and_asks_outside_under_cedians_policy() {
+        let mut policy = SpawnPolicy::default();
+        policy.read_scope = Some(read_scope());
+        let overlay = policy.overlay().unwrap();
+        assert_eq!(
+            overlay["tools"]["readScope"],
+            json!({
+                "roots": ["/ws"], "allow": ["/shared"],
+                "protectedNames": [".git", ".cedian"], "protectedPaths": ["/home/me/.omp"],
+                "outside": "prompt",
+            })
+        );
+    }
+
+    #[test]
+    fn under_policy_omp_the_scope_keeps_its_denies_and_leaves_outside_reads_to_omp() {
+        let mut policy = SpawnPolicy::default();
+        policy.approvals = Approvals::Omp;
+        policy.read_scope = Some(read_scope());
+        let scope = &policy.overlay().unwrap()["tools"]["readScope"];
+        assert_eq!(scope["outside"], "allow");
+        assert_eq!(scope["protectedNames"], json!([".git", ".cedian"]));
+        assert_eq!(scope["protectedPaths"], json!(["/home/me/.omp"]));
+    }
+
+    #[test]
+    fn a_relative_read_root_or_a_slashed_protected_name_is_refused() {
+        let mut policy = SpawnPolicy::default();
+        let mut scope = read_scope();
+        scope.roots = vec![PathBuf::from("ws")];
+        policy.read_scope = Some(scope);
+        assert!(policy.overlay().is_err());
+        let mut scope = read_scope();
+        scope.protected_names = vec![".git/hooks".to_string()];
+        policy.read_scope = Some(scope);
+        assert!(policy.overlay().is_err());
     }
 
     #[test]

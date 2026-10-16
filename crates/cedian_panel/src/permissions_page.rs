@@ -155,6 +155,16 @@ impl ProjectSettings {
                     .collect();
                 if notes.is_empty() {
                     let path = Path::new(&key);
+                    let inside = path.join(cedian_shell::SETTINGS_FILE);
+                    if inside.exists() {
+                        notes.push(
+                            SettingsError::InWorkspace {
+                                found: inside,
+                                user: self.path.clone(),
+                            }
+                            .to_string(),
+                        );
+                    }
                     let own = self
                         .settings
                         .policy_for(path, RunKind::Interactive)
@@ -794,6 +804,23 @@ mod tests {
             inside.row_state(&Row::Pstack(key(&repo))),
             Some(RowState::Error(text)) if text.contains("inside")
         ));
+    }
+
+    #[test]
+    fn a_settings_file_inside_the_open_project_is_reported_on_its_card() {
+        let fixture = Fixture::new();
+        let open = fixture.project("open");
+        std::fs::write(open.join("cedian.toml"), "schema = 1\n").unwrap();
+        let state = fixture.load();
+        let entries = state.entries(&[], Some(&open));
+        assert!(
+            entries[0]
+                .notes
+                .iter()
+                .any(|note| note.contains("inside the workspace and is not read")),
+            "{:?}",
+            entries[0].notes
+        );
     }
 
     #[test]

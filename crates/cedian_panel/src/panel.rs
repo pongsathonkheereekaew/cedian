@@ -5189,9 +5189,13 @@ impl CedianPanel {
     fn protected_roots(&mut self, cx: &App) -> Option<cedian_omp::ProtectedRoots> {
         let workspace = self.workspace_root(cx)?;
         let state_dir = self.state_dir(cx).ok()?;
-        Some(cedian_omp::ProtectedRoots::for_launch(
-            workspace, &state_dir, None,
-        ))
+        match cedian_omp::ProtectedRoots::for_launch(workspace, &state_dir, None) {
+            Ok(roots) => Some(roots),
+            Err(e) => {
+                log::warn!("cedian: {e}");
+                None
+            }
+        }
     }
 
     /// Once every protected snapshot is in and ToolEnd has arrived, restore
