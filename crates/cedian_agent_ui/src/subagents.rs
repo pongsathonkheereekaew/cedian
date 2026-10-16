@@ -3,6 +3,7 @@
 //! status OMP last reported. Pure: fed [`RouterEvent`]s, no I/O.
 
 use cedian_omp::{RouterEvent, SubagentStatus};
+use std::path::{Path, PathBuf};
 
 /// One subagent as the panel shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,6 +13,10 @@ pub struct SubagentRow {
     pub description: String,
     pub parent_tool_call_id: Option<String>,
     pub status: SubagentStatus,
+    /// The directory it works in, once a frame has named one.
+    pub cwd: Option<PathBuf>,
+    /// OMP made `cwd` as an isolated tree of its own.
+    pub isolated: bool,
 }
 
 /// Every subagent this session has seen, in the order each first appeared.
@@ -31,20 +36,40 @@ impl SubagentTree {
             }
             return;
         }
-        let (id, agent, parent, description, status) = match event {
+        let (id, agent, parent, description, status, cwd, isolated) = match event {
             RouterEvent::SubagentLifecycle {
                 id,
                 agent,
                 status,
                 parent_tool_call_id,
                 description,
-            } => (id, agent, parent_tool_call_id, description, Some(*status)),
+                cwd,
+                isolated,
+            } => (
+                id,
+                agent,
+                parent_tool_call_id,
+                description,
+                Some(*status),
+                cwd,
+                *isolated,
+            ),
             RouterEvent::SubagentProgress {
                 id,
                 agent,
                 parent_tool_call_id,
                 description,
-            } => (id, agent, parent_tool_call_id, description, None),
+                cwd,
+                isolated,
+            } => (
+                id,
+                agent,
+                parent_tool_call_id,
+                description,
+                None,
+                cwd,
+                *isolated,
+            ),
             _ => return,
         };
         let index = match self.rows.iter().position(|row| row.id == *id) {
@@ -56,6 +81,8 @@ impl SubagentTree {
                     description: String::new(),
                     parent_tool_call_id: None,
                     status: SubagentStatus::Running,
+                    cwd: None,
+                    isolated: false,
                 });
                 self.rows.len() - 1
             }
@@ -63,6 +90,10 @@ impl SubagentTree {
         let row = &mut self.rows[index];
         if row.parent_tool_call_id.is_none() {
             row.parent_tool_call_id = parent.clone();
+        }
+        if let Some(cwd) = cwd {
+            row.cwd = Some(cwd.clone());
+            row.isolated = isolated;
         }
         if let Some(description) = description.as_ref().filter(|d| !d.is_empty()) {
             row.description = description.clone();
@@ -81,6 +112,14 @@ impl SubagentTree {
             .collect()
     }
 
+    /// The subagent working in `root`; the latest one when several did.
+    pub fn working_in(&self, root: &Path) -> Option<&SubagentRow> {
+        self.rows
+            .iter()
+            .rev()
+            .find(|row| row.cwd.as_deref() == Some(root))
+    }
+
     pub fn rows(&self) -> &[SubagentRow] {
         &self.rows
     }
@@ -97,6 +136,20 @@ mod tests {
             status,
             parent_tool_call_id: Some("call-task".into()),
             description: Some("map".into()),
+            cwd: None,
+            isolated: false,
+        }
+    }
+
+    fn lifecycle_in(id: &str, cwd: &str, isolated: bool) -> RouterEvent {
+        RouterEvent::SubagentLifecycle {
+            id: id.into(),
+            agent: "task".into(),
+            status: SubagentStatus::Running,
+            parent_tool_call_id: Some("call-task".into()),
+            description: None,
+            cwd: Some(PathBuf::from(cwd)),
+            isolated,
         }
     }
 
@@ -106,6 +159,8 @@ mod tests {
             agent: "explore".into(),
             parent_tool_call_id: Some("call-task".into()),
             description: Some(description.into()),
+            cwd: None,
+            isolated: false,
         }
     }
 
@@ -131,5 +186,29 @@ mod tests {
         );
         assert_eq!(tree.rows()[0].description, "late");
         assert!(tree.under("other").is_empty());
+    }
+
+    #[test]
+    fn a_later_cwd_fills_the_row_and_a_frame_without_one_keeps_it() {
+        let mut tree = SubagentTree::default();
+        tree.apply(&lifecycle("sa-1", SubagentStatus::Running));
+        assert_eq!(tree.rows()[0].cwd, None);
+        tree.apply(&lifecycle_in("sa-1", "/ws/.worktrees/w1", false));
+        tree.apply(&progress("sa-1", "reading"));
+        let row = &tree.rows()[0];
+        assert_eq!(row.cwd.as_deref(), Some(Path::new("/ws/.worktrees/w1")));
+        assert!(!row.isolated);
+        tree.apply(&lifecycle_in("sa-2", "/ws/.omp/tree", true));
+        assert!(tree.rows()[1].isolated);
+    }
+
+    #[test]
+    fn working_in_finds_the_subagent_whose_cwd_is_the_tree() {
+        let mut tree = SubagentTree::default();
+        tree.apply(&lifecycle_in("sa-1", "/ws", false));
+        tree.apply(&lifecycle_in("sa-2", "/ws/.worktrees/w1", false));
+        let found = tree.working_in(Path::new("/ws/.worktrees/w1"));
+        assert_eq!(found.map(|row| row.id.as_str()), Some("sa-2"));
+        assert!(tree.working_in(Path::new("/ws/.worktrees/w2")).is_none());
     }
 }

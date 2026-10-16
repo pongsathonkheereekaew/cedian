@@ -3361,6 +3361,10 @@ pub struct SubagentSnapshot {
 	pub progress: Option<Map<String, Value>>,
 	#[serde(rename = "parentToolCallId", default, skip_serializing_if = "Option::is_none")]
 	pub parent_tool_call_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cwd: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub worktree: Option<String>,
 }
 
 /// Incremental subagent transcript read.
@@ -4098,6 +4102,10 @@ pub struct SubagentLifecyclePayload {
 	/// The subagent runs as a detached background job.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detached: Option<bool>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cwd: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub worktree: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4117,6 +4125,10 @@ pub struct SubagentProgressPayload {
 	pub session_file: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detached: Option<bool>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cwd: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub worktree: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
