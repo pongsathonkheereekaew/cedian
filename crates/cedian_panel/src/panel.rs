@@ -6171,8 +6171,8 @@ mod tests {
     use settings::SettingsStore;
     use std::time::{Duration, Instant};
 
-    /// Each step is what `sync_thread_rows` counts: history (lines and the
-    /// total line), messages, then cards with their subagents.
+    /// A wrong splice range does not panic in gpui: it shows only as a wrong
+    /// item count or a scroll anchor on the wrong row.
     #[test]
     fn thread_list_keeps_one_item_per_row() {
         let mut list = ThreadList::new();
@@ -6199,6 +6199,35 @@ mod tests {
         assert_eq!(list.state.item_count(), 0);
         list.sync([2, 1, 1]);
         assert_eq!(list.state.item_count(), 4, "a reset list syncs from empty");
+    }
+
+    #[test]
+    fn thread_list_keeps_the_scroll_anchor_on_its_row() {
+        let mut list = ThreadList::new();
+        list.sync([21, 1, 0]);
+        list.state.scroll_to(gpui::ListOffset {
+            item_ix: 21,
+            offset_in_item: px(0.),
+        });
+        let anchor = |list: &ThreadList| list.state.logical_scroll_top().item_ix;
+        list.sync([26, 1, 2]);
+        assert_eq!(
+            anchor(&list),
+            26,
+            "older history and new cards land around the message"
+        );
+        list.sync([26, 0, 2]);
+        assert_eq!(
+            anchor(&list),
+            26,
+            "the anchored message went; the next row takes its place"
+        );
+        list.sync([20, 0, 2]);
+        assert_eq!(
+            anchor(&list),
+            20,
+            "fewer history rows move the anchor up with them"
+        );
     }
 
     /// OMP's refusal of a prompt for want of a model names /login and
