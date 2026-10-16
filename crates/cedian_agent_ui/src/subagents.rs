@@ -92,8 +92,14 @@ impl SubagentTree {
             row.parent_tool_call_id = parent.clone();
         }
         if let Some(cwd) = cwd {
-            row.cwd = Some(cwd.clone());
-            row.isolated = isolated;
+            // A frame that names the same tree without `worktree` (a wake turn
+            // from an older OMP) does not take back that OMP made it.
+            if row.cwd.as_ref() == Some(cwd) {
+                row.isolated |= isolated;
+            } else {
+                row.cwd = Some(cwd.clone());
+                row.isolated = isolated;
+            }
         }
         if let Some(description) = description.as_ref().filter(|d| !d.is_empty()) {
             row.description = description.clone();
@@ -113,11 +119,16 @@ impl SubagentTree {
     }
 
     /// The subagent working in `root`; the latest one when several did.
-    pub fn working_in(&self, root: &Path) -> Option<&SubagentRow> {
+    /// `canonical` spells a row's cwd the way `root` is spelled.
+    pub fn working_in(
+        &self,
+        root: &Path,
+        canonical: impl Fn(&Path) -> PathBuf,
+    ) -> Option<&SubagentRow> {
         self.rows
             .iter()
             .rev()
-            .find(|row| row.cwd.as_deref() == Some(root))
+            .find(|row| row.cwd.as_deref().is_some_and(|cwd| canonical(cwd) == root))
     }
 
     pub fn rows(&self) -> &[SubagentRow] {
@@ -200,6 +211,10 @@ mod tests {
         assert!(!row.isolated);
         tree.apply(&lifecycle_in("sa-2", "/ws/.omp/tree", true));
         assert!(tree.rows()[1].isolated);
+        tree.apply(&lifecycle_in("sa-2", "/ws/.omp/tree", false));
+        assert!(tree.rows()[1].isolated, "a frame without worktree keeps it");
+        tree.apply(&lifecycle_in("sa-2", "/ws/other", false));
+        assert!(!tree.rows()[1].isolated, "a new tree is judged afresh");
     }
 
     #[test]
@@ -207,8 +222,15 @@ mod tests {
         let mut tree = SubagentTree::default();
         tree.apply(&lifecycle_in("sa-1", "/ws", false));
         tree.apply(&lifecycle_in("sa-2", "/ws/.worktrees/w1", false));
-        let found = tree.working_in(Path::new("/ws/.worktrees/w1"));
+        let found = tree.working_in(Path::new("/ws/.worktrees/w1"), Path::to_path_buf);
         assert_eq!(found.map(|row| row.id.as_str()), Some("sa-2"));
-        assert!(tree.working_in(Path::new("/ws/.worktrees/w2")).is_none());
+        assert!(
+            tree.working_in(Path::new("/ws/.worktrees/w2"), Path::to_path_buf)
+                .is_none()
+        );
+        let aliased = tree.working_in(Path::new("/real/.worktrees/w1"), |cwd| {
+            Path::new("/real").join(cwd.strip_prefix("/ws").unwrap_or(cwd))
+        });
+        assert_eq!(aliased.map(|row| row.id.as_str()), Some("sa-2"));
     }
 }

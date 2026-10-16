@@ -2069,7 +2069,10 @@ impl CedianPanel {
         }
         let subagent = scope
             .and_then(|scope| scope.root(attribution.worker))
-            .and_then(|root| self.subagents.working_in(root))
+            .and_then(|root| {
+                self.subagents
+                    .working_in(root, cedian_worker::canonical_path)
+            })
             .map(|row| row.id.clone());
         if let Some(link) = &self.link {
             link.out_of_scope(
@@ -2160,7 +2163,7 @@ impl CedianPanel {
     /// while an out-of-scope change is unresolved (ADR-0033 decision 3):
     /// a person must accept or reject it first.
     pub fn merge_worker(&mut self, id: &str, cx: &mut Context<Self>) {
-        let unresolved = self.review.out_of_scope_count();
+        let unresolved = self.review.out_of_scope_count_for(id);
         if unresolved > 0 {
             self.notice = Some(format!(
                 "merge refused: {unresolved} out-of-scope change(s) need a decision \
@@ -5144,6 +5147,7 @@ impl CedianPanel {
         let Some(root) = self.workspace_root(cx) else {
             return;
         };
+        self.scan_worker_trees(cx);
         let open: Vec<PathBuf> = self
             .project
             .read(cx)
@@ -5155,6 +5159,34 @@ impl CedianPanel {
         self.mark_files(tool_call_id.clone(), open, true, cx);
         if let Some(call) = self.calls.get_mut(&tool_call_id) {
             call.disk_tool = Some(tool);
+        }
+    }
+
+    /// Have the project watch each running worker's tree in full. The trees
+    /// are usually gitignored, and the worktree loads an ignored directory
+    /// only on demand, so a write there would raise no change to attribute.
+    fn scan_worker_trees(&mut self, cx: &mut Context<Self>) {
+        let Some(scope) = self.turn_scope(cx) else {
+            return;
+        };
+        for worktree in self.project.read(cx).visible_worktrees(cx) {
+            let worktree = worktree.read(cx);
+            let Some(local) = worktree.as_local() else {
+                continue;
+            };
+            let base = cedian_worker::canonical_path(&worktree.abs_path());
+            for worker in scope.workers() {
+                let Some(rel) = scope
+                    .root(worker)
+                    .and_then(|root| root.strip_prefix(&base).ok())
+                    .and_then(|rel| {
+                        util::rel_path::RelPath::new(rel, util::paths::PathStyle::local()).ok()
+                    })
+                else {
+                    continue;
+                };
+                drop(local.add_path_prefix_to_scan(rel.into_arc()));
+            }
         }
     }
 
@@ -5173,19 +5205,27 @@ impl CedianPanel {
         {
             return;
         }
+        let scope = self.turn_scope(cx);
         let Some(worktree) = project.read(cx).worktree_for_id(worktree, cx) else {
             return;
         };
         let worktree = worktree.read(cx);
         // The initial scan's `Loaded` is no change; a directory or an
-        // ignored path is no file to review. A removed file has no entry.
+        // ignored path is no file to review, unless it lies in a running
+        // worker's tree (those trees are usually gitignored), where dropping
+        // it would let an out-of-scope write pass. A removed file has no entry.
+        let in_worker_tree = |rel| {
+            scope
+                .as_ref()
+                .is_some_and(|scope| scope.attribute(&worktree.absolutize(rel)).is_some())
+        };
         let changed: Vec<(PathBuf, PathBuf)> = changes
             .iter()
             .filter(|(rel, _, change)| {
                 *change != worktree::PathChange::Loaded
                     && worktree
                         .entry_for_path(rel)
-                        .is_none_or(|e| e.is_file() && !e.is_ignored)
+                        .is_none_or(|e| e.is_file() && (!e.is_ignored || in_worker_tree(rel)))
             })
             .map(|(rel, _, _)| (worktree.absolutize(rel), worktree.full_path(rel)))
             .collect();
@@ -5491,6 +5531,7 @@ impl CedianPanel {
                         self.review.out_of_scope_write(
                             shown.clone(),
                             abs.clone(),
+                            worker.clone(),
                             format!(
                                 "written by {by} outside its brief while {tool} call \
                                  {tool_call_id} ran; it was not open, so cedian has no text \
@@ -7313,17 +7354,24 @@ mod tests {
     /// A workspace with `notes.txt` open and `other.txt` on disk only; no
     /// OMP (the panel is driven with router events directly).
     async fn fixture(cx: &mut TestAppContext) -> (Fixture, Entity<Buffer>) {
-        init(cx);
-        let fs = fs::FakeFs::new(cx.executor());
-        fs.insert_tree(
-            "/ws",
+        fixture_in(
+            cx,
             serde_json::json!({
                 "notes.txt": ORIGINAL,
                 "other.txt": "one\ntwo\n",
                 ".worktrees": {"w1": {"notes.txt": ORIGINAL, "other.txt": "one\ntwo\n"}},
             }),
         )
-        .await;
+        .await
+    }
+
+    async fn fixture_in(
+        cx: &mut TestAppContext,
+        tree: serde_json::Value,
+    ) -> (Fixture, Entity<Buffer>) {
+        init(cx);
+        let fs = fs::FakeFs::new(cx.executor());
+        fs.insert_tree("/ws", tree).await;
         let project = Project::test(fs.clone(), [std::path::Path::new("/ws")], cx).await;
         let buffer = project
             .update(cx, |p, cx| p.open_local_buffer("/ws/notes.txt", cx))
@@ -7466,29 +7514,35 @@ mod tests {
     /// A running worker and its stored brief, as the panel reads them at
     /// import time (ADR-0063 decision 1): only `write` is in scope.
     fn running_worker(state: &std::path::Path, write: &[&str]) {
-        let brief = Brief::from_json(
-            &serde_json::json!({
-                "goal": "g", "scope": {"write": write},
-                "acceptance": ["a"], "verify": ["v"], "timebox_min": 15,
-            })
-            .to_string(),
-        )
-        .unwrap();
-        brief.store(state, "w1", 1).unwrap();
+        running_workers(state, &[("w1", write)]);
+    }
+
+    fn running_workers(state: &std::path::Path, workers: &[(&str, &[&str])]) {
         let mut registry = Registry::default();
-        registry
-            .insert(WorkerHead {
-                id: "w1".into(),
-                branch: "cedian/w1".into(),
-                worktree: ".worktrees/w1".into(),
-                task_title: "t".into(),
-                kind: "task".into(),
-                status: WorkerStatus::Running,
-                note: String::new(),
-                timebox_min: 15.0,
-                last_progress: None,
-            })
+        for (id, write) in workers {
+            let brief = Brief::from_json(
+                &serde_json::json!({
+                    "goal": "g", "scope": {"write": write},
+                    "acceptance": ["a"], "verify": ["v"], "timebox_min": 15,
+                })
+                .to_string(),
+            )
             .unwrap();
+            brief.store(state, id, 1).unwrap();
+            registry
+                .insert(WorkerHead {
+                    id: (*id).into(),
+                    branch: format!("cedian/{id}"),
+                    worktree: format!(".worktrees/{id}"),
+                    task_title: "t".into(),
+                    kind: "task".into(),
+                    status: WorkerStatus::Running,
+                    note: String::new(),
+                    timebox_min: 15.0,
+                    last_progress: None,
+                })
+                .unwrap();
+        }
         registry.save(state).unwrap();
     }
 
@@ -7603,6 +7657,85 @@ mod tests {
                 assert!(
                     panel.review.unreviewable()[0].out_of_scope.is_none(),
                     "accepted, the line stays as a record"
+                );
+            })
+            .unwrap();
+    }
+
+    /// Worker trees are usually gitignored: a write a bash call makes there
+    /// outside the brief is still out of scope, not dropped as ignored.
+    #[gpui::test]
+    async fn an_ignored_write_under_a_running_workers_tree_is_not_dropped(cx: &mut TestAppContext) {
+        let (f, _buffer) = fixture_in(
+            cx,
+            serde_json::json!({
+                ".git": {},
+                ".gitignore": ".worktrees/\n",
+                "notes.txt": ORIGINAL,
+                ".worktrees": {"w1": {"notes.txt": ORIGINAL, "other.txt": "one\ntwo\n"}},
+            }),
+        )
+        .await;
+        let state = state_dir("scope-ignored");
+        running_worker(&state, &["notes.txt"]);
+        f.window
+            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .unwrap();
+        tool_start_named(&f, cx, "b1", "bash", &[]);
+        cx.run_until_parked();
+        omp_writes(&f, "/ws/.worktrees/w1/other.txt", "ONE\ntwo\n").await;
+        cx.run_until_parked();
+        tool_end_named(&f, cx, "b1", "bash", Vec::new());
+        let listed = unreviewable(&f, cx);
+        assert!(
+            listed
+                .iter()
+                .any(|write| write.path.ends_with("w1/other.txt") && write.out_of_scope.is_some()),
+            "{listed:?}"
+        );
+    }
+
+    /// One worker's unresolved out-of-scope write does not hold back
+    /// another worker's merge.
+    #[gpui::test]
+    async fn a_clean_worker_merges_while_another_has_an_out_of_scope_write(
+        cx: &mut TestAppContext,
+    ) {
+        let (f, _buffer) = fixture_in(
+            cx,
+            serde_json::json!({
+                "notes.txt": ORIGINAL,
+                ".worktrees": {
+                    "w1": {"notes.txt": ORIGINAL},
+                    "w2": {"notes.txt": ORIGINAL, "other.txt": "one\ntwo\n"},
+                },
+            }),
+        )
+        .await;
+        let state = state_dir("scope-two-workers");
+        running_workers(&state, &[("w1", &["notes.txt"]), ("w2", &["notes.txt"])]);
+        f.window
+            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .unwrap();
+        tool_start_named(&f, cx, "b1", "bash", &[]);
+        cx.run_until_parked();
+        omp_writes(&f, "/ws/.worktrees/w2/other.txt", "ONE\ntwo\n").await;
+        cx.run_until_parked();
+        tool_end_named(&f, cx, "b1", "bash", Vec::new());
+        f.window
+            .update(cx, |panel, _, cx| {
+                assert_eq!(panel.review.out_of_scope_count(), 1);
+                panel.merge_worker("w1", cx);
+                assert!(
+                    !panel.notice().is_some_and(|n| n.contains("merge refused")),
+                    "{:?}",
+                    panel.notice()
+                );
+                panel.merge_worker("w2", cx);
+                assert!(
+                    panel.notice().is_some_and(|n| n.contains("merge refused")),
+                    "{:?}",
+                    panel.notice()
                 );
             })
             .unwrap();

@@ -60,7 +60,7 @@ impl WorkerScope {
         for (worker, worktree, brief) in briefs {
             trees.push(TreeScope {
                 worker: worker.to_string(),
-                root: repo.join(worktree),
+                root: canonical_path(&repo.join(worktree)),
                 write: compile(&brief.scope.write)?,
                 deny: compile(&brief.scope.deny)?,
             });
@@ -72,6 +72,7 @@ impl WorkerScope {
     /// and whether that worker's brief allows it. `None`: under no running
     /// worker's tree.
     pub fn attribute(&self, abs: &Path) -> Option<Attribution<'_>> {
+        let abs = canonical_path(abs);
         let (tree, rel) = self
             .trees
             .iter()
@@ -101,6 +102,29 @@ impl WorkerScope {
     /// The running workers the scope was built from.
     pub fn workers(&self) -> impl Iterator<Item = &str> {
         self.trees.iter().map(|tree| tree.worker.as_str())
+    }
+}
+
+/// `path` as the filesystem spells it — symlinks resolved, so `/var` and
+/// `/private/var` meet — with the part that does not exist yet kept as
+/// written. A tree root and a write must be compared in one spelling.
+pub fn canonical_path(path: &Path) -> PathBuf {
+    let mut existing = path;
+    let mut missing = Vec::new();
+    loop {
+        if let Ok(real) = std::fs::canonicalize(existing) {
+            return missing
+                .iter()
+                .rev()
+                .fold(real, |joined, part| joined.join(part));
+        }
+        match (existing.parent(), existing.file_name()) {
+            (Some(parent), Some(name)) => {
+                missing.push(name);
+                existing = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
     }
 }
 
@@ -554,6 +578,31 @@ mod tests {
                 .pattern,
             "["
         );
+    }
+
+    /// A tree reached through a symlink and a write named by its real path
+    /// (or the reverse) are the same tree.
+    #[test]
+    fn a_symlinked_root_and_a_real_write_path_meet() {
+        let dir = std::env::temp_dir().join(format!("cedian-scope-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let real = dir.join("real");
+        std::fs::create_dir_all(real.join(".worktrees/w1/src")).unwrap();
+        std::os::unix::fs::symlink(&real, dir.join("alias")).unwrap();
+        let brief = scope_brief(&["src/**"], &[]);
+        let scope =
+            WorkerScope::new(&dir.join("alias"), [("w1", ".worktrees/w1", &brief)]).unwrap();
+        let written = real.join(".worktrees/w1/src/new.rs");
+        assert_eq!(
+            scope.attribute(&written).map(|a| (a.worker, a.in_scope)),
+            Some(("w1", true))
+        );
+        let through_alias = dir.join("alias/.worktrees/w1/docs/x.md");
+        assert_eq!(
+            scope.attribute(&through_alias).map(|a| a.in_scope),
+            Some(false)
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

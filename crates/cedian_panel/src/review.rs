@@ -329,6 +329,10 @@ pub struct FileReview {
     /// The running workers' briefs this file was imported under (ADR-0063
     /// decision 1); `None` means no running worker, so no scope is checked.
     scope: Option<Arc<WorkerScope>>,
+    /// The running worker whose tree holds this file, when the last rebuild
+    /// found it outside that worker's brief: its OutOfScope hunks hold back
+    /// that worker's merge alone.
+    out_of_scope_worker: Option<String>,
     /// The buffer at each turn's first agent edit to it, so a turn reverts
     /// to its own start, not to the task baseline.
     turn_starts: Vec<(u32, text::BufferSnapshot)>,
@@ -351,6 +355,7 @@ impl FileReview {
             hunks: Vec::new(),
             built_at: clock::Global::new(),
             scope: None,
+            out_of_scope_worker: None,
             turn_starts: Vec::new(),
         }
     }
@@ -409,12 +414,14 @@ impl FileReview {
 
     fn rebuild(&mut self, buffer: &Buffer, abs_path: Option<&Path>) -> Vec<HunkKey> {
         let snapshot = buffer.text_snapshot();
-        let out_of_scope = match (&self.scope, abs_path) {
+        self.out_of_scope_worker = match (&self.scope, abs_path) {
             (Some(scope), Some(abs_path)) => scope
                 .attribute(abs_path)
-                .is_some_and(|attribution| !attribution.in_scope),
-            _ => false,
+                .filter(|attribution| !attribution.in_scope)
+                .map(|attribution| attribution.worker.to_string()),
+            _ => None,
         };
+        let out_of_scope = self.out_of_scope_worker.is_some();
         let edits: Vec<text::Edit<usize>> = snapshot
             .edits_since::<usize>(self.baseline.version())
             .collect();
@@ -711,6 +718,9 @@ pub struct UnreviewedWrite {
     /// running worker's tree outside its brief, and holds the absolute path
     /// to open (ADR-0085 decision 6). Merge is refused until it is accepted.
     pub out_of_scope: Option<PathBuf>,
+    /// The running worker whose tree it landed in; only that worker's merge
+    /// waits on it.
+    pub worker: Option<String>,
 }
 
 /// One task's review: the files its agent wrote and their hunks.
@@ -747,16 +757,24 @@ impl TaskReview {
             path,
             reason,
             out_of_scope: None,
+            worker: None,
         });
     }
 
     /// OMP wrote `path` (at `abs_path`), not open, under a running worker's
     /// tree outside its brief: listed, and awaiting a person's decision.
-    pub fn out_of_scope_write(&mut self, path: PathBuf, abs_path: PathBuf, reason: String) {
+    pub fn out_of_scope_write(
+        &mut self,
+        path: PathBuf,
+        abs_path: PathBuf,
+        worker: String,
+        reason: String,
+    ) {
         self.list_unreviewed(UnreviewedWrite {
             path,
             reason,
             out_of_scope: Some(abs_path),
+            worker: Some(worker),
         });
     }
 
@@ -1114,15 +1132,26 @@ impl TaskReview {
     /// (ADR-0085 decision 6). Merge-back is refused while any is unresolved,
     /// and none is auto-accepted.
     pub fn out_of_scope_count(&self) -> usize {
+        self.out_of_scope_where(|_| true)
+    }
+
+    /// The changes awaiting a decision that hold back `worker`'s merge: the
+    /// ones in its own tree.
+    pub fn out_of_scope_count_for(&self, worker: &str) -> usize {
+        self.out_of_scope_where(|owner| owner == Some(worker))
+    }
+
+    fn out_of_scope_where(&self, owned: impl Fn(Option<&str>) -> bool) -> usize {
         self.files
             .iter()
+            .filter(|f| owned(f.out_of_scope_worker.as_deref()))
             .flat_map(|f| &f.hunks)
             .filter(|h| h.status == HunkStatus::OutOfScope)
             .count()
             + self
                 .unreviewable
                 .iter()
-                .filter(|w| w.out_of_scope.is_some())
+                .filter(|w| w.out_of_scope.is_some() && owned(w.worker.as_deref()))
                 .count()
     }
 
