@@ -1444,8 +1444,7 @@ impl OmpLink {
     }
 
     /// A changed file its worker's brief does not allow (ADR-0033
-    /// decision 3): its audit row, through the link that owns the log. An
-    /// unwritable row is the usual audit failure.
+    /// decision 3): its audit row, through the link that owns the log.
     pub fn out_of_scope(
         &self,
         tool_call_id: String,

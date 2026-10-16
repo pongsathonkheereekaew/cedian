@@ -291,7 +291,6 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         0,
         "a person accepted it"
     );
-    // Back to the tree the steps below expect: no untracked file in it.
     drop(open);
     std::fs::remove_file(ws.join(".worktrees/w1/other.txt")).unwrap();
 

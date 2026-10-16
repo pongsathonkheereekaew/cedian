@@ -409,9 +409,6 @@ impl FileReview {
 
     fn rebuild(&mut self, buffer: &Buffer, abs_path: Option<&Path>) -> Vec<HunkKey> {
         let snapshot = buffer.text_snapshot();
-        // Every hunk of a file in a running worker's tree that its brief
-        // does not allow is OutOfScope (ADR-0033 decision 3); a file under no
-        // worker's tree never is.
         let out_of_scope = match (&self.scope, abs_path) {
             (Some(scope), Some(abs_path)) => scope
                 .attribute(abs_path)
@@ -704,6 +701,18 @@ fn line_hunks(
     out
 }
 
+/// A file OMP wrote that could not be opened for review (ADR-0047), listed
+/// by the path the review names it with.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnreviewedWrite {
+    pub path: PathBuf,
+    pub reason: String,
+    /// Set while a person still has to accept it: the write landed under a
+    /// running worker's tree outside its brief, and holds the absolute path
+    /// to open (ADR-0085 decision 6). Merge is refused until it is accepted.
+    pub out_of_scope: Option<PathBuf>,
+}
+
 /// One task's review: the files its agent wrote and their hunks.
 pub struct TaskReview {
     task_id: String,
@@ -712,7 +721,7 @@ pub struct TaskReview {
     /// A prompt turn is streaming: its revert waits for it to settle.
     turn_open: bool,
     /// Files OMP wrote that could not be opened, with the reason.
-    unreviewable: Vec<(PathBuf, String)>,
+    unreviewable: Vec<UnreviewedWrite>,
     events: Vec<ReviewEvent>,
 }
 
@@ -728,16 +737,48 @@ impl TaskReview {
         }
     }
 
-    pub fn unreviewable(&self) -> &[(PathBuf, String)] {
+    pub fn unreviewable(&self) -> &[UnreviewedWrite] {
         &self.unreviewable
     }
 
     /// OMP wrote `path` but it could not be opened for review.
     pub fn could_not_review(&mut self, path: PathBuf, reason: String) {
-        match self.unreviewable.iter_mut().find(|(p, _)| *p == path) {
-            Some(entry) => entry.1 = reason,
-            None => self.unreviewable.push((path, reason)),
+        self.list_unreviewed(UnreviewedWrite {
+            path,
+            reason,
+            out_of_scope: None,
+        });
+    }
+
+    /// OMP wrote `path` (at `abs_path`), not open, under a running worker's
+    /// tree outside its brief: listed, and awaiting a person's decision.
+    pub fn out_of_scope_write(&mut self, path: PathBuf, abs_path: PathBuf, reason: String) {
+        self.list_unreviewed(UnreviewedWrite {
+            path,
+            reason,
+            out_of_scope: Some(abs_path),
+        });
+    }
+
+    fn list_unreviewed(&mut self, write: UnreviewedWrite) {
+        match self.unreviewable.iter_mut().find(|w| w.path == write.path) {
+            Some(entry) => *entry = write,
+            None => self.unreviewable.push(write),
         }
+    }
+
+    /// A person accepted the out-of-scope write at `path`: the line stays
+    /// as a record and no longer blocks Merge.
+    pub fn accept_unreviewed(&mut self, path: &Path) -> Result<(), ReviewError> {
+        let write = self
+            .unreviewable
+            .iter_mut()
+            .find(|w| w.path == path && w.out_of_scope.is_some())
+            .ok_or_else(|| ReviewError::NoFile {
+                path: path.to_path_buf(),
+            })?;
+        write.out_of_scope = None;
+        Ok(())
     }
 
     pub fn task_id(&self) -> &str {
@@ -919,7 +960,7 @@ impl TaskReview {
         file.last_seen = buffer.version();
         file.stale_import = None;
         let path = path_of(buffer, cx);
-        self.unreviewable.retain(|(p, _)| *p != path);
+        self.unreviewable.retain(|w| w.path != path);
         self.rebuild(cx);
     }
 
@@ -1068,15 +1109,21 @@ impl TaskReview {
             .count()
     }
 
-    /// How many hunks are `OutOfScope` — a changed file outside the running
-    /// workers' briefs (ADR-0033 decision 3). Merge-back is refused while any
-    /// is unresolved, and they are never auto-accepted.
+    /// How many changes await a person's decision: `OutOfScope` hunks
+    /// (ADR-0033 decision 3) and out-of-scope writes to files nobody had open
+    /// (ADR-0085 decision 6). Merge-back is refused while any is unresolved,
+    /// and none is auto-accepted.
     pub fn out_of_scope_count(&self) -> usize {
         self.files
             .iter()
             .flat_map(|f| &f.hunks)
             .filter(|h| h.status == HunkStatus::OutOfScope)
             .count()
+            + self
+                .unreviewable
+                .iter()
+                .filter(|w| w.out_of_scope.is_some())
+                .count()
     }
 
     /// Accept every `Pending` hunk, and every `Stale` one too when

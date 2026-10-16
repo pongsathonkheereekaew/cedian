@@ -381,8 +381,8 @@ pub struct CedianPanel {
     thread_rows: Vec<ThreadRow>,
     /// OMP's subagents, each under the `task` call that started it.
     subagents: SubagentTree,
-    /// The workspace root when the last subagent frame came, so a subagent
-    /// line names its tree relative to it without an `App` in hand.
+    /// The workspace root, read at the last subagent frame; a subagent line
+    /// names its tree relative to it.
     subagent_root: Option<PathBuf>,
     /// Each running subagent's Steer text box, by id.
     steer_boxes: HashMap<String, Entity<Editor>>,
@@ -1182,6 +1182,13 @@ impl CedianPanel {
     /// a hunk that moved since is refused with a notice.
     pub fn accept_hunk(&mut self, path: &std::path::Path, key: &HunkKey, cx: &mut Context<Self>) {
         let result = self.review.accept(path, key, cx);
+        self.report_review(result, cx);
+    }
+
+    /// The Accept button of an out-of-scope write no one had open: a person
+    /// looked at the file and keeps it, so it no longer blocks Merge.
+    pub fn accept_unreviewed(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
+        let result = self.review.accept_unreviewed(path);
         self.report_review(result, cx);
     }
 
@@ -2167,6 +2174,29 @@ impl CedianPanel {
             worker_trees::merge_back(&repo, &state, &id, WORKER_BASE)
                 .map(|()| format!("merged {said}"))
         });
+    }
+
+    /// Show a file the agent wrote in the workspace, for the person to read
+    /// before deciding on it.
+    fn open_file(&mut self, abs_path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(workspace) = self.workspace.as_ref().and_then(|w| w.upgrade()) else {
+            self.notice = Some(format!("no workspace to open {} in", abs_path.display()));
+            cx.notify();
+            return;
+        };
+        workspace
+            .update(cx, |workspace, cx| {
+                workspace.open_abs_path(
+                    abs_path,
+                    workspace::OpenOptions {
+                        focus: Some(true),
+                        ..Default::default()
+                    },
+                    window,
+                    cx,
+                )
+            })
+            .detach_and_log_err(cx);
     }
 
     /// Ask before removing: `worktree remove` throws away a dirty tree, so
@@ -5452,25 +5482,31 @@ impl CedianPanel {
                     scope.as_deref(),
                     cx,
                 );
-                let reason = match breach {
+                match breach {
                     Some(OutOfScopeWrite { worker, subagent }) => {
                         let by = match subagent {
                             Some(id) => format!("subagent {id} (worker {worker})"),
                             None => format!("worker {worker}"),
                         };
-                        format!(
-                            "written by {by} outside its brief while {tool} call \
-                             {tool_call_id} ran; it was not open, so cedian has no text from \
-                             before the call to review it against"
-                        )
+                        self.review.out_of_scope_write(
+                            shown.clone(),
+                            abs.clone(),
+                            format!(
+                                "written by {by} outside its brief while {tool} call \
+                                 {tool_call_id} ran; it was not open, so cedian has no text \
+                                 from before the call to review it against"
+                            ),
+                        );
                     }
-                    None => format!(
-                        "changed while {tool} call {tool_call_id} ran (it or another process \
-                         wrote it); it was not open, so cedian has no text from before the \
-                         call to review it against"
+                    None => self.review.could_not_review(
+                        shown.clone(),
+                        format!(
+                            "changed while {tool} call {tool_call_id} ran (it or another \
+                             process wrote it); it was not open, so cedian has no text from \
+                             before the call to review it against"
+                        ),
                     ),
-                };
-                self.review.could_not_review(shown.clone(), reason);
+                }
             }
         }
         let fs = self.project.read(cx).fs().clone();
@@ -5918,21 +5954,45 @@ impl CedianPanel {
             }
             body = body.child(section);
         }
-        for (path, reason) in self.review.unreviewable().to_vec() {
-            let selector = format!("cedian-unreviewed-{}", path.display());
-            body = body.child(
-                v_flex()
-                    .gap_1()
-                    .debug_selector(move || selector)
-                    .child(Label::new(path.display().to_string()).size(LabelSize::Small))
-                    .child(
-                        Label::new(format!(
-                            "cedian agent wrote this file; it could not be reviewed: {reason}"
+        for write in self.review.unreviewable().to_vec() {
+            let name = write.path.display().to_string();
+            let selector = format!("cedian-unreviewed-{name}");
+            let mut section = v_flex()
+                .gap_1()
+                .debug_selector(move || selector)
+                .child(Label::new(name.clone()).size(LabelSize::Small))
+                .child(
+                    Label::new(format!(
+                        "cedian agent wrote this file; it could not be reviewed: {}",
+                        write.reason
+                    ))
+                    .size(LabelSize::Small)
+                    .color(Color::Warning),
+                );
+            if let Some(abs_path) = write.out_of_scope {
+                let open = format!("cedian-unreviewed-open-{name}");
+                let accept = format!("cedian-unreviewed-accept-{name}");
+                let path = write.path.clone();
+                section = section.child(
+                    h_flex()
+                        .gap_1()
+                        .child(div().debug_selector(|| open.clone()).child(
+                            Button::new(ElementId::Name(open.clone().into()), "Open").on_click(
+                                cx.listener(move |this, _, window, cx| {
+                                    this.open_file(abs_path.clone(), window, cx)
+                                }),
+                            ),
                         ))
-                        .size(LabelSize::Small)
-                        .color(Color::Warning),
-                    ),
-            );
+                        .child(div().debug_selector(|| accept.clone()).child(
+                            Button::new(ElementId::Name(accept.clone().into()), "Accept").on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    this.accept_unreviewed(&path, cx)
+                                }),
+                            ),
+                        )),
+                );
+            }
+            body = body.child(section);
         }
         for (path, key, stale_import, hunks) in files {
             let name = path.display().to_string();
@@ -7509,19 +7569,43 @@ mod tests {
         let listed = unreviewable(&f, cx);
         let other = listed
             .iter()
-            .find(|(path, _)| path.ends_with("w1/other.txt"))
+            .find(|write| write.path.ends_with("w1/other.txt"))
             .unwrap_or_else(|| panic!("other.txt is listed: {listed:?}"));
         assert!(
-            other.1.contains(
+            other.reason.contains(
                 "written by subagent sa-9 (worker w1) outside its brief while task call t1 ran"
             ),
             "{listed:?}"
+        );
+        assert_eq!(
+            other.out_of_scope.as_deref(),
+            Some(Path::new("/ws/.worktrees/w1/other.txt")),
+            "the write awaits a decision, with the file to open"
         );
         let (registry, _) = Registry::open(&state).unwrap();
         assert!(
             registry.get("w1").unwrap().last_progress.is_some(),
             "notes.txt, in w1's brief, advanced it"
         );
+
+        let other_path = other.path.clone();
+        f.window
+            .update(cx, |panel, _, cx| {
+                assert_eq!(panel.review.out_of_scope_count(), 1);
+                panel.merge_worker("w1", cx);
+                assert!(
+                    panel.notice().is_some_and(|n| n.contains("merge refused")),
+                    "{:?}",
+                    panel.notice()
+                );
+                panel.accept_unreviewed(&other_path, cx);
+                assert_eq!(panel.review.out_of_scope_count(), 0);
+                assert!(
+                    panel.review.unreviewable()[0].out_of_scope.is_none(),
+                    "accepted, the line stays as a record"
+                );
+            })
+            .unwrap();
     }
 
     /// With a running worker covering only `notes.txt`, an edit to another
@@ -7844,8 +7928,8 @@ mod tests {
             .update(cx, |panel, _, _| panel.review.unreviewable().to_vec())
             .unwrap();
         assert_eq!(unreviewable.len(), 1, "{unreviewable:?}");
-        assert_eq!(unreviewable[0].0, PathBuf::from("ws/other.txt"));
-        assert!(unreviewable[0].1.contains("c1"), "{unreviewable:?}");
+        assert_eq!(unreviewable[0].path, PathBuf::from("ws/other.txt"));
+        assert!(unreviewable[0].reason.contains("c1"), "{unreviewable:?}");
     }
 
     #[gpui::test]
@@ -7863,7 +7947,7 @@ mod tests {
         raced_without_old_text(cx, Vec::new()).await;
     }
 
-    fn unreviewable(f: &Fixture, cx: &mut TestAppContext) -> Vec<(PathBuf, String)> {
+    fn unreviewable(f: &Fixture, cx: &mut TestAppContext) -> Vec<crate::review::UnreviewedWrite> {
         f.window
             .update(cx, |panel, _, _| panel.review.unreviewable().to_vec())
             .unwrap()
@@ -7953,8 +8037,8 @@ mod tests {
         assert!(hunks(&f, cx).is_empty());
         let listed = unreviewable(&f, cx);
         assert_eq!(listed.len(), 1, "{listed:?}");
-        assert_eq!(listed[0].0, PathBuf::from("ws/other.txt"));
-        assert!(listed[0].1.contains("bash call b1"), "{listed:?}");
+        assert_eq!(listed[0].path, PathBuf::from("ws/other.txt"));
+        assert!(listed[0].reason.contains("bash call b1"), "{listed:?}");
     }
 
     /// Another mutating call writing the same file while a bash call runs:
@@ -7974,7 +8058,7 @@ mod tests {
         let listed = unreviewable(&f, cx);
         assert_eq!(listed.len(), 1, "{listed:?}");
         assert!(
-            listed[0].1.contains("b1") && listed[0].1.contains("e1"),
+            listed[0].reason.contains("b1") && listed[0].reason.contains("e1"),
             "{listed:?}"
         );
     }
@@ -7997,7 +8081,7 @@ mod tests {
         let listed = unreviewable(&f, cx);
         assert_eq!(listed.len(), 1, "{listed:?}");
         assert!(
-            listed[0].1.contains("e1") && listed[0].1.contains("unsaved"),
+            listed[0].reason.contains("e1") && listed[0].reason.contains("unsaved"),
             "{listed:?}"
         );
         assert_eq!(
@@ -8040,7 +8124,7 @@ mod tests {
         assert!(got.is_empty(), "{got:?}");
         assert_eq!(listed.len(), 1, "{listed:?}");
         assert!(
-            listed[0].1.contains("before cedian marked it"),
+            listed[0].reason.contains("before cedian marked it"),
             "{listed:?}"
         );
     }
@@ -8081,7 +8165,7 @@ mod tests {
         assert!(hunks(&f, cx).is_empty(), "{:?}", hunks(&f, cx));
         let listed = unreviewable(&f, cx);
         assert_eq!(listed.len(), 1, "{listed:?}");
-        assert!(listed[0].1.contains("moved"), "{listed:?}");
+        assert!(listed[0].reason.contains("moved"), "{listed:?}");
     }
 
     async fn agent_hunk(f: &Fixture, cx: &mut TestAppContext, id: &str, text: &str) {
@@ -8149,8 +8233,11 @@ mod tests {
         tool_end_named(&f, cx, "b1", "bash", Vec::new());
         let listed = unreviewable(&f, cx);
         assert_eq!(listed.len(), 1, "{listed:?}");
-        assert_eq!(listed[0].0, PathBuf::from("ws/sub/new.txt"));
-        assert!(listed[0].1.contains("while bash call b1 ran"), "{listed:?}");
+        assert_eq!(listed[0].path, PathBuf::from("ws/sub/new.txt"));
+        assert!(
+            listed[0].reason.contains("while bash call b1 ran"),
+            "{listed:?}"
+        );
     }
 
     /// A running bash call does not freeze the review: a hunk can still be
@@ -8345,7 +8432,7 @@ mod tests {
             .update(cx, |panel, _, _| panel.review.unreviewable().to_vec())
             .unwrap();
         assert_eq!(shown.len(), 1, "{shown:?}");
-        assert_eq!(shown[0].0, PathBuf::from("/elsewhere/out.txt"));
+        assert_eq!(shown[0].path, PathBuf::from("/elsewhere/out.txt"));
         let empty = f
             .window
             .update(cx, |panel, _, _| panel.review.is_empty())
