@@ -891,7 +891,15 @@ fn open_settings_editor_with(
         let default_bounds = DEFAULT_ADDITIONAL_WINDOW_SIZE;
         let default_rem_size = 16.0;
         let scale_factor = current_rem_size / default_rem_size;
-        let scaled_bounds: gpui::Size<Pixels> = default_bounds.map(|axis| axis * scale_factor);
+        let mut scaled_bounds: gpui::Size<Pixels> = default_bounds.map(|axis| axis * scale_factor);
+        scaled_bounds.height = scaled_bounds
+            .height
+            .max(cedian::sidebar_fit_height() * scale_factor);
+        if let Some(display) = cx.primary_display() {
+            scaled_bounds.height = scaled_bounds
+                .height
+                .min(display.visible_bounds().size.height);
+        }
 
         let app_id = ReleaseChannel::global(cx).app_id();
         let window_decorations = match std::env::var("ZED_WINDOW_DECORATIONS") {
@@ -1574,10 +1582,7 @@ fn render_settings_item(
         modified_in,
         setting_item.field.json_path(),
         sub_field,
-        setting_item
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.badge),
+        cedian::shown_badge(setting_item, &found_in_file),
         cx,
     )
 }
@@ -2126,35 +2131,6 @@ impl SettingsWindow {
         self.reset_list_state();
     }
 
-    fn toggle_and_focus_navbar_entry(
-        &mut self,
-        nav_entry_index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.toggle_navbar_entry(nav_entry_index);
-        window.focus(&self.navbar_entries[nav_entry_index].focus_handle, cx);
-        cx.notify();
-    }
-
-    fn toggle_navbar_entry_on_double_click(
-        &mut self,
-        nav_entry_index: usize,
-        event: &gpui::ClickEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let Some(entry) = self.navbar_entries.get(nav_entry_index) else {
-            return false;
-        };
-        if !entry.is_root || event.click_count() != 2 {
-            return false;
-        }
-
-        self.toggle_and_focus_navbar_entry(nav_entry_index, window, cx);
-        true
-    }
-
     fn build_navbar(&mut self, cx: &App) {
         let mut navbar_entries = Vec::new();
 
@@ -2591,11 +2567,44 @@ impl SettingsWindow {
             .pages
             .iter()
             .map(|page| {
-                std::iter::repeat_with(|| NonFocusableHandle::new(0, false, window, cx))
+                std::iter::repeat_with(|| Self::content_item_handle(window, cx))
                     .take(page.items.len())
                     .collect()
             })
             .collect::<Vec<_>>();
+    }
+
+    /// A content row's handle passes focus on to the next tab stop. On a page
+    /// with no focusable control after the row, that wraps around to the
+    /// sidebar, and focusing a sidebar entry opens its page; focus goes to
+    /// the open page's entry instead.
+    fn content_item_handle(
+        window: &mut Window,
+        cx: &mut Context<SettingsWindow>,
+    ) -> Entity<NonFocusableHandle> {
+        let settings_window = cx.weak_entity();
+        let handle = cx.focus_handle().tab_index(0).tab_stop(false);
+        cx.new(|cx| {
+            let _subscription = cx.on_focus(&handle, window, move |_, window, cx| {
+                window.focus_next(cx);
+                settings_window
+                    .update(cx, |this, cx| {
+                        if !this
+                            .content_focus_handle
+                            .focus_handle(cx)
+                            .contains_focused(window, cx)
+                            && let Some(entry) = this.navbar_entries.get(this.navbar_entry)
+                        {
+                            window.focus(&entry.focus_handle, cx);
+                        }
+                    })
+                    .ok();
+            });
+            NonFocusableHandle {
+                handle,
+                _subscription,
+            }
+        })
     }
 
     fn reset_list_state(&mut self) {
@@ -2613,6 +2622,9 @@ impl SettingsWindow {
         if self.pages.is_empty() {
             self.pages = page_data::settings_data(cx);
             self.build_navbar(cx);
+            // cedian's sidebar lists pages only; sections are reached by
+            // scrolling the page and by search.
+            self.navbar_entries.retain(|entry| entry.is_root);
             self.setup_navbar_focus_subscriptions(window, cx);
             self.build_content_handles(window, cx);
         }
@@ -2748,27 +2760,46 @@ impl SettingsWindow {
     }
 
     fn open_best_matching_nav_page(&mut self, query_words: &[&str]) {
+        let matching_words = |title: &str| {
+            let title_lower = title.to_lowercase();
+            query_words
+                .iter()
+                .filter(|query_word| {
+                    title_lower
+                        .split_whitespace()
+                        .any(|title_word| title_word.starts_with(*query_word))
+                })
+                .count()
+        };
         let mut entries = self.visible_navbar_entries().peekable();
-        let first_entry = entries.peek().map(|(index, _)| (0, *index));
+        let first_entry = entries.peek().map(|(index, _)| *index);
+        // A page scores as its best visible section, so a sidebar that
+        // lists pages only still opens the page whose section matches.
         let best_match = entries
-            .enumerate()
-            .filter(|(_, (_, entry))| !entry.is_root)
-            .map(|(logical_index, (index, entry))| {
-                let title_lower = entry.title.to_lowercase();
-                let matching_words = query_words
-                    .iter()
-                    .filter(|query_word| {
-                        title_lower
-                            .split_whitespace()
-                            .any(|title_word| title_word.starts_with(*query_word))
-                    })
-                    .count();
-                (logical_index, index, matching_words)
+            .map(|(index, entry)| {
+                let count = if entry.is_root {
+                    let page_index = entry.page_index;
+                    self.pages[page_index]
+                        .items
+                        .iter()
+                        .zip(&self.filter_table[page_index])
+                        .filter_map(|(item, visible)| match item {
+                            SettingsPageItem::SectionHeader(title) if *visible => {
+                                Some(matching_words(title))
+                            }
+                            _ => None,
+                        })
+                        .max()
+                        .unwrap_or(0)
+                } else {
+                    matching_words(entry.title)
+                };
+                (index, count)
             })
-            .filter(|(_, _, count)| *count > 0)
-            .max_by_key(|(_, _, count)| *count)
-            .map(|(logical_index, index, _)| (logical_index, index));
-        if let Some((_, navbar_entry_index)) = best_match.or(first_entry) {
+            .filter(|(_, count)| *count > 0)
+            .max_by_key(|(_, count)| *count)
+            .map(|(index, _)| index);
+        if let Some(navbar_entry_index) = best_match.or(first_entry) {
             self.open_navbar_entry_page(navbar_entry_index);
             if let Some(row) = self.nav_row_of(navbar_entry_index) {
                 self.navbar_scroll_handle
@@ -3341,48 +3372,28 @@ impl SettingsWindow {
                                             |item, page| item.icon(page.icon),
                                         )
                                         .toggle_state(this.is_navbar_entry_selected(entry_index))
-                                        .when(entry.is_root, |item| {
-                                            item.expanded(entry.expanded || this.has_query)
-                                                .on_toggle(cx.listener(
-                                                    move |this, _, window, cx| {
-                                                        this.toggle_and_focus_navbar_entry(
-                                                            entry_index,
-                                                            window,
-                                                            cx,
-                                                        );
-                                                    },
-                                                ))
-                                        })
                                         .on_click({
                                             let category = this.pages[entry.page_index].title;
                                             let subcategory =
                                                 (!entry.is_root).then_some(entry.title);
 
-                                            cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
-                                                if this.toggle_navbar_entry_on_double_click(
+                                            cx.listener(
+                                                move |this, _: &gpui::ClickEvent, window, cx| {
+                                                    telemetry::event!(
+                                                        "Settings Navigation Clicked",
+                                                        category = category,
+                                                        subcategory = subcategory
+                                                    );
+
+                                                    this.open_and_scroll_to_navbar_entry(
                                                         entry_index,
-                                                        event,
+                                                        None,
+                                                        true,
                                                         window,
                                                         cx,
-                                                    )
-                                                {
-                                                    return;
-                                                }
-
-                                                telemetry::event!(
-                                                    "Settings Navigation Clicked",
-                                                    category = category,
-                                                    subcategory = subcategory
-                                                );
-
-                                                this.open_and_scroll_to_navbar_entry(
-                                                    entry_index,
-                                                    None,
-                                                    true,
-                                                    window,
-                                                    cx,
-                                                );
-                                            })
+                                                    );
+                                                },
+                                            )
                                         })
                                         .into_any_element()
                                     })
@@ -6606,91 +6617,6 @@ pub mod test {
         > Appearance & Behavior
         "
     );
-
-    #[gpui::test]
-    fn navbar_double_click_toggle(cx: &mut gpui::TestAppContext) {
-        let (settings_window, cx) = cx.add_window_view(|window, cx| {
-            register_settings(cx);
-            let mut settings_window = parse(
-                r"
-                > General*
-                - General
-                - Privacy
-                v Project
-                - Project Settings
-                ",
-                window,
-                cx,
-            );
-            settings_window.build_content_handles(window, cx);
-            settings_window
-        });
-
-        settings_window.update_in(cx, |settings_window, window, cx| {
-            let general_idx = settings_window
-                .navbar_entries
-                .iter()
-                .position(|entry| entry.title == "General" && entry.is_root)
-                .expect("General root entry should exist");
-            let privacy_idx = settings_window
-                .navbar_entries
-                .iter()
-                .position(|entry| entry.title == "Privacy" && !entry.is_root)
-                .expect("Privacy nested entry should exist");
-
-            let click_event = |click_count| {
-                gpui::ClickEvent::Mouse(gpui::MouseClickEvent {
-                    down: gpui::MouseDownEvent {
-                        button: gpui::MouseButton::Left,
-                        click_count,
-                        ..Default::default()
-                    },
-                    up: gpui::MouseUpEvent {
-                        button: gpui::MouseButton::Left,
-                        click_count,
-                        ..Default::default()
-                    },
-                })
-            };
-
-            assert!(
-                !settings_window.toggle_navbar_entry_on_double_click(
-                    general_idx,
-                    &click_event(1),
-                    window,
-                    cx,
-                ),
-                "single-clicks should use the normal navigation path"
-            );
-            assert!(!settings_window.navbar_entries[general_idx].expanded);
-
-            assert!(settings_window.toggle_navbar_entry_on_double_click(
-                general_idx,
-                &click_event(2),
-                window,
-                cx,
-            ));
-            assert!(settings_window.navbar_entries[general_idx].expanded);
-
-            assert!(
-                !settings_window.toggle_navbar_entry_on_double_click(
-                    general_idx,
-                    &click_event(3),
-                    window,
-                    cx,
-                ),
-                "triple-clicks should not toggle the entry again"
-            );
-            assert!(settings_window.navbar_entries[general_idx].expanded);
-
-            assert!(!settings_window.toggle_navbar_entry_on_double_click(
-                privacy_idx,
-                &click_event(2),
-                window,
-                cx,
-            ));
-        });
-    }
 
     #[gpui::test]
     async fn test_settings_window_shows_worktrees_from_multiple_workspaces(
