@@ -6123,6 +6123,7 @@ impl Render for CedianPanel {
             .gap_2()
             .child(
                 h_flex()
+                    .flex_wrap()
                     .justify_end()
                     .gap_2()
                     .pr_2()

@@ -11,7 +11,7 @@ use gpui::{
 };
 use settings_ui::{RowState, ScopeBadge, SettingsSectionHeader, render_row, render_row_state};
 use std::path::PathBuf;
-use ui::{Button, ButtonStyle, Checkbox, Divider, Label, ToggleState, prelude::*};
+use ui::{Button, ButtonStyle, Checkbox, Divider, Label, ToggleState, Tooltip, prelude::*};
 
 /// What one provider's row says and offers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -571,7 +571,8 @@ impl AccountPage {
             .child(
                 Checkbox::new("cedian-import-skills", ToggleState::Selected)
                     .label("Skills")
-                    .disabled(true),
+                    .visualization_only(true)
+                    .tooltip(Tooltip::text("Skills are always imported")),
             )
             .child(
                 Checkbox::new("cedian-import-settings", toggle(form.settings))
