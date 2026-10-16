@@ -965,21 +965,9 @@ fn agent_version(_: &App) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
-pub struct PstackPin {
-    pub version: String,
-    pub commit: String,
-    pub author: String,
-    pub license: String,
-}
-
-pub fn pstack_pin() -> Option<PstackPin> {
-    serde_json::from_str(include_str!("../../../vendor/pstack-cedian/pin.json")).ok()
-}
-
 /// `0.15.24 · 1e5c90a4b6 · Lauren Tan, MIT`, for About and Methodology.
 pub fn pstack_version() -> String {
-    pstack_pin()
+    cedian_shell::pstack::pin()
         .map(|pin| {
             format!(
                 "{} · {} · {}, {}",
@@ -989,7 +977,7 @@ pub fn pstack_version() -> String {
                 pin.license
             )
         })
-        .unwrap_or_else(|| "unknown".to_string())
+        .unwrap_or_else(|_| "unknown".to_string())
 }
 
 pub(crate) fn about_lines(cx: &App) -> Vec<(&'static str, String)> {

@@ -383,7 +383,11 @@ fn spawn(
     }
     let mut policy =
         cedian_shell::launch::spawn_policy(settings, choice.policy, &host_tool_names(settings));
-    policy.pstack = cedian_shell::launch::pstack_profile(settings, workdir)?;
+    let pstack = cedian_shell::launch::pstack_profile(settings, workdir)?;
+    for note in &pstack.notes {
+        println!("note: {note}");
+    }
+    policy.pstack = pstack.profile;
     if choice.policy == cedian_shell::Policy::Cedian {
         policy.config_allows = cedian_shell::launch::config_allows(&omp.binary, workdir)?;
     }

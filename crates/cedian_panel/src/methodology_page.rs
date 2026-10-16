@@ -18,13 +18,21 @@ use ui::{
 /// The picker key for "Agent default": the role's line goes.
 pub const AGENT_DEFAULT: &str = "";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Row {
+    Pstack,
+    Mandate,
+    DefaultEffort,
+    Role(PstackRole),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Methodology {
     settings_path: Option<PathBuf>,
     sheet_path: Option<PathBuf>,
     pub switches: Switches,
     pub sheet: PstackModels,
-    pub error: Option<String>,
+    pub error: Option<(Row, String)>,
 }
 
 impl Methodology {
@@ -65,7 +73,7 @@ impl Methodology {
             sheet_path,
             switches,
             sheet,
-            error: (!errors.is_empty()).then(|| errors.join("; ")),
+            error: (!errors.is_empty()).then(|| (Row::Pstack, errors.join("; "))),
         }
     }
 
@@ -79,23 +87,29 @@ impl Methodology {
     }
 
     pub fn set_pstack(&mut self, on: bool) {
-        self.write_switches(Switches {
-            pstack: on,
-            ..self.switches
-        });
+        self.write_switches(
+            Row::Pstack,
+            Switches {
+                pstack: on,
+                ..self.switches
+            },
+        );
     }
 
     pub fn set_mandate(&mut self, on: bool) {
-        self.write_switches(Switches {
-            mandate: on,
-            ..self.switches
-        });
+        self.write_switches(
+            Row::Mandate,
+            Switches {
+                mandate: on,
+                ..self.switches
+            },
+        );
     }
 
     pub fn set_default_effort(&mut self, effort: DefaultEffort) {
         let mut sheet = self.sheet.clone();
         sheet.default_effort = effort;
-        self.write_sheet(sheet);
+        self.write_sheet(Row::DefaultEffort, sheet);
     }
 
     /// Point `role` at the picked `key` (a model, `@role`, or
@@ -108,14 +122,14 @@ impl Methodology {
             match RoleModel::new(key, effort) {
                 Ok(model) => Some(model),
                 Err(e) => {
-                    self.error = Some(e);
+                    self.error = Some((Row::Role(role), e));
                     return;
                 }
             }
         };
         let mut sheet = self.sheet.clone();
         sheet.set(role, model);
-        self.write_sheet(sheet);
+        self.write_sheet(Row::Role(role), sheet);
     }
 
     /// `None` follows the default effort. A role on the agent's default has
@@ -129,14 +143,21 @@ impl Methodology {
         };
         let mut sheet = self.sheet.clone();
         sheet.set(role, Some(model));
-        self.write_sheet(sheet);
+        self.write_sheet(Row::Role(role), sheet);
     }
 
     pub fn child_state(&self) -> Option<RowState> {
         (!self.switches.pstack).then_some(RowState::DisabledChild)
     }
 
-    fn write_switches(&mut self, switches: Switches) {
+    pub fn row_state(&self, row: Row, fallback: Option<RowState>) -> Option<RowState> {
+        match &self.error {
+            Some((at, error)) if *at == row => Some(RowState::Error(error.clone().into())),
+            _ => fallback,
+        }
+    }
+
+    fn write_switches(&mut self, row: Row, switches: Switches) {
         let Some(path) = &self.settings_path else {
             return;
         };
@@ -145,11 +166,11 @@ impl Methodology {
                 self.switches = switches;
                 self.error = None;
             }
-            Err(e) => self.error = Some(e),
+            Err(e) => self.error = Some((row, e)),
         }
     }
 
-    fn write_sheet(&mut self, sheet: PstackModels) {
+    fn write_sheet(&mut self, row: Row, sheet: PstackModels) {
         let Some(path) = &self.sheet_path else {
             return;
         };
@@ -158,7 +179,7 @@ impl Methodology {
                 self.sheet = sheet;
                 self.error = None;
             }
-            Err(e) => self.error = Some(e),
+            Err(e) => self.error = Some((row, e)),
         }
     }
 }
@@ -303,11 +324,17 @@ impl MethodologyPage {
         let current = self.state.sheet.get(role);
         let id = role.sheet_label().replace([',', ' '], "-");
         let picker = if disabled {
+            let key = current.map_or(AGENT_DEFAULT, |model| model.model());
+            let name = choices
+                .iter()
+                .find(|choice| choice.key.as_ref() == key)
+                .map_or_else(
+                    || SharedString::from(key.to_string()),
+                    |choice| choice.name.clone(),
+                );
             Button::new(
                 SharedString::from(format!("cedian-pstack-model-{id}")),
-                current
-                    .map_or("Agent default", |model| model.model())
-                    .to_string(),
+                name,
             )
             .style(ButtonStyle::Outlined)
             .disabled(true)
@@ -347,7 +374,7 @@ impl MethodologyPage {
             role.title().into(),
             Some(role.description().into()),
             Some(ScopeBadge::User),
-            state.as_ref(),
+            self.state.row_state(Row::Role(role), state).as_ref(),
             h_flex()
                 .gap_2()
                 .child(picker)
@@ -365,11 +392,6 @@ impl Render for MethodologyPage {
         let child = self.state.child_state();
         let disabled = child.is_some();
         let switches = self.state.switches;
-        let error = self
-            .state
-            .error
-            .clone()
-            .map(|error| RowState::Error(error.into()));
 
         let pstack_switch = self.switch(
             "cedian-pstack",
@@ -402,7 +424,7 @@ impl Render for MethodologyPage {
                 "pstack".into(),
                 Some("Use pstack's skills and playbooks in every session. Takes effect when the agent restarts.".into()),
                 Some(ScopeBadge::User),
-                error.as_ref(),
+                self.state.row_state(Row::Pstack, None).as_ref(),
                 pstack_switch,
                 cx,
             )
@@ -412,7 +434,7 @@ impl Render for MethodologyPage {
                 "Mandate".into(),
                 Some("Append the poteto-mode mandate to the agent's system prompt. Reviewers never get it.".into()),
                 Some(ScopeBadge::User),
-                child.as_ref(),
+                self.state.row_state(Row::Mandate, child.clone()).as_ref(),
                 mandate_switch,
                 cx,
             )
@@ -422,7 +444,7 @@ impl Render for MethodologyPage {
                 "Default Reasoning Effort".into(),
                 Some("Effort for roles that do not set their own.".into()),
                 Some(ScopeBadge::User),
-                child.as_ref(),
+                self.state.row_state(Row::DefaultEffort, child.clone()).as_ref(),
                 default_effort,
                 cx,
             )
@@ -570,6 +592,34 @@ mod tests {
             std::fs::read_to_string(&sheet)
                 .unwrap()
                 .contains("feature, refactoring: @slow")
+        );
+    }
+
+    #[test]
+    fn a_failed_write_shows_on_the_row_that_failed() {
+        let (dir, settings, _sheet) = paths();
+        let blocked = dir.path().join("file");
+        std::fs::write(&blocked, "").unwrap();
+        let mut state = Methodology::load(Some(settings), Some(blocked.join("pstack-models.md")));
+        state.pick(PstackRole::BugFix, "@slow");
+        assert!(matches!(
+            state.row_state(Row::Role(PstackRole::BugFix), None),
+            Some(RowState::Error(_))
+        ));
+        assert_eq!(state.row_state(Row::Pstack, None), None);
+        assert_eq!(state.row_state(Row::Role(PstackRole::Feature), None), None);
+
+        state.set_default_effort(DefaultEffort::Level(Effort::Low));
+        assert!(matches!(
+            state.row_state(Row::DefaultEffort, None),
+            Some(RowState::Error(_))
+        ));
+        assert_eq!(state.row_state(Row::Role(PstackRole::BugFix), None), None);
+
+        state.set_mandate(false);
+        assert_eq!(
+            state.error, None,
+            "the switch wrote, so no row shows an error"
         );
     }
 

@@ -19,6 +19,7 @@ ADR-0079 bundles pstack and gives it a settings page, but leaves open how the bu
 
 ## Consequences
 
-- While pstack is on, the overlay's `skills.customDirectories` replaces the person's own list (their skills folder in the agent dir still loads), and while the mandate is on, the agent dir's `APPEND_SYSTEM.md` is not read.
+- While pstack is on, the overlay's `skills.customDirectories` replaces the person's own list (their skills folder in the agent dir still loads).
+- `--append-system-prompt` turns off the agent's own `APPEND_SYSTEM.md` lookup, so while the mandate is on cedian appends the text itself, after the mandate: the project's file (the first of `.omp`, `.claude`, `.codex`, `.gemini` under the workspace), then the agent dir's. Without the mandate the agent reads only one of them, as before.
 - The panel agents (`panel-slow`, `panel-plan`, `panel-default`, `poteto-agent`, `comment-sicko`) ship in `vendor/pstack-cedian/agents/` but the agent does not load them yet: no launch option adds a task-agent folder, and proving the extension-package route needs a live turn. `omp-tools.md` tells the model to use agent `task` when they are not listed. Wiring them is a follow-up.
 - The update script ADR-0079 decision 5 describes, the panel model lists and the version check are U9.

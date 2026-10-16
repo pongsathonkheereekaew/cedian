@@ -16658,6 +16658,7 @@ dependencies = [
  "anyhow",
  "audio",
  "cedian_omp",
+ "cedian_shell",
  "client",
  "cloud_api_types",
  "codestral",
