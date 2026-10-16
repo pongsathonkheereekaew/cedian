@@ -105,6 +105,14 @@ pub struct PolicyChoice {
     pub notes: Vec<String>,
 }
 
+/// Folders outside `workdir` the agent may read without asking (ADR-0077
+/// decision 4), and why a project key or a folder did not apply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadFolders {
+    pub folders: Vec<PathBuf>,
+    pub notes: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PstackChoice {
     pub enabled: bool,
@@ -134,6 +142,7 @@ pub struct Settings {
     pub pstack_mandate: bool,
     projects: BTreeMap<String, Policy>,
     project_pstack: BTreeMap<String, bool>,
+    project_read_folders: BTreeMap<String, Vec<PathBuf>>,
     /// The file these settings came from (canonical), if any.
     source: Option<PathBuf>,
 }
@@ -150,36 +159,121 @@ impl Default for Settings {
             pstack_mandate: true,
             projects: BTreeMap::new(),
             project_pstack: BTreeMap::new(),
+            project_read_folders: BTreeMap::new(),
             source: None,
         }
     }
 }
 
-fn project_values<T: Copy>(
+/// Why `key` cannot name a project, or `None` when it is an absolute,
+/// existing, canonical path. A symlink in a key could be repointed, so a key
+/// must be written as its canonical form.
+pub fn project_key_problem(key: &str) -> Option<String> {
+    let path = Path::new(key);
+    match path.canonicalize() {
+        _ if !path.is_absolute() => Some("not an absolute path".to_string()),
+        Ok(canonical) if canonical == path => None,
+        Ok(canonical) => Some(format!(
+            "not canonical; write it as {:?}",
+            canonical.display()
+        )),
+        Err(e) => Some(e.to_string()),
+    }
+}
+
+fn project_values<T: Clone>(
     keys: &BTreeMap<String, T>,
     workdir: &Path,
     notes: &mut Vec<String>,
 ) -> Vec<T> {
     let mut matched = Vec::new();
     for (key, value) in keys {
-        let path = Path::new(key);
-        let why = match path.canonicalize() {
-            _ if !path.is_absolute() => "not an absolute path".to_string(),
-            Ok(canonical) if canonical == path => {
-                if canonical == workdir {
-                    matched.push(*value);
-                }
-                continue;
-            }
-            Ok(canonical) => format!("not canonical; write it as {:?}", canonical.display()),
-            Err(e) => e.to_string(),
-        };
-        notes.push(format!("[projects.{key:?}] ignored: {why}"));
+        match project_key_problem(key) {
+            None if Path::new(key) == workdir => matched.push(value.clone()),
+            None => {}
+            Some(why) => notes.push(format!("[projects.{key:?}] ignored: {why}")),
+        }
     }
     matched
 }
 
 impl Settings {
+    /// Every `[projects]` key in the file, as written.
+    pub fn project_keys(&self) -> Vec<&str> {
+        let mut keys: Vec<&str> = self
+            .projects
+            .keys()
+            .chain(self.project_pstack.keys())
+            .chain(self.project_read_folders.keys())
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        keys.dedup();
+        keys
+    }
+
+    /// The `policy` stored under `key`, as written.
+    pub fn project_policy(&self, key: &str) -> Option<Policy> {
+        self.projects.get(key).copied()
+    }
+
+    /// The `pstack` stored under `key`, as written.
+    pub fn project_pstack(&self, key: &str) -> Option<bool> {
+        self.project_pstack.get(key).copied()
+    }
+
+    /// The `read_folders` stored under `key`, as written.
+    pub fn project_read_folders(&self, key: &str) -> &[PathBuf] {
+        self.project_read_folders
+            .get(key)
+            .map_or(&[], Vec::as_slice)
+    }
+
+    /// The folders outside `workdir` (canonical) the agent may read without
+    /// asking: the `read_folders` of its `[projects]` key in the user's own
+    /// file. A settings file inside the workspace never widens its read
+    /// scope (ADR-0077 decision 4), two keys that disagree give none, and a
+    /// folder that is not absolute and canonical is dropped.
+    pub fn read_folders_for(&self, workdir: &Path) -> ReadFolders {
+        let mut notes = Vec::new();
+        let matched = project_values(&self.project_read_folders, workdir, &mut notes);
+        let folders = match matched.as_slice() {
+            [] => Vec::new(),
+            [first, rest @ ..] if rest.iter().all(|f| f == first) => {
+                if self
+                    .source
+                    .as_deref()
+                    .is_some_and(|src| src.starts_with(workdir))
+                {
+                    notes.push("the settings file is inside this workspace, so it cannot widen what the agent reads".to_string());
+                    Vec::new()
+                } else {
+                    first
+                        .iter()
+                        .filter(
+                            |folder| match project_key_problem(&folder.to_string_lossy()) {
+                                None => true,
+                                Some(why) => {
+                                    notes.push(format!(
+                                        "read folder {:?} ignored: {why}",
+                                        folder.display()
+                                    ));
+                                    false
+                                }
+                            },
+                        )
+                        .cloned()
+                        .collect()
+                }
+            }
+            _ => {
+                notes.push("two [projects] keys name this workspace with different read_folders: none apply".to_string());
+                Vec::new()
+            }
+        };
+        ReadFolders { folders, notes }
+    }
+
     /// Whether `workdir` (canonical) runs with pstack: the user's `pstack`,
     /// unless a `[projects]` key in the user's own file says otherwise. A
     /// settings file inside the workspace never switches it (ADR-0079
@@ -269,6 +363,7 @@ struct RawReview {
 struct RawProject {
     policy: Option<Policy>,
     pstack: Option<bool>,
+    read_folders: Option<Vec<PathBuf>>,
 }
 
 #[derive(Default, Deserialize)]
@@ -366,13 +461,11 @@ pub fn parse_settings(toml_src: &str) -> Result<Settings, SettingsError> {
     if raw.schema != Some(SETTINGS_SCHEMA) {
         return Err(SettingsError::BadSchema(raw.schema));
     }
-    if let Some((key, _)) = raw
-        .projects
-        .iter()
-        .find(|(_, project)| project.policy.is_none() && project.pstack.is_none())
-    {
+    if let Some((key, _)) = raw.projects.iter().find(|(_, project)| {
+        project.policy.is_none() && project.pstack.is_none() && project.read_folders.is_none()
+    }) {
         return Err(SettingsError::Parse(format!(
-            "[projects.{key:?}] sets nothing: give it `policy` or `pstack`"
+            "[projects.{key:?}] sets nothing: give it `policy`, `pstack` or `read_folders`"
         )));
     }
     Ok(Settings {
@@ -393,6 +486,11 @@ pub fn parse_settings(toml_src: &str) -> Result<Settings, SettingsError> {
             .projects
             .iter()
             .filter_map(|(key, project)| Some((key.clone(), project.pstack?)))
+            .collect(),
+        project_read_folders: raw
+            .projects
+            .iter()
+            .filter_map(|(key, project)| Some((key.clone(), project.read_folders.clone()?)))
             .collect(),
         projects: raw
             .projects
@@ -448,21 +546,33 @@ fn resolve_with(
     let Some((path, explicit)) = located else {
         return Ok(Settings::default());
     };
-    match std::fs::read_to_string(&path) {
+    match load_user_file(&path) {
+        Err(SettingsError::Missing(path)) if explicit => Err(SettingsError::Missing(path)),
+        Err(SettingsError::Missing(_)) => Ok(Settings::default()),
+        result => result,
+    }
+}
+
+/// The settings in the user's file at `path`, remembering where they came
+/// from so the per-project checks can tell a file inside a workspace.
+/// `Missing` when there is no file.
+pub fn load_user_file(path: &Path) -> Result<Settings, SettingsError> {
+    match std::fs::read_to_string(path) {
         Ok(src) => match parse_settings(&src) {
             Ok(settings) => Ok(Settings {
                 source: path.canonicalize().ok(),
                 ..settings
             }),
             Err(error) => Err(SettingsError::InFile {
-                path,
+                path: path.to_path_buf(),
                 error: Box::new(error),
             }),
         },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound && !explicit => Ok(Settings::default()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(SettingsError::Missing(path)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Err(SettingsError::Missing(path.to_path_buf()))
+        }
         Err(e) => Err(SettingsError::Read {
-            path,
+            path: path.to_path_buf(),
             error: e.to_string(),
         }),
     }
@@ -754,6 +864,59 @@ mod tests {
             "a workspace cedian.toml is refused, never read"
         );
         assert!(parse("schema = 1\n[projects.\"/x\"]\npstack = \"no\"").is_err());
+    }
+
+    #[test]
+    fn read_folders_apply_only_to_their_project_and_only_from_the_user_file() {
+        let t = Tmp::new("read-folders");
+        let ws = t.ws().display().to_string();
+        let other = t.0.join("other");
+        let docs = t.0.join("docs");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::create_dir_all(&docs).unwrap();
+        let s = parse(&format!(
+            "schema = 1\n[projects.{ws:?}]\nread_folders = [{:?}, \"relative/x\"]\n",
+            docs.display().to_string()
+        ))
+        .unwrap();
+        let mine = s.read_folders_for(&t.ws());
+        assert_eq!(mine.folders, std::slice::from_ref(&docs));
+        assert!(
+            mine.notes.iter().any(|n| n.contains("relative/x")),
+            "{:?}",
+            mine.notes
+        );
+        assert!(s.read_folders_for(&other).folders.is_empty());
+        assert_eq!(s.project_keys(), [ws.as_str()]);
+        assert_eq!(
+            s.project_policy(&ws),
+            None,
+            "read_folders alone sets no policy"
+        );
+
+        let inside = t.ws().join("cedian.toml");
+        std::fs::write(
+            &inside,
+            format!(
+                "schema = 1\n[projects.{ws:?}]\nread_folders = [{:?}]\n",
+                docs.display().to_string()
+            ),
+        )
+        .unwrap();
+        let from_repo = resolve_with(&t.ws(), env(&[("CEDIAN_CONFIG", &inside)])).unwrap();
+        let choice = from_repo.read_folders_for(&t.ws());
+        assert!(
+            choice.folders.is_empty(),
+            "a repository cannot widen its own read scope"
+        );
+        assert!(
+            choice
+                .notes
+                .iter()
+                .any(|n| n.contains("inside this workspace")),
+            "{:?}",
+            choice.notes
+        );
     }
 
     struct Tmp(PathBuf);

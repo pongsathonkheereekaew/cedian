@@ -96,16 +96,21 @@ pub fn pstack_profile_for(
         .ok_or_else(|| {
             "pstack is on but the app's Resources have no bundled pstack; turn it off in Settings > Methodology or reinstall the app".to_string()
         })?;
+    let mut notes = choice.notes;
     let mandate = if settings.pstack_mandate {
         let mut mandate = bundle.mandate(sheet)?;
         // OMP reads APPEND_SYSTEM.md only when no --append-system-prompt is
         // passed, and the mandate is passed that way, so carry the person's
-        // text along after it.
+        // text along after it. OMP warns and goes on when it cannot read one,
+        // and so does cedian: a repository's file never refuses the spawn.
         for path in append_system_files(workdir, agent_dir) {
-            let text = std::fs::read_to_string(&path)
-                .map_err(|error| format!("reading {}: {error}", path.display()))?;
-            mandate.push_str("\n\n");
-            mandate.push_str(text.trim_end());
+            match std::fs::read_to_string(&path) {
+                Ok(text) => {
+                    mandate.push_str("\n\n");
+                    mandate.push_str(text.trim_end());
+                }
+                Err(error) => notes.push(format!("{} skipped: {error}", path.display())),
+            }
         }
         Some(mandate)
     } else {
@@ -116,7 +121,7 @@ pub fn pstack_profile_for(
             skills_dir: bundle.skills(),
             mandate,
         }),
-        notes: choice.notes,
+        notes,
     })
 }
 
@@ -496,6 +501,44 @@ mod tests {
         let project_at = mandate.find("Project sentence.").unwrap();
         let agent_at = mandate.find("Agent dir sentence.").unwrap();
         assert!(mandate_at < project_at && project_at < agent_at);
+    }
+
+    #[test]
+    fn an_unreadable_append_system_file_is_skipped_with_a_note() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let exe = repo.join("target/debug/cedian");
+        let workdir = tempfile::tempdir().unwrap();
+        let agent_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(workdir.path().join(".claude")).unwrap();
+        std::fs::write(
+            workdir.path().join(".claude/APPEND_SYSTEM.md"),
+            [0xff, 0xfe, 0x00, 0x80],
+        )
+        .unwrap();
+        std::fs::write(
+            agent_dir.path().join("APPEND_SYSTEM.md"),
+            "Agent dir sentence.\n",
+        )
+        .unwrap();
+
+        let launch = pstack_profile_for(
+            &Settings::default(),
+            workdir.path(),
+            Some(&exe),
+            Path::new("/c/agent/pstack-models.md"),
+            agent_dir.path(),
+        )
+        .expect("a repository's broken file never refuses the spawn");
+        let mandate = launch.profile.unwrap().mandate.unwrap();
+        assert!(mandate.contains("Agent dir sentence."));
+        assert!(
+            launch
+                .notes
+                .iter()
+                .any(|note| note.contains(".claude/APPEND_SYSTEM.md") && note.contains("skipped")),
+            "{:?}",
+            launch.notes
+        );
     }
 
     #[test]

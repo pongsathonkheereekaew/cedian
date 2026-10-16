@@ -15,6 +15,7 @@ pub mod review_agent;
 pub mod review_findings;
 pub mod session_manager;
 pub mod settings;
+pub mod settings_writer;
 pub mod state;
 #[cfg(test)]
 mod test_dir;
@@ -27,7 +28,8 @@ pub mod workspace_files;
 pub use palette::{Palette, PaletteAction};
 pub use session_manager::{SESSIONS_SNAPSHOT_VERSION, SessionEntry, SessionManager};
 pub use settings::{
-    CONFIG_ENV, Permissions, Policy, PolicyChoice, PstackChoice, RunKind, SETTINGS_FILE,
-    SETTINGS_SCHEMA, Settings, SettingsError, UpdateChannel, Verdict, default_settings_toml,
-    parse_settings, resolve_settings, user_settings_path,
+    CONFIG_ENV, Permissions, Policy, PolicyChoice, PstackChoice, ReadFolders, RunKind,
+    SETTINGS_FILE, SETTINGS_SCHEMA, Settings, SettingsError, UpdateChannel, Verdict,
+    default_settings_toml, load_user_file, parse_settings, project_key_problem, resolve_settings,
+    user_settings_path,
 };

@@ -114,6 +114,20 @@ pub(crate) const SIDEBAR: &[SidebarPage] = {
             ),
             false,
         ),
+        page(
+            "Permissions",
+            IconName::Lock,
+            Agent,
+            Some("What the agent may do without asking you."),
+            false,
+        ),
+        page(
+            "Projects",
+            IconName::Folder,
+            Workspace,
+            Some("Per-project settings, stored on this computer and never in the repository."),
+            false,
+        ),
         page("Editor", IconName::Pencil, Workspace, None, false),
         page(
             "Languages & Tools",
@@ -410,6 +424,8 @@ pub enum AgentPage {
     Account,
     Models,
     Methodology,
+    Permissions,
+    Projects,
 }
 
 /// A page item the host draws: its rows change with the agent (one per
@@ -519,6 +535,22 @@ pub(crate) fn arrange(zed: Vec<SettingsPage>) -> Vec<SettingsPage> {
             title: "pstack",
             keywords: "pstack poteto methodology mandate skills playbooks effort reasoning role models feature refactoring bug fix judgment prose perf hillclimb version",
             page: AgentPage::Methodology,
+        })],
+    );
+    by_title.insert(
+        "Permissions",
+        vec![SettingsPageItem::CedianView(CedianView {
+            title: "Permissions",
+            keywords: "permissions approval tiers allow ask deny safe project writes dangerous read outside folders protected paths agent policy omp audit log",
+            page: AgentPage::Permissions,
+        })],
+    );
+    by_title.insert(
+        "Projects",
+        vec![SettingsPageItem::CedianView(CedianView {
+            title: "Projects",
+            keywords: "projects project path remove entry agent policy omp pstack inherit read folders",
+            page: AgentPage::Projects,
         })],
     );
     by_title.insert("Notifications", notification_items());
@@ -977,7 +1009,10 @@ pub fn pstack_version() -> String {
                 pin.license
             )
         })
-        .unwrap_or_else(|_| "unknown".to_string())
+        .unwrap_or_else(|error| {
+            log::error!("reading the pstack pin: {error}");
+            "unknown".to_string()
+        })
 }
 
 pub(crate) fn about_lines(cx: &App) -> Vec<(&'static str, String)> {
@@ -1307,7 +1342,9 @@ mod tests {
                     "Account",
                     "Models",
                     "Methodology",
+                    "Permissions",
                     "WORKSPACE",
+                    "Projects",
                     "Editor",
                     "Languages & Tools",
                     "Search & Files",
@@ -1535,6 +1572,8 @@ mod tests {
                 ("Account", AgentPage::Account),
                 ("Models", AgentPage::Models),
                 ("Methodology", AgentPage::Methodology),
+                ("Permissions", AgentPage::Permissions),
+                ("Projects", AgentPage::Projects),
             ] {
                 let view = page(window, title)
                     .items
