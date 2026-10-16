@@ -425,7 +425,8 @@ impl LaunchSpec {
             workdir.to_path_buf(),
             &state_dir,
             omp_state.clone(),
-        );
+        )
+        .map_err(|e| e.to_string())?;
         let (scope, notes) = cedian_shell::launch::read_scope(&settings, workdir, &protected);
         for note in notes {
             log::warn!("cedian: {note}");
@@ -1855,15 +1856,24 @@ fn run(
     if let Some(badge) = &chosen.badge {
         let _ = events.unbounded_send(LinkEvent::OmpPolicy(badge.clone()));
     }
+    let protected = match cedian_omp::ProtectedRoots::for_launch(
+        spec.workdir.clone(),
+        &spec.state_dir,
+        spec.omp_state.clone(),
+    ) {
+        Ok(protected) => protected,
+        Err(e) => {
+            let _ = events.unbounded_send(LinkEvent::Failed(format!(
+                "cedian agent not started, its config dir could not be protected: {e}"
+            )));
+            return;
+        }
+    };
     match AuditLog::open(&spec.state_dir, spec.policy.approvals) {
         Ok(audit) => {
             let mut state = gate.state.lock();
             state.audit = Some(audit);
-            state.protected = Some(cedian_omp::ProtectedRoots::for_launch(
-                spec.workdir.clone(),
-                &spec.state_dir,
-                spec.omp_state.clone(),
-            ));
+            state.protected = Some(protected);
         }
         Err(e) => {
             let _ = events.unbounded_send(LinkEvent::Failed(format!(

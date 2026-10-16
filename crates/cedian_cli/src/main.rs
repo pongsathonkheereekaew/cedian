@@ -392,7 +392,8 @@ fn spawn(
         workdir.to_path_buf(),
         &state::dir(workdir)?,
         cedian_omp::driver::state_root(),
-    );
+    )
+    .map_err(|e| e.to_string())?;
     let (scope, notes) = cedian_shell::launch::read_scope(settings, workdir, &protected);
     for note in &notes {
         println!("note: {note}");

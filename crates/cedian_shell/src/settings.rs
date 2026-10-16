@@ -181,6 +181,13 @@ pub fn project_key_problem(key: &str) -> Option<String> {
     }
 }
 
+/// Whether `folder` is `project` or one of its ancestors, both compared
+/// canonical (ADR-0084 decision 9).
+pub fn contains_project(folder: &Path, project: &Path) -> bool {
+    let canonical = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    canonical(project).starts_with(canonical(folder))
+}
+
 fn project_values<T: Clone>(
     keys: &BTreeMap<String, T>,
     workdir: &Path,
@@ -250,8 +257,13 @@ impl Settings {
                 } else {
                     first
                         .iter()
-                        .filter(
-                            |folder| match project_key_problem(&folder.to_string_lossy()) {
+                        .filter(|folder| {
+                            let why =
+                                project_key_problem(&folder.to_string_lossy()).or_else(|| {
+                                    contains_project(folder, workdir)
+                                        .then(|| "it contains the project".to_string())
+                                });
+                            match why {
                                 None => true,
                                 Some(why) => {
                                     notes.push(format!(
@@ -260,8 +272,8 @@ impl Settings {
                                     ));
                                     false
                                 }
-                            },
-                        )
+                            }
+                        })
                         .cloned()
                         .collect()
                 }
@@ -916,6 +928,31 @@ mod tests {
                 .any(|n| n.contains("inside this workspace")),
             "{:?}",
             choice.notes
+        );
+    }
+
+    #[test]
+    fn a_hand_edited_read_folder_that_contains_the_project_is_dropped() {
+        let t = Tmp::new("read-folders-ancestor");
+        let ws = t.ws().display().to_string();
+        let docs = t.0.join("docs");
+        std::fs::create_dir_all(&docs).unwrap();
+        let parent = t.0.display().to_string();
+        let s = parse(&format!(
+            "schema = 1\n[projects.{ws:?}]\nread_folders = [{ws:?}, {parent:?}, \"/\", {:?}]\n",
+            docs.display().to_string()
+        ))
+        .unwrap();
+        let mine = s.read_folders_for(&t.ws());
+        assert_eq!(mine.folders, std::slice::from_ref(&docs));
+        assert_eq!(
+            mine.notes
+                .iter()
+                .filter(|n| n.contains("contains the project"))
+                .count(),
+            3,
+            "{:?}",
+            mine.notes
         );
     }
 

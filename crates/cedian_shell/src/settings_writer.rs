@@ -143,9 +143,7 @@ pub fn write_project(path: &Path, key: &str, change: ProjectChange) -> Result<()
             if let Some(why) = project_key_problem(&folder.to_string_lossy()) {
                 return Err(format!("{}: {why}", folder.display()));
             }
-            // The project and its ancestors are already readable, and an
-            // ancestor would widen the scope past the project (ADR-0084).
-            if Path::new(key).starts_with(folder) {
+            if crate::settings::contains_project(folder, Path::new(key)) {
                 return Err(format!(
                     "{} contains the project, so it cannot be a read folder",
                     folder.display()
