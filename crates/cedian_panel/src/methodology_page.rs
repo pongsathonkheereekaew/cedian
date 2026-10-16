@@ -444,7 +444,7 @@ impl Render for MethodologyPage {
                 "Default Reasoning Effort".into(),
                 Some("Effort for roles that do not set their own.".into()),
                 Some(ScopeBadge::User),
-                self.state.row_state(Row::DefaultEffort, child.clone()).as_ref(),
+                self.state.row_state(Row::DefaultEffort, child).as_ref(),
                 default_effort,
                 cx,
             )
