@@ -2962,6 +2962,7 @@ dependencies = [
  "settings",
  "settings_ui",
  "task",
+ "tempfile",
  "terminal_view",
  "text",
  "theme",
@@ -2997,6 +2998,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "toml 0.8.23",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]
@@ -16656,6 +16658,7 @@ dependencies = [
  "anyhow",
  "audio",
  "cedian_omp",
+ "cedian_shell",
  "client",
  "cloud_api_types",
  "codestral",

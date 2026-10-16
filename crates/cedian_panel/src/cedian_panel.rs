@@ -10,6 +10,7 @@ pub mod debug_tool;
 pub mod dialogs;
 pub mod import;
 pub mod instruments;
+pub mod methodology_page;
 pub mod models_page;
 pub mod omp_link;
 pub mod omp_settings;

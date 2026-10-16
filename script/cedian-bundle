@@ -75,6 +75,12 @@ else
   cp target/omp/omp.stamp "$APP/Contents/Resources/cedian-agent.stamp"
 fi
 
+# pstack ships next to the agent (ADR-0079): Lauren Tan's files untouched,
+# cedian's adaptations beside them; the app finds both in Resources.
+rm -rf "$APP/Contents/Resources/pstack" "$APP/Contents/Resources/pstack-cedian"
+cp -R vendor/pstack "$APP/Contents/Resources/pstack"
+cp -R vendor/pstack-cedian "$APP/Contents/Resources/pstack-cedian"
+
 if [ -n "$IDENTITY" ]; then
   codesign --force --deep --options runtime --timestamp --sign "$IDENTITY" "$APP"
   echo "cedian-bundle: signed as $IDENTITY"

@@ -171,7 +171,22 @@ pub struct SpawnPolicy {
     /// approvals source but the reviewer's, whose tool set has no browser
     /// (ADR-0043). Must be `http://127.0.0.1:<port>`.
     pub browser_cdp_url: Option<String>,
+    /// pstack bundled with cedian (ADR-0079); `None` runs the plain agent.
+    /// A reviewer never gets it: its plan is refused.
+    pub pstack: Option<PstackProfile>,
 }
+
+/// What a session with pstack on gets (ADR-0079 decision 3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PstackProfile {
+    /// The bundled upstream `skills/`, the agent's only `skills.customDirectories`.
+    pub skills_dir: PathBuf,
+    /// The rendered mandate, appended to the system prompt; `None` when the
+    /// person turned the mandate off.
+    pub mandate: Option<String>,
+}
+
+pub const PSTACK_MANDATE_FILE: &str = "cedian-pstack.md";
 
 impl Default for SpawnPolicy {
     fn default() -> Self {
@@ -184,6 +199,7 @@ impl Default for SpawnPolicy {
             model: None,
             sandbox: None,
             browser_cdp_url: None,
+            pstack: None,
         }
     }
 }
@@ -291,6 +307,10 @@ impl SpawnPolicy {
         };
         for pin in PRIVACY_PINS {
             overlay[pin.section][pin.key] = json!(false);
+        }
+        if let Some(pstack) = &self.pstack {
+            let skills = check_path("pstack skills_dir", &pstack.skills_dir)?;
+            overlay["skills"] = json!({"customDirectories": [skills]});
         }
         if self.approvals == Approvals::Reviewer {
             overlay["browser"] = json!({"relay": false});
@@ -469,6 +489,11 @@ impl SpawnProfile {
         let binary = check_path("binary_path", &self.binary_path)?;
         let session_dir = check_path("session_dir", &self.session_dir)?;
         let cwd = check_path("cwd", &self.cwd)?;
+        if self.policy.approvals == Approvals::Reviewer && self.policy.pstack.is_some() {
+            return Err(OmpError::InvalidSpawnProfile(
+                "a reviewer never gets pstack or its mandate (ADR-0079)".to_string(),
+            ));
+        }
         // Validate the overlay before anything is spawned (fail closed).
         self.policy.overlay()?;
         let overlay_path = match &self.policy.sandbox {
@@ -510,6 +535,15 @@ impl SpawnProfile {
             argv.extend(["--model".to_string(), model.clone()]);
         }
         argv.extend(["--config".to_string(), overlay]);
+        if self
+            .policy
+            .pstack
+            .as_ref()
+            .is_some_and(|p| p.mandate.is_some())
+        {
+            let mandate = check_path("mandate", &self.session_dir.join(PSTACK_MANDATE_FILE))?;
+            argv.extend(["--append-system-prompt".to_string(), mandate]);
+        }
         if argv.len() > MAX_ARGS {
             return Err(OmpError::InvalidSpawnProfile(
                 "argv exceeds MAX_ARGS".to_string(),
@@ -548,6 +582,12 @@ impl SpawnProfile {
                     plan.overlay_path.display()
                 ))
             })?;
+        if let Some(mandate) = self.policy.pstack.as_ref().and_then(|p| p.mandate.as_ref()) {
+            let path = self.session_dir.join(PSTACK_MANDATE_FILE);
+            std::fs::write(&path, mandate).map_err(|e| {
+                OmpError::InvalidSpawnProfile(format!("mandate write {}: {e}", path.display()))
+            })?;
+        }
         Ok(plan)
     }
 }
@@ -1337,6 +1377,81 @@ mod tests {
         assert_ne!(
             profile().plan(home()).unwrap().dedupe_key,
             opted_in().plan(home()).unwrap().dedupe_key
+        );
+    }
+
+    fn pstack(mandate: Option<&str>) -> Option<PstackProfile> {
+        Some(PstackProfile {
+            skills_dir: PathBuf::from("/Applications/cedian.app/Contents/Resources/pstack/skills"),
+            mandate: mandate.map(str::to_string),
+        })
+    }
+
+    fn after<'a>(argv: &'a [String], flag: &str) -> Option<&'a str> {
+        argv.iter()
+            .position(|arg| arg == flag)
+            .and_then(|at| argv.get(at + 1))
+            .map(String::as_str)
+    }
+
+    #[test]
+    fn pstack_on_points_the_agent_at_the_bundled_skills_and_appends_the_mandate() {
+        let mut on = profile();
+        on.policy.pstack = pstack(Some("<pstack>mandate</pstack>"));
+        let plan = on.plan(home()).unwrap();
+        assert_eq!(
+            after(&plan.argv, "--append-system-prompt"),
+            Some("/tmp/t1/cedian-pstack.md")
+        );
+        assert_eq!(
+            on.policy.overlay().unwrap()["skills"]["customDirectories"],
+            json!(["/Applications/cedian.app/Contents/Resources/pstack/skills"])
+        );
+    }
+
+    #[test]
+    fn pstack_with_the_mandate_off_gets_the_skills_and_no_mandate() {
+        let mut skills_only = profile();
+        skills_only.policy.pstack = pstack(None);
+        let plan = skills_only.plan(home()).unwrap();
+        assert!(!plan.argv.iter().any(|arg| arg == "--append-system-prompt"));
+        assert!(skills_only.policy.overlay().unwrap()["skills"]["customDirectories"].is_array());
+    }
+
+    #[test]
+    fn pstack_off_runs_the_plain_agent() {
+        let plain = profile();
+        let plan = plain.plan(home()).unwrap();
+        assert!(!plan.argv.iter().any(|arg| arg == "--append-system-prompt"));
+        assert!(plain.policy.overlay().unwrap().get("skills").is_none());
+    }
+
+    #[test]
+    fn a_reviewer_never_gets_pstack() {
+        let mut reviewer = profile();
+        reviewer.policy.approvals = Approvals::Reviewer;
+        reviewer.policy.pstack = pstack(Some("mandate"));
+        assert!(reviewer.plan(home()).is_err(), "refused, never appended");
+        reviewer.policy.pstack = None;
+        let plan = reviewer.plan(home()).unwrap();
+        assert_eq!(after(&plan.argv, "--append-system-prompt"), Some(""));
+    }
+
+    #[test]
+    fn prepare_writes_the_mandate_beside_the_overlay() {
+        let dir =
+            std::env::temp_dir().join(format!("cedian-pstack-prepare-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut on = profile();
+        on.session_dir = dir.clone();
+        on.policy.pstack = pstack(Some("<pstack>m</pstack>"));
+        let plan = on.prepare().unwrap();
+        let written = std::fs::read_to_string(dir.join(PSTACK_MANDATE_FILE)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(written, "<pstack>m</pstack>");
+        assert!(
+            plan.argv
+                .contains(&dir.join(PSTACK_MANDATE_FILE).to_string_lossy().into_owned())
         );
     }
 }

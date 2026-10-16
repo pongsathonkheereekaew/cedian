@@ -414,7 +414,12 @@ impl LaunchSpec {
             tools.push(tool);
             names.push(cedian_worker::WORKTREE_REQUEST_TOOL);
         }
-        let policy = cedian_shell::launch::spawn_policy(&settings, choice.policy, &names);
+        let mut policy = cedian_shell::launch::spawn_policy(&settings, choice.policy, &names);
+        let pstack = cedian_shell::launch::pstack_profile(&settings, workdir)?;
+        for note in &pstack.notes {
+            log::warn!("cedian: {note}");
+        }
+        policy.pstack = pstack.profile;
         Ok(Self {
             binary: None,
             workdir: workdir.to_path_buf(),

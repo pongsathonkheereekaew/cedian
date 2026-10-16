@@ -58,6 +58,92 @@ pub fn spawn_policy(
     policy
 }
 
+/// What pstack gives `workdir`'s agent (ADR-0079): the bundled skills and,
+/// unless the person turned it off, the mandate naming this machine's
+/// bundle and override sheet. `None` when pstack is off for `workdir`.
+/// Only for a person's session: a reviewer's profile never calls this.
+pub fn pstack_profile(settings: &Settings, workdir: &Path) -> Result<PstackLaunch, String> {
+    let sheet = crate::pstack::sheet_path()?;
+    let agent_dir = cedian_omp::AgentDirs::from_env()
+        .map_err(|error| error.to_string())?
+        .config;
+    pstack_profile_for(
+        settings,
+        workdir,
+        std::env::current_exe().ok().as_deref(),
+        &sheet,
+        &agent_dir,
+    )
+}
+
+pub fn pstack_profile_for(
+    settings: &Settings,
+    workdir: &Path,
+    exe: Option<&Path>,
+    sheet: &Path,
+    agent_dir: &Path,
+) -> Result<PstackLaunch, String> {
+    let choice = settings.pstack_for(workdir);
+    if !choice.enabled {
+        return Ok(PstackLaunch {
+            profile: None,
+            notes: choice.notes,
+        });
+    }
+    let bundle = exe
+        .and_then(crate::pstack::PstackBundle::for_exe)
+        .or_else(debug_build_source_tree_pstack)
+        .ok_or_else(|| {
+            "pstack is on but the app's Resources have no bundled pstack; turn it off in Settings > Methodology or reinstall the app".to_string()
+        })?;
+    let mandate = if settings.pstack_mandate {
+        let mut mandate = bundle.mandate(sheet)?;
+        // OMP reads APPEND_SYSTEM.md only when no --append-system-prompt is
+        // passed, and the mandate is passed that way, so carry the person's
+        // text along after it.
+        for path in append_system_files(workdir, agent_dir) {
+            let text = std::fs::read_to_string(&path)
+                .map_err(|error| format!("reading {}: {error}", path.display()))?;
+            mandate.push_str("\n\n");
+            mandate.push_str(text.trim_end());
+        }
+        Some(mandate)
+    } else {
+        None
+    };
+    Ok(PstackLaunch {
+        profile: Some(cedian_omp::PstackProfile {
+            skills_dir: bundle.skills(),
+            mandate,
+        }),
+        notes: choice.notes,
+    })
+}
+
+#[derive(Debug, PartialEq)]
+pub struct PstackLaunch {
+    pub profile: Option<cedian_omp::PstackProfile>,
+    pub notes: Vec<String>,
+}
+
+/// The APPEND_SYSTEM.md files OMP would find: the project's (first of
+/// `.omp`, `.claude`, `.codex`, `.gemini` under `workdir`), then the agent
+/// dir's.
+fn append_system_files(workdir: &Path, agent_dir: &Path) -> Vec<PathBuf> {
+    let project = [".omp", ".claude", ".codex", ".gemini"]
+        .iter()
+        .map(|base| workdir.join(base).join("APPEND_SYSTEM.md"))
+        .find(|path| path.is_file());
+    let user = Some(agent_dir.join("APPEND_SYSTEM.md")).filter(|path| path.is_file());
+    project.into_iter().chain(user).collect()
+}
+
+fn debug_build_source_tree_pstack() -> Option<crate::pstack::PstackBundle> {
+    cfg!(debug_assertions)
+        .then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/cedian"))
+        .and_then(|exe| crate::pstack::PstackBundle::for_exe(&exe))
+}
+
 /// The pin file (`vendor/omp-revision.json`).
 fn pin() -> serde_json::Value {
     serde_json::from_str(include_str!("../../../vendor/omp-revision.json"))
@@ -322,6 +408,118 @@ mod tests {
         assert_eq!(
             spawn_policy(&settings, Policy::Cedian, &[]).approvals,
             Approvals::Cedian(ApprovalMode::AlwaysAsk)
+        );
+    }
+
+    #[test]
+    fn the_spawn_gets_the_bundled_pstack_unless_it_is_off() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let exe = repo.join("target/debug/cedian");
+        let sheet = Path::new("/c/agent/pstack-models.md");
+        let workdir = std::env::temp_dir();
+        let agent_dir = workdir.join("no-such-cedian-agent-dir");
+        let mut settings = Settings::default();
+
+        let on = pstack_profile_for(&settings, &workdir, Some(&exe), sheet, &agent_dir)
+            .unwrap()
+            .profile
+            .expect("on by default");
+        assert!(on.skills_dir.ends_with("vendor/pstack/skills"));
+        let mandate = on.mandate.expect("mandate on by default");
+        assert!(mandate.contains("skill://Poteto Mode"));
+        assert!(mandate.contains("/c/agent/pstack-models.md"));
+        assert!(!mandate.contains("{{"), "every placeholder filled");
+        assert!(!mandate.contains("~/.omp"), "never the person's OMP");
+
+        settings.pstack_mandate = false;
+        let skills_only = pstack_profile_for(&settings, &workdir, Some(&exe), sheet, &agent_dir)
+            .unwrap()
+            .profile
+            .unwrap();
+        assert_eq!(skills_only.mandate, None);
+
+        settings.pstack = false;
+        assert_eq!(
+            pstack_profile_for(&settings, &workdir, Some(&exe), sheet, &agent_dir)
+                .unwrap()
+                .profile,
+            None,
+            "off runs the plain agent"
+        );
+
+        settings.pstack = true;
+        assert!(
+            pstack_profile_for(
+                &settings,
+                &workdir,
+                Some(Path::new("/nowhere/cedian")),
+                sheet,
+                &agent_dir
+            )
+            .is_ok_and(|launch| launch.profile.is_some()),
+            "a debug build falls back to its source tree"
+        );
+    }
+
+    #[test]
+    fn the_mandate_carries_the_persons_append_system_text_after_it() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let exe = repo.join("target/debug/cedian");
+        let sheet = Path::new("/c/agent/pstack-models.md");
+        let workdir = tempfile::tempdir().unwrap();
+        let agent_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(workdir.path().join(".claude")).unwrap();
+        std::fs::write(
+            workdir.path().join(".claude/APPEND_SYSTEM.md"),
+            "Project sentence.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            agent_dir.path().join("APPEND_SYSTEM.md"),
+            "Agent dir sentence.\n",
+        )
+        .unwrap();
+
+        let mandate = pstack_profile_for(
+            &Settings::default(),
+            workdir.path(),
+            Some(&exe),
+            sheet,
+            agent_dir.path(),
+        )
+        .unwrap()
+        .profile
+        .unwrap()
+        .mandate
+        .unwrap();
+        let mandate_at = mandate.find("skill://Poteto Mode").unwrap();
+        let project_at = mandate.find("Project sentence.").unwrap();
+        let agent_at = mandate.find("Agent dir sentence.").unwrap();
+        assert!(mandate_at < project_at && project_at < agent_at);
+    }
+
+    #[test]
+    fn an_ignored_pstack_project_key_comes_back_as_a_note() {
+        let settings = crate::settings::parse_settings(
+            "schema = 1\n[projects.\"relative/ws\"]\npstack = false\n",
+        )
+        .unwrap();
+        let workdir = std::env::temp_dir();
+        let launch = pstack_profile_for(
+            &settings,
+            &workdir,
+            None,
+            Path::new("/c/agent/pstack-models.md"),
+            &workdir.join("no-such-cedian-agent-dir"),
+        )
+        .unwrap();
+        assert!(
+            launch
+                .notes
+                .iter()
+                .any(|note| note.contains("not an absolute path")),
+            "{:?}",
+            launch.notes
         );
     }
 

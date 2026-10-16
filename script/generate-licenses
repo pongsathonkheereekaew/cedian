@@ -24,6 +24,10 @@ echo -n "" >"$OUTPUT_FILE"
     echo -e "\n# ###### ICON LICENSES ######\n"
     cat assets/icons/LICENSES
 
+    echo -e "\n# ###### PSTACK LICENSE ######\n"
+    echo -e "pstack by Lauren Tan (https://github.com/cursor/plugins, folder pstack/), bundled with cedian:\n"
+    cat vendor/pstack/LICENSE
+
     echo -e "\n# ###### CODE LICENSES ######\n"
 } >>"$OUTPUT_FILE"
 

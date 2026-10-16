@@ -22,6 +22,7 @@ agent_settings.workspace = true
 agent_skills.workspace = true
 anyhow.workspace = true
 cedian_omp = { path = "../cedian_omp" }
+cedian_shell = { path = "../cedian_shell" }
 audio.workspace = true
 client.workspace = true
 cloud_api_types.workspace = true
