@@ -47,6 +47,7 @@ tests/fixtures/live/
 
 # Logs / local state
 *.log
+!docs/benchmarks/**/*.log
 /tmp/
 
 # Nested-crate lockfiles excluded: covered by root Cargo.lock.
