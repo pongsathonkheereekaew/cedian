@@ -1,8 +1,8 @@
 {
   "repo": "cedian-agent (the OMP fork, submodule url ../cedian-agent.git; ADR-0078)",
-  "commit": "c31fe9d946db06d9822038083ec11ad1f8a25bf5",
-  "commitDate": "2026-10-15T20:20:06+07:00",
-  "subject": "fix(rpc): adopt the provider's default model after a login when none is selected",
+  "commit": "945e25d823083e1e9761beb55bdbe1a4b8f534e9",
+  "commitDate": "2026-10-16T21:27:03+07:00",
+  "subject": "feat(task): let a spawn choose the directory its subagent runs in",
   "submodule": "vendor/cedian-agent",
   "build": "script/cedian-omp-build -> target/omp/omp + omp.stamp {commit, sha256}; the app runs only a build whose stamp names this commit (ADR-0075 decision 5)",
   "upstream": {
@@ -18,6 +18,6 @@
   "vendored": {
     "path": "vendor/omp-rpc",
     "upstream": "sdk/rust/omp-rpc",
-    "staleness": "src/wire.rs is upstream f068751e2f's byte for byte; the fork adds only the host-debug frames (set_host_debug, host_dap_message, host_dap_close), which cedian does not send yet. Re-run generation from the submodule when cedian uses them or on a pin bump"
+    "staleness": "src/wire.rs is the fork's generated sdk/rust/omp-rpc/src/wire.rs at this commit: upstream f068751e2f plus the host-debug frames (set_host_debug, host_dap_message, host_dap_close) and the subagent cwd/worktree fields (ADR-0085). Re-run generation from the submodule on a pin bump"
   }
 }

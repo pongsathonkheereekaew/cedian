@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (agent, 2026-10-13, interim). The owner was asked how to attribute a write to a brief and asked for a recommendation instead ("แนะนำอันไหน"); this is that recommendation, taken as the interim so ADR-0033 decision 3 can land. Supersede it when the owner picks another, or when OMP names the worktree in its subagent events.
 - **Date:** 2026-10-13
+- **Superseded by ADR-0085** (2026-10-16): the fork names the directory a subagent works in, so a write is attributed to the worker whose tree holds it; the union below is gone.
 - **Rule text:** `crates/cedian_panel/src/review.rs` (`FileReview::rebuild`), `crates/cedian_worker/src/brief.rs` (`Scope`), `crates/cedian_review/src/diff.rs` (`HunkStatus`); ADR-0033 decision 3, ROADMAP S5 exit
 - **Builds on:** ADR-0033 (the brief contract), ADR-0050 (a worker is an OMP subagent), ADR-0006 (review provenance and precedence), ADR-0022 (audit rows)
 
