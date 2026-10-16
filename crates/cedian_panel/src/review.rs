@@ -407,12 +407,15 @@ impl FileReview {
         self.last_seen = snapshot.version().clone();
     }
 
-    fn rebuild(&mut self, buffer: &Buffer) -> Vec<HunkKey> {
+    fn rebuild(&mut self, buffer: &Buffer, abs_path: Option<&Path>) -> Vec<HunkKey> {
         let snapshot = buffer.text_snapshot();
-        // Every hunk of a file outside the running workers' briefs is
-        // OutOfScope (ADR-0033 decision 3, ADR-0063 decision 1).
-        let out_of_scope = match (&self.scope, scope_path(buffer)) {
-            (Some(scope), Some(path)) => !scope.covers(&path),
+        // Every hunk of a file in a running worker's tree that its brief
+        // does not allow is OutOfScope (ADR-0033 decision 3); a file under no
+        // worker's tree never is.
+        let out_of_scope = match (&self.scope, abs_path) {
+            (Some(scope), Some(abs_path)) => scope
+                .attribute(abs_path)
+                .is_some_and(|attribution| !attribution.in_scope),
             _ => false,
         };
         let edits: Vec<text::Edit<usize>> = snapshot
@@ -950,8 +953,9 @@ impl TaskReview {
                 file.fold_user_edits(buffer);
             }
             let path = path_of(buffer, cx);
+            let abs_path = scope_path(buffer, cx);
             let turn = file.agent_txns.last().map_or(0, |t| t.turn);
-            for key in file.rebuild(buffer) {
+            for key in file.rebuild(buffer, abs_path.as_deref()) {
                 self.events.push(ReviewEvent::UserEditedAgentHunk {
                     path: path.clone(),
                     key,
@@ -1379,10 +1383,10 @@ pub fn review_key(buffer: &Buffer) -> Option<String> {
         .map(|f| format!("/{}", f.path().as_unix_str()))
 }
 
-/// A reviewed file's path as a brief's globs match it: worktree-relative with
-/// `/` separators (ADR-0063 decision 2), or `None` for a buffer with no file.
-pub fn scope_path(buffer: &Buffer) -> Option<String> {
-    buffer.file().map(|f| f.path().as_unix_str().to_string())
+/// A reviewed file's absolute path, which `WorkerScope::attribute` places in
+/// a worker's tree, or `None` for a buffer with no local file.
+pub fn scope_path(buffer: &Buffer, cx: &App) -> Option<PathBuf> {
+    buffer.file()?.as_local().map(|file| file.abs_path(cx))
 }
 
 fn path_of(buffer: &Buffer, cx: &App) -> PathBuf {
@@ -1502,7 +1506,8 @@ mod tests {
             .collect()
     }
 
-    /// One running worker's brief, compiled to a scope (ADR-0063).
+    /// One running worker's brief, compiled to a scope whose tree is the
+    /// fixture's `/ws`.
     fn scope(write: &str) -> Arc<WorkerScope> {
         let brief = Brief::from_json(
             &json!({
@@ -1512,7 +1517,7 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        Arc::new(WorkerScope::new([("w1", &brief)]).unwrap())
+        Arc::new(WorkerScope::new(Path::new("/"), [("w1", "ws", &brief)]).unwrap())
     }
 
     /// ADR-0063 decision 1: a file the running worker's brief does not cover

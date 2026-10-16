@@ -61,6 +61,7 @@ use project::Project;
 use settings::{FollowUp, Settings as _};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use util::ResultExt as _;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -234,9 +235,11 @@ struct CallMarks {
     /// Each file's text before the call as OMP's result reports it, by
     /// absolute path.
     before: Vec<(PathBuf, TextBefore)>,
-    /// A `bash` call (ADR-0047): the files not open that changed while it
-    /// ran, `(absolute, as the review names it)`.
+    /// A `bash` or `task` call (ADR-0047): the files not open that changed
+    /// while it ran, `(absolute, as the review names it)`.
     bash: Option<Vec<(PathBuf, PathBuf)>>,
+    /// Which of [`DISK_WRITE_TOOLS`] the call is, for the lines naming it.
+    disk_tool: Option<&'static str>,
     /// Marked buffers another mutating call also marked while one of the
     /// two was a `bash` call, with that call's id: which call wrote what is
     /// unknown, so neither imports them.
@@ -248,8 +251,9 @@ struct CallMarks {
     protected_tool: Option<String>,
 }
 
-/// The tool whose writes cedian learns only from the files it changed.
-const BASH_TOOL: &str = "bash";
+/// The tools whose writes cedian learns only from the files that changed
+/// while they ran: `bash`, and `task`, whose subagents write the disk.
+const DISK_WRITE_TOOLS: [&str; 2] = ["bash", "task"];
 /// OMP's browser tool: the page at its end is gate evidence (ADR-0055).
 const BROWSER_TOOL: &str = "browser";
 
@@ -377,6 +381,9 @@ pub struct CedianPanel {
     thread_rows: Vec<ThreadRow>,
     /// OMP's subagents, each under the `task` call that started it.
     subagents: SubagentTree,
+    /// The workspace root when the last subagent frame came, so a subagent
+    /// line names its tree relative to it without an `App` in hand.
+    subagent_root: Option<PathBuf>,
     /// Each running subagent's Steer text box, by id.
     steer_boxes: HashMap<String, Entity<Editor>>,
     /// What the last Steer or Cancel on a subagent row came to, by id.
@@ -645,6 +652,7 @@ impl CedianPanel {
             thread_list: ThreadList::new(),
             thread_rows: Vec::new(),
             subagents: SubagentTree::default(),
+            subagent_root: None,
             steer_boxes: HashMap::default(),
             subagent_notes: HashMap::default(),
             link: None,
@@ -981,7 +989,7 @@ impl CedianPanel {
         for entry in self.cards_with_subagents(cards) {
             match entry {
                 Entry::Card(card) => lines.push(card_line(&card)),
-                Entry::Subagent(row) => lines.push(subagent_line(row)),
+                Entry::Subagent(row) => lines.push(subagent_line(row, self.subagent_root.as_deref())),
             }
         }
         lines
@@ -2003,58 +2011,69 @@ impl CedianPanel {
         Some((self.workspace_root(cx)?, self.state_dir(cx).ok()?))
     }
 
-    /// The turn's scope: the union of the running workers' briefs at this
-    /// import (ADR-0063 decision 1). No running worker, or a registry or
-    /// brief that will not read, is no scope — nothing is classified and
-    /// nothing changes.
+    /// The turn's scope: each running worker's brief, rooted at its tree in
+    /// the repo. No running worker, or a registry or brief that will not
+    /// read, is no scope — nothing is classified and nothing changes.
     fn turn_scope(&mut self, cx: &App) -> Option<Arc<WorkerScope>> {
-        let (_, state) = self.worker_paths(cx)?;
+        let (repo, state) = self.worker_paths(cx)?;
         let (registry, _) = Registry::open(&state).ok()?;
         let mut briefs = Vec::new();
         for head in registry.all().filter(|h| h.status == WorkerStatus::Running) {
-            briefs.push((head.id.clone(), Brief::latest(&state, &head.id).ok()?));
+            briefs.push((
+                head.id.clone(),
+                head.worktree.clone(),
+                Brief::latest(&state, &head.id).ok()?,
+            ));
         }
         if briefs.is_empty() {
             return None;
         }
-        WorkerScope::new(briefs.iter().map(|(id, b)| (id.as_str(), b)))
-            .ok()
-            .map(Arc::new)
+        WorkerScope::new(
+            &repo,
+            briefs
+                .iter()
+                .map(|(id, worktree, brief)| (id.as_str(), worktree.as_str(), brief)),
+        )
+        .ok()
+        .map(Arc::new)
     }
 
-    /// An imported edit advances `last_progress` on running workers whose
-    /// brief covers the file (ADR-0033 decision 5).
-    fn note_import_progress(&mut self, buffer: &Entity<Buffer>, cx: &App) {
-        let Some((_, state)) = self.worker_paths(cx) else {
-            return;
-        };
-        let Some(path) = crate::review::scope_path(&buffer.read(cx)) else {
-            return;
-        };
-        let _ = cedian_worker::note_import(&state, &path);
-    }
-
-    /// One audit row for one out-of-scope file (ADR-0063 decision 4), through
-    /// the link that owns the log. In scope, no link, or a row that will not
-    /// write changes nothing here.
-    fn audit_import(
-        &self,
+    /// A write at `abs_path`, attributed to the running worker whose tree
+    /// holds it: in its brief, it advances that worker's `last_progress`
+    /// (ADR-0033 decision 5); outside, it is one audit row naming the worker
+    /// and the subagent working in its tree. Whether it was out of scope.
+    fn attribute_write(
+        &mut self,
         tool_call_id: &str,
-        buffer: &Entity<Buffer>,
+        abs_path: &Path,
+        shown: String,
         scope: Option<&WorkerScope>,
         cx: &App,
-    ) {
-        let Some(scope) = scope else { return };
-        let Some(path) = crate::review::scope_path(&buffer.read(cx)) else {
-            return;
-        };
-        if scope.covers(&path) {
-            return;
+    ) -> Option<OutOfScopeWrite> {
+        let attribution = scope?.attribute(abs_path)?;
+        if attribution.in_scope {
+            let worker = attribution.worker.to_string();
+            if let Some((_, state)) = self.worker_paths(cx) {
+                cedian_worker::note_import(&state, &worker).log_err();
+            }
+            return None;
         }
-        let Some(link) = &self.link else { return };
-        let shown = crate::review::review_key(&buffer.read(cx)).unwrap_or(path);
-        let workers: Vec<String> = scope.workers().map(str::to_string).collect();
-        link.out_of_scope(tool_call_id.to_string(), shown, workers);
+        let subagent = scope
+            .and_then(|scope| scope.root(attribution.worker))
+            .and_then(|root| self.subagents.working_in(root))
+            .map(|row| row.id.clone());
+        if let Some(link) = &self.link {
+            link.out_of_scope(
+                tool_call_id.to_string(),
+                shown,
+                attribution.worker.to_string(),
+                subagent.clone(),
+            );
+        }
+        Some(OutOfScopeWrite {
+            worker: attribution.worker.to_string(),
+            subagent,
+        })
     }
 
     /// Read the worktrees again, off the UI thread (it shells out to `git`):
@@ -3658,7 +3677,11 @@ impl CedianPanel {
                 tool_call_id,
                 tool_name,
                 ..
-            } if tool_name == BASH_TOOL => self.mark_for_bash(tool_call_id.clone(), cx),
+            } => {
+                if let Some(tool) = DISK_WRITE_TOOLS.iter().find(|tool| **tool == tool_name) {
+                    self.mark_for_bash(tool_call_id.clone(), tool, cx);
+                }
+            }
             RouterEvent::ToolEnd {
                 tool_call_id,
                 tool_name,
@@ -3725,6 +3748,12 @@ impl CedianPanel {
             _ => {}
         }
         self.subagents.apply(&event);
+        if matches!(
+            event,
+            RouterEvent::SubagentLifecycle { .. } | RouterEvent::SubagentProgress { .. }
+        ) {
+            self.subagent_root = self.workspace_root(cx);
+        }
         // A subagent ending is when a worker it started usually finishes: the
         // row's class and status show up without the person clicking Refresh.
         if matches!(event, RouterEvent::SubagentLifecycle { .. }) {
@@ -4951,7 +4980,7 @@ impl CedianPanel {
         v_flex()
             .debug_selector(move || selector)
             .pl_4()
-            .child(Label::new(subagent_line(row)).size(LabelSize::Small))
+            .child(Label::new(subagent_line(row, self.subagent_root.as_deref())).size(LabelSize::Small))
             .children(controls)
             .children(self.subagent_notes.get(&row.id).map(|note| {
                 Label::new(note.clone())
@@ -5076,7 +5105,7 @@ impl CedianPanel {
     /// the person's own save of it during the call is not the agent's.
     /// ADR-0047: a `bash` call names no files, so every open buffer of the
     /// workspace is marked; the ones it changes become its hunks.
-    fn mark_for_bash(&mut self, tool_call_id: String, cx: &mut Context<Self>) {
+    fn mark_for_bash(&mut self, tool_call_id: String, tool: &'static str, cx: &mut Context<Self>) {
         let Some(root) = self.workspace_root(cx) else {
             return;
         };
@@ -5088,7 +5117,10 @@ impl CedianPanel {
             .filter_map(|b| b.read(cx).file()?.as_local().map(|f| f.abs_path(cx)))
             .filter(|path| path.starts_with(&root))
             .collect();
-        self.mark_files(tool_call_id, open, true, cx);
+        self.mark_files(tool_call_id.clone(), open, true, cx);
+        if let Some(call) = self.calls.get_mut(&tool_call_id) {
+            call.disk_tool = Some(tool);
+        }
     }
 
     /// Files the worktree saw change: a running `bash` call's, when not open.
@@ -5172,6 +5204,7 @@ impl CedianPanel {
                     ended: None,
                     before: Vec::new(),
                     bash: None,
+                    disk_tool: None,
                     overlapped: Vec::new(),
                     protected: Vec::new(),
                     protected_tool: Some(tool_name.to_string()),
@@ -5311,6 +5344,7 @@ impl CedianPanel {
                 ended: None,
                 before: Vec::new(),
                 bash: bash.then(Vec::new),
+                disk_tool: None,
                 overlapped: Vec::new(),
                 protected: Vec::new(),
                 protected_tool: None,
@@ -5402,16 +5436,36 @@ impl CedianPanel {
                         .and_then(|f| f.as_local())
                         .is_some_and(|f| f.abs_path(cx) == *abs)
                 });
-                if !open {
-                    self.review.could_not_review(
-                        shown.clone(),
-                        format!(
-                            "changed while bash call {tool_call_id} ran (it or another process \
-                             wrote it); it was not open, so cedian has no text from before the \
-                             call to review it against"
-                        ),
-                    );
+                if open {
+                    continue;
                 }
+                let tool = call.disk_tool.unwrap_or("bash");
+                let breach = self.attribute_write(
+                    &tool_call_id,
+                    abs,
+                    shown.display().to_string(),
+                    scope.as_deref(),
+                    cx,
+                );
+                let reason = match breach {
+                    Some(OutOfScopeWrite { worker, subagent }) => {
+                        let by = match subagent {
+                            Some(id) => format!("subagent {id} (worker {worker})"),
+                            None => format!("worker {worker}"),
+                        };
+                        format!(
+                            "written by {by} outside its brief while {tool} call \
+                             {tool_call_id} ran; it was not open, so cedian has no text from \
+                             before the call to review it against"
+                        )
+                    }
+                    None => format!(
+                        "changed while {tool} call {tool_call_id} ran (it or another process \
+                         wrote it); it was not open, so cedian has no text from before the \
+                         call to review it against"
+                    ),
+                };
+                self.review.could_not_review(shown.clone(), reason);
             }
         }
         let fs = self.project.read(cx).fs().clone();
@@ -5582,8 +5636,19 @@ impl CedianPanel {
                     match outcome {
                         Ok(ImportOutcome::Imported(transaction)) => {
                             let models = this.answered_models();
-                            this.audit_import(&tool_call_id, &buffer, scope.as_deref(), cx);
-                            this.note_import_progress(&buffer, cx);
+                            if let Some(abs_path) =
+                                crate::review::scope_path(&buffer.read(cx), cx)
+                            {
+                                let shown = crate::review::review_key(&buffer.read(cx))
+                                    .unwrap_or_else(|| abs_path.display().to_string());
+                                this.attribute_write(
+                                    &tool_call_id,
+                                    &abs_path,
+                                    shown,
+                                    scope.as_deref(),
+                                    cx,
+                                );
+                            }
                             this.review.agent_edited(
                                 &buffer,
                                 &tool_call_id,
@@ -6321,6 +6386,31 @@ mod tests {
     use gpui::{Modifiers, TestAppContext, VisualTestContext};
     use settings::SettingsStore;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_subagent_line_names_its_tree() {
+        let row = |cwd: Option<&str>, isolated| SubagentRow {
+            id: "sa-1".into(),
+            agent: "task".into(),
+            description: "fix".into(),
+            parent_tool_call_id: None,
+            status: SubagentStatus::Running,
+            cwd: cwd.map(PathBuf::from),
+            isolated,
+        };
+        let root = Some(Path::new("/ws"));
+        let base = "↳ [Running] task — fix";
+        assert_eq!(subagent_line(&row(None, false), root), base);
+        assert_eq!(subagent_line(&row(Some("/ws"), false), root), base);
+        assert_eq!(
+            subagent_line(&row(Some("/ws/.worktrees/w1"), false), root),
+            format!("{base} in .worktrees/w1")
+        );
+        assert_eq!(
+            subagent_line(&row(Some("/tmp/omp/t1"), true), root),
+            format!("{base} in /tmp/omp/t1 (agent-made tree)")
+        );
+    }
 
     /// A wrong splice range does not panic in gpui: it shows only as a wrong
     /// item count or a scroll anchor on the wrong row.
@@ -7161,7 +7251,11 @@ mod tests {
         let fs = fs::FakeFs::new(cx.executor());
         fs.insert_tree(
             "/ws",
-            serde_json::json!({"notes.txt": ORIGINAL, "other.txt": "one\ntwo\n"}),
+            serde_json::json!({
+                "notes.txt": ORIGINAL,
+                "other.txt": "one\ntwo\n",
+                ".worktrees": {"w1": {"notes.txt": ORIGINAL, "other.txt": "one\ntwo\n"}},
+            }),
         )
         .await;
         let project = Project::test(fs.clone(), [std::path::Path::new("/ws")], cx).await;
@@ -7332,13 +7426,96 @@ mod tests {
         registry.save(state).unwrap();
     }
 
-    /// OMP writes `other.txt` under a running worker whose brief allows only
-    /// `notes.txt`.
+    /// OMP writes `other.txt` in the tree of a running worker whose brief
+    /// allows only `notes.txt`.
     async fn out_of_scope_hunk(f: &Fixture, cx: &mut TestAppContext) {
-        tool_start(f, cx, "o1", &["other.txt"]);
+        tool_start(f, cx, "o1", &[".worktrees/w1/other.txt"]);
         cx.run_until_parked();
-        omp_writes(f, "/ws/other.txt", "ONE\ntwo\n").await;
+        omp_writes(f, "/ws/.worktrees/w1/other.txt", "ONE\ntwo\n").await;
         tool_end(f, cx, "o1");
+    }
+
+    /// OMP writes `notes.txt` in w1's tree, which its brief allows.
+    async fn covered_hunk(f: &Fixture, cx: &mut TestAppContext) {
+        tool_start(f, cx, "n1", &[".worktrees/w1/notes.txt"]);
+        cx.run_until_parked();
+        omp_writes(f, "/ws/.worktrees/w1/notes.txt", "alpha\nBETA\ngamma\n").await;
+        tool_end(f, cx, "n1");
+    }
+
+    /// A write in the workspace itself lands in no worker's tree, so no
+    /// brief judges it: it stays Pending while w1 runs.
+    #[gpui::test]
+    async fn a_write_in_the_workspace_outside_every_tree_is_not_out_of_scope(
+        cx: &mut TestAppContext,
+    ) {
+        let (f, _buffer) = fixture(cx).await;
+        let state = state_dir("scope-no-tree");
+        running_worker(&state, &["notes.txt"]);
+        f.window
+            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .unwrap();
+        tool_start(&f, cx, "o1", &["other.txt"]);
+        cx.run_until_parked();
+        omp_writes(&f, "/ws/other.txt", "ONE\ntwo\n").await;
+        tool_end(&f, cx, "o1");
+        let got = hunks(&f, cx);
+        assert!(
+            got.iter()
+                .any(|(p, s, _)| p.ends_with("ws/other.txt") && *s == HunkStatus::Pending),
+            "{got:?}"
+        );
+    }
+
+    /// A `task` call's subagent working in w1's tree writes two files no
+    /// one has open: the one its brief allows advances w1, the other is
+    /// named as written by that subagent outside its brief.
+    #[gpui::test]
+    async fn a_task_calls_disk_writes_are_attributed_to_its_subagents_tree(
+        cx: &mut TestAppContext,
+    ) {
+        let (f, _buffer) = fixture(cx).await;
+        let state = state_dir("scope-task");
+        running_worker(&state, &["notes.txt"]);
+        f.window
+            .update(cx, |panel, _, cx| {
+                panel.set_state_dir(state.clone());
+                panel.on_event(
+                    RouterEvent::SubagentLifecycle {
+                        id: "sa-9".into(),
+                        agent: "task".into(),
+                        status: SubagentStatus::Running,
+                        parent_tool_call_id: Some("t1".into()),
+                        description: None,
+                        cwd: Some(PathBuf::from("/ws/.worktrees/w1")),
+                        isolated: false,
+                    },
+                    cx,
+                );
+            })
+            .unwrap();
+        tool_start_named(&f, cx, "t1", "task", &[]);
+        cx.run_until_parked();
+        omp_writes(&f, "/ws/.worktrees/w1/notes.txt", "alpha\nBETA\ngamma\n").await;
+        omp_writes(&f, "/ws/.worktrees/w1/other.txt", "ONE\ntwo\n").await;
+        cx.run_until_parked();
+        tool_end_named(&f, cx, "t1", "task", Vec::new());
+        let listed = unreviewable(&f, cx);
+        let other = listed
+            .iter()
+            .find(|(path, _)| path.ends_with("w1/other.txt"))
+            .unwrap_or_else(|| panic!("other.txt is listed: {listed:?}"));
+        assert!(
+            other.1.contains(
+                "written by subagent sa-9 (worker w1) outside its brief while task call t1 ran"
+            ),
+            "{listed:?}"
+        );
+        let (registry, _) = Registry::open(&state).unwrap();
+        assert!(
+            registry.get("w1").unwrap().last_progress.is_some(),
+            "notes.txt, in w1's brief, advanced it"
+        );
     }
 
     /// With a running worker covering only `notes.txt`, an edit to another
@@ -7353,7 +7530,7 @@ mod tests {
             .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
             .unwrap();
 
-        agent_hunk(&f, cx, "n1", "alpha\nBETA\ngamma\n").await;
+        covered_hunk(&f, cx).await;
         out_of_scope_hunk(&f, cx).await;
 
         let got = hunks(&f, cx);
@@ -7398,7 +7575,7 @@ mod tests {
             .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
             .unwrap();
 
-        agent_hunk(&f, cx, "n1", "alpha\nBETA\ngamma\n").await;
+        covered_hunk(&f, cx).await;
         out_of_scope_hunk(&f, cx).await;
 
         f.window
@@ -10264,6 +10441,24 @@ fn card_line(card: &ToolCard) -> String {
     format!("[{:?}] {}", card.status, card.display_line())
 }
 
-fn subagent_line(row: &SubagentRow) -> String {
-    format!("↳ [{:?}] {} — {}", row.status, row.agent, row.description)
+/// A write `attribute_write` found outside its worker's brief.
+struct OutOfScopeWrite {
+    worker: String,
+    subagent: Option<String>,
+}
+
+/// The row's line, naming the tree it works in when that is not the
+/// workspace root: relative under the root, absolute outside it.
+fn subagent_line(row: &SubagentRow, root: Option<&Path>) -> String {
+    let mut line = format!("↳ [{:?}] {} — {}", row.status, row.agent, row.description);
+    if let Some(cwd) = row.cwd.as_deref().filter(|cwd| Some(*cwd) != root) {
+        let shown = root
+            .and_then(|root| cwd.strip_prefix(root).ok())
+            .unwrap_or(cwd);
+        line.push_str(&format!(" in {}", shown.display()));
+    }
+    if row.isolated {
+        line.push_str(" (agent-made tree)");
+    }
+    line
 }
