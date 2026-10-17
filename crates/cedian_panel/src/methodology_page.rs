@@ -694,11 +694,9 @@ mod tests {
         state.set_mandate(false);
         state.pick(PstackRole::BugFix, "@slow");
         state.set_default_effort(DefaultEffort::Level(Effort::High));
-        // write_switches materializes both switch keys.
         for row in rows {
             assert_eq!(state.badge(row), Some(ScopeBadge::User), "{row:?}");
         }
-        // An explicit default value still earns the badge.
         let (_dir, settings, sheet) = paths();
         std::fs::write(&settings, "schema = 1\npstack = true\n").unwrap();
         let state = Methodology::load(Some(settings), Some(sheet));

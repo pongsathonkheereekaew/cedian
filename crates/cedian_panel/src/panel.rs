@@ -5244,9 +5244,8 @@ impl CedianPanel {
                     continue;
                 };
                 let mut rx = local.add_path_prefix_to_scan(rel.into_arc());
+                // postage::barrier::Receiver is a Stream, not a Future.
                 barriers.push(async move {
-                    // postage::barrier::Receiver is a Stream, not a Future
-                    // (see worktree::expand_all_for_entry / project_search).
                     rx.next().await;
                 });
             }
