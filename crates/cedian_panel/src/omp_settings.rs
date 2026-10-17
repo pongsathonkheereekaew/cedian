@@ -250,23 +250,32 @@ impl OmpSettings {
             let Ok(outcome) = outcome.await else {
                 return;
             };
-            this.update(cx, |this, cx| {
-                this.message = Some(match outcome {
-                    Ok(out) => match out.overridden_by {
-                        Some(layer) => format!(
-                            "saved to cedian agent's global config, but the {layer} layer still wins (now {})",
-                            out.value
-                        ),
-                        None => format!("saved: {}", out.value),
-                    },
-                    Err(cedian_omp::OmpError::Command { error, .. }) => {
-                        format!("cedian agent refused: {error}")
-                    }
-                    Err(e) => format!("cannot reach cedian agent's config: {e}"),
-                });
-                this.reload(cx);
-            })
-            .ok();
+            let message = match &outcome {
+                Ok(out) => match &out.overridden_by {
+                    Some(layer) => format!(
+                        "saved to cedian agent's global config, but the {layer} layer still wins (now {})",
+                        out.value
+                    ),
+                    None => format!("saved: {}", out.value),
+                },
+                Err(cedian_omp::OmpError::Command { error, .. }) => {
+                    format!("cedian agent refused: {error}")
+                }
+                Err(e) => format!("cannot reach cedian agent's config: {e}"),
+            };
+            if this
+                .update(cx, |this, cx| {
+                    this.message = Some(message.clone());
+                    this.reload(cx);
+                })
+                .is_err()
+            {
+                // The settings page closed before the write finished: keep the
+                // refusal visible in the log instead of dropping it quietly.
+                if outcome.is_err() {
+                    log::warn!("cedian agent settings write after the page closed: {message}");
+                }
+            }
         })
         .detach();
     }

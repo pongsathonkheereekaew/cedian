@@ -20,8 +20,7 @@ static ENV: Mutex<()> = Mutex::new(());
 #[ignore = "needs script/cedian-omp-build"]
 fn the_bundled_fork_build_answers_get_state_and_set_host_debug() {
     let _env = ENV.lock().unwrap();
-    let root = std::env::temp_dir().join(format!("cedian-bundled-omp-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = cedian_shell::test_dir::TestDir::new("bundled-omp");
     let agent = root.join("home/.config/cedian/agent");
     std::fs::create_dir_all(&agent).unwrap();
     std::fs::create_dir_all(root.join("ws")).unwrap();
@@ -102,7 +101,6 @@ fn the_bundled_fork_build_answers_get_state_and_set_host_debug() {
     assert_eq!(answers["2"]["success"], true, "{}", answers["2"]);
     assert_eq!(answers["2"]["data"]["enabled"], true);
     assert_eq!(answers["3"]["data"]["enabled"], false);
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// A fresh install's agent dir is empty (ADR-0078 decision 5): no models.yml,
@@ -113,9 +111,7 @@ fn the_bundled_fork_build_answers_get_state_and_set_host_debug() {
 #[ignore = "needs script/cedian-omp-build"]
 fn the_bundled_fork_build_starts_with_an_empty_agent_dir_and_lists_login_providers() {
     let _env = ENV.lock().unwrap();
-    let root =
-        std::env::temp_dir().join(format!("cedian-bundled-omp-empty-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = cedian_shell::test_dir::TestDir::new("bundled-omp-empty");
     std::fs::create_dir_all(root.join("home")).unwrap();
     std::fs::create_dir_all(root.join("ws")).unwrap();
     unsafe {
@@ -208,7 +204,6 @@ fn the_bundled_fork_build_starts_with_an_empty_agent_dir_and_lists_login_provide
         "{prompt_result}"
     );
     assert!(!root.join("home/.omp").exists(), "wrote into ~/.omp");
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// After the person logs in through the panel (the `login` command), the agent
@@ -219,9 +214,7 @@ fn the_bundled_fork_build_starts_with_an_empty_agent_dir_and_lists_login_provide
 #[ignore = "needs script/cedian-omp-build"]
 fn the_bundled_fork_build_has_a_model_after_a_login() {
     let _env = ENV.lock().unwrap();
-    let root =
-        std::env::temp_dir().join(format!("cedian-bundled-omp-login-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = cedian_shell::test_dir::TestDir::new("bundled-omp-login");
     std::fs::create_dir_all(root.join("home")).unwrap();
     std::fs::create_dir_all(root.join("ws")).unwrap();
     let extension = root.join("fake-oauth-provider.ts");
@@ -335,5 +328,4 @@ fn the_bundled_fork_build_has_a_model_after_a_login() {
     assert_eq!(answers["2"]["data"]["model"]["id"], "fake-model");
     assert!(model_changed, "the host hears model_changed");
     assert!(!root.join("home/.omp").exists(), "wrote into ~/.omp");
-    let _ = std::fs::remove_dir_all(&root);
 }

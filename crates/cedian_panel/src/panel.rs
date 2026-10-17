@@ -2564,7 +2564,14 @@ impl CedianPanel {
         self.account.running = None;
         self.account.url = None;
         self.account.dialogs.clear();
-        self.account.key_restart = KeyRestart::None;
+        self.account.accounts.clear();
+        self.account.account_read_errors.clear();
+        // A manual Restart during AfterTurn must keep the "agent restarted"
+        // note; clearing to None hid the save quietly.
+        self.account.key_restart = match self.account.key_restart {
+            KeyRestart::AfterTurn => KeyRestart::Restarted,
+            _ => KeyRestart::None,
+        };
         self.account.shown_in_settings = false;
         self.toasts.clear();
         self.session_notes.clear();
@@ -2994,6 +3001,8 @@ impl CedianPanel {
                     self.account.accounts.insert(provider, accounts);
                 }
                 Err(e) => {
+                    // A failed read must not leave a prior Ok enabling Log Out.
+                    self.account.accounts.remove(&provider);
                     self.account.account_read_errors.insert(provider, e);
                 }
             },
@@ -3794,6 +3803,17 @@ impl CedianPanel {
         if matches!(event, RouterEvent::SubagentLifecycle { .. }) {
             self.refresh_worker_trees(cx);
         }
+        // Start scanning a worker's tree as soon as a subagent is Running so
+        // the first bash/task call does not race the initial Loaded pass.
+        if matches!(
+            event,
+            RouterEvent::SubagentLifecycle {
+                status: SubagentStatus::Running,
+                ..
+            }
+        ) {
+            let _ = self.scan_worker_trees(cx);
+        }
         self.thread.apply(&event);
         cx.notify();
     }
@@ -4471,7 +4491,13 @@ impl CedianPanel {
             self.account.key_restart = KeyRestart::AfterTurn;
         } else {
             self.restart(window, cx);
-            self.account.key_restart = KeyRestart::Restarted;
+            // Only claim a restart when the connection actually came up.
+            self.account.key_restart = match &self.connection {
+                Connection::Starting | Connection::Checking | Connection::Ready { .. } => {
+                    KeyRestart::Restarted
+                }
+                _ => KeyRestart::None,
+            };
         }
         cx.notify();
     }
@@ -5147,7 +5173,7 @@ impl CedianPanel {
         let Some(root) = self.workspace_root(cx) else {
             return;
         };
-        self.scan_worker_trees(cx);
+        let barriers = self.scan_worker_trees(cx);
         let open: Vec<PathBuf> = self
             .project
             .read(cx)
@@ -5156,18 +5182,50 @@ impl CedianPanel {
             .filter_map(|b| b.read(cx).file()?.as_local().map(|f| f.abs_path(cx)))
             .filter(|path| path.starts_with(&root))
             .collect();
-        self.mark_files(tool_call_id.clone(), open, true, cx);
-        if let Some(call) = self.calls.get_mut(&tool_call_id) {
-            call.disk_tool = Some(tool);
+        if barriers.is_empty() {
+            self.mark_files(tool_call_id.clone(), open, true, cx);
+            if let Some(call) = self.calls.get_mut(&tool_call_id) {
+                call.disk_tool = Some(tool);
+            }
+            return;
         }
+        // Await the first scan before tracking disk writes: a write that
+        // lands as PathChange::Loaded during the scan would otherwise be
+        // dropped by bash_changed (fail-open).
+        cx.spawn(async move |this, cx| {
+            for barrier in barriers {
+                barrier.await;
+            }
+            this.update(cx, |this, cx| {
+                if this
+                    .calls
+                    .get(&tool_call_id)
+                    .is_some_and(|call| call.ended.is_some())
+                {
+                    return;
+                }
+                this.mark_files(tool_call_id.clone(), open, true, cx);
+                if let Some(call) = this.calls.get_mut(&tool_call_id) {
+                    call.disk_tool = Some(tool);
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Have the project watch each running worker's tree in full. The trees
     /// are usually gitignored, and the worktree loads an ignored directory
     /// only on demand, so a write there would raise no change to attribute.
-    fn scan_worker_trees(&mut self, cx: &mut Context<Self>) {
+    /// Returns scan barriers the caller may await before treating the tree
+    /// as observed.
+    fn scan_worker_trees(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Vec<impl std::future::Future<Output = ()> + use<>> {
+        let mut barriers = Vec::new();
         let Some(scope) = self.turn_scope(cx) else {
-            return;
+            return barriers;
         };
         for worktree in self.project.read(cx).visible_worktrees(cx) {
             let worktree = worktree.read(cx);
@@ -5185,9 +5243,15 @@ impl CedianPanel {
                 else {
                     continue;
                 };
-                drop(local.add_path_prefix_to_scan(rel.into_arc()));
+                let mut rx = local.add_path_prefix_to_scan(rel.into_arc());
+                barriers.push(async move {
+                    // postage::barrier::Receiver is a Stream, not a Future
+                    // (see worktree::expand_all_for_entry / project_search).
+                    rx.next().await;
+                });
             }
         }
+        barriers
     }
 
     /// Files the worktree saw change: a running `bash` call's, when not open.
@@ -6578,6 +6642,184 @@ mod tests {
         );
     }
 
+    #[test]
+    fn thread_list_follows_the_tail_until_the_person_scrolls_up() {
+        let mut list = ThreadList::new();
+        list.sync([0, 3, 0]);
+        assert_eq!(
+            list.state.logical_scroll_top().item_ix,
+            3,
+            "Bottom alignment pins to the end before any scroll"
+        );
+        list.sync([0, 8, 0]);
+        assert_eq!(
+            list.state.logical_scroll_top().item_ix,
+            8,
+            "new streaming rows keep the tail pinned"
+        );
+        list.state.scroll_to(gpui::ListOffset {
+            item_ix: 2,
+            offset_in_item: px(0.),
+        });
+        assert_eq!(list.state.logical_scroll_top().item_ix, 2);
+        list.sync([0, 12, 0]);
+        assert_eq!(
+            list.state.logical_scroll_top().item_ix,
+            2,
+            "after scrolling up, a new delta must not jump the view"
+        );
+    }
+
+    #[test]
+    fn thread_list_reset_clears_the_rows_key() {
+        let mut list = ThreadList::new();
+        list.sync([1, 1, 0]);
+        list.rows_key = Some(ThreadRowsKey {
+            thread: 1,
+            subagents: 0,
+            history: 1,
+            history_total: None,
+        });
+        list.reset();
+        assert_eq!(list.state.item_count(), 0);
+        assert_eq!(list.rows_key, None);
+    }
+
+    /// More history than the viewport plus overdraw: a deep row stays
+    /// unrendered until `scroll_to_reveal_item`. The last row (Bottom pin)
+    /// is already on screen.
+    #[gpui::test]
+    async fn a_deep_thread_row_is_not_rendered_until_scroll_to_reveal(
+        cx: &mut TestAppContext,
+    ) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let mut vcx = VisualTestContext::from_window(window.into(), cx);
+        vcx.simulate_resize(gpui::size(px(480.), px(220.)));
+        window
+            .update(cx, |panel, _, cx| {
+                panel.sessions.history.lines =
+                    (0..120).map(|i| format!("history-line-{i}")).collect();
+                panel.sessions.history.total = Some(120);
+                cx.notify();
+            })
+            .unwrap();
+        for _ in 0..4 {
+            vcx.update(|window, cx| {
+                window.simulate_next_frame(cx);
+            });
+            cx.run_until_parked();
+        }
+        assert!(
+            vcx.debug_bounds("cedian-history-119").is_some(),
+            "Bottom alignment keeps the last history row on screen"
+        );
+        assert!(
+            vcx.debug_bounds("cedian-history-0").is_none(),
+            "a deep row above the overdraw must not be rendered yet"
+        );
+        window
+            .update(cx, |panel, _, cx| {
+                panel.thread_list.state.scroll_to_reveal_item(0);
+                cx.notify();
+            })
+            .unwrap();
+        for _ in 0..4 {
+            vcx.update(|window, cx| {
+                window.simulate_next_frame(cx);
+            });
+            cx.run_until_parked();
+        }
+        assert!(
+            vcx.debug_bounds("cedian-history-0").is_some(),
+            "scroll_to_reveal_item must render the deep row"
+        );
+    }
+
+    /// An unchanged frame must not rebuild `thread_rows` (ThreadRowsKey skip).
+    #[gpui::test]
+    async fn sync_thread_rows_skips_rebuild_when_the_key_is_unchanged(
+        cx: &mut TestAppContext,
+    ) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let mut vcx = VisualTestContext::from_window(window.into(), cx);
+        window
+            .update(cx, |panel, _, cx| {
+                panel.sessions.history.lines =
+                    (0..8).map(|i| format!("history-line-{i}")).collect();
+                cx.notify();
+            })
+            .unwrap();
+        vcx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+        });
+        cx.run_until_parked();
+        let (key, ptr) = window
+            .update(cx, |panel, _, _| {
+                (
+                    panel.thread_list.rows_key,
+                    panel.thread_rows.as_ptr() as usize,
+                )
+            })
+            .unwrap();
+        assert!(key.is_some(), "first render builds a rows key");
+        window
+            .update(cx, |_panel, _, cx| cx.notify())
+            .unwrap();
+        vcx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+        });
+        cx.run_until_parked();
+        window
+            .update(cx, |panel, _, _| {
+                assert_eq!(panel.thread_list.rows_key, key);
+                assert_eq!(
+                    panel.thread_rows.as_ptr() as usize,
+                    ptr,
+                    "unchanged key must keep the same thread_rows allocation"
+                );
+            })
+            .unwrap();
+    }
+
+    /// Session switch and a successful hand-off both reset the list and key.
+    #[gpui::test]
+    async fn session_switch_and_handoff_reset_the_thread_list(cx: &mut TestAppContext) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        window
+            .update(cx, |panel, window, cx| {
+                panel.on_session("session-a", None, Some("a".into()), window, cx);
+                panel.sessions.history.lines = vec!["one".into()];
+                panel.sync_thread_rows();
+                assert!(panel.thread_list.rows_key.is_some());
+                assert!(panel.thread_list.state.item_count() > 0);
+                panel.on_session("session-b", None, Some("b".into()), window, cx);
+                assert_eq!(panel.thread_list.rows_key, None);
+                assert_eq!(panel.thread_list.state.item_count(), 0);
+
+                panel.sessions.history.lines = vec!["two".into()];
+                panel.sync_thread_rows();
+                assert!(panel.thread_list.rows_key.is_some());
+                panel.on_link_event(LinkEvent::HandedOff(Ok(None)), window, cx);
+                assert!(
+                    panel.thread_list.rows_key.is_some(),
+                    "empty hand-off does not reset the list"
+                );
+                let handoff = omp_rpc::HandoffResult {
+                    saved_path: Some("summary.md".into()),
+                };
+                panel.on_link_event(LinkEvent::HandedOff(Ok(Some(handoff))), window, cx);
+                assert_eq!(panel.thread_list.rows_key, None);
+                assert_eq!(panel.thread_list.state.item_count(), 0);
+            })
+            .unwrap();
+    }
+
     /// OMP's refusal of a prompt for want of a model names /login and
     /// /model, terminal commands; the panel opens its picker instead.
     #[gpui::test]
@@ -6897,7 +7139,8 @@ mod tests {
     }
 
     /// Who is signed in is read only while Settings > Account is open: a
-    /// restart forgets it, and so does closing the page.
+    /// restart forgets it, and so does closing the page. Asserted via the
+    /// link's get_logout_accounts requests (refused when OMP is not running).
     #[gpui::test]
     async fn signed_in_accounts_are_read_only_while_the_account_page_is_open(
         cx: &mut TestAppContext,
@@ -6905,6 +7148,10 @@ mod tests {
         init(cx);
         let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let dir = cedian_shell::test_dir::TestDir::new("account-read");
+        let (tx, _rx) = futures::channel::mpsc::unbounded();
+        let link = OmpLink::audit_only(tx, &dir, cedian_omp::SpawnPolicy::default().approvals)
+            .unwrap();
         let providers = vec![omp_rpc::LoginProvider {
             id: "anthropic".into(),
             name: "Anthropic".into(),
@@ -6913,16 +7160,49 @@ mod tests {
         }];
         window
             .update(cx, |panel, window, cx| {
+                panel.link = Some(link);
                 panel.show_account();
-                assert_eq!(panel.accounts_to_read(&providers), ["anthropic"]);
-                panel.hide_account();
-                assert!(panel.accounts_to_read(&providers).is_empty(), "closed");
-
-                panel.show_account();
-                panel.restart(window, cx);
-                assert!(panel.accounts_to_read(&providers).is_empty(), "restarted");
+                panel.on_link_event(
+                    LinkEvent::LoginProviders(Ok(providers.clone())),
+                    window,
+                    cx,
+                );
             })
             .unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |panel, window, cx| {
+                assert!(
+                    panel.account.account_read_errors.contains_key("anthropic"),
+                    "open page asks the link for logout accounts: {:?}",
+                    panel.account.account_read_errors
+                );
+                panel.account.account_read_errors.clear();
+                panel.hide_account();
+                panel.on_link_event(
+                    LinkEvent::LoginProviders(Ok(providers.clone())),
+                    window,
+                    cx,
+                );
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |panel, window, cx| {
+                assert!(
+                    panel.account.account_read_errors.is_empty(),
+                    "closed page sends no logout-accounts request"
+                );
+                panel.show_account();
+                panel.restart(window, cx);
+                assert!(
+                    panel.account.accounts.is_empty()
+                        && panel.account.account_read_errors.is_empty(),
+                    "restart clears signed-in state"
+                );
+            })
+            .unwrap();
+        drop(dir);
     }
 
     /// Through a symlinked worktree root, an unsaved buffer is keyed by
@@ -10609,7 +10889,7 @@ enum ThreadRow {
 
 /// What the thread column's rows were built from. A scroll redraws the panel
 /// without changing any of it, and then the rows are not rebuilt.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct ThreadRowsKey {
     thread: u64,
     subagents: usize,
@@ -10630,7 +10910,7 @@ struct ThreadList {
 impl ThreadList {
     fn new() -> Self {
         Self {
-            state: ListState::new(0, ListAlignment::Top, px(1024.)),
+            state: ListState::new(0, ListAlignment::Bottom, px(1024.)),
             sections: [0; 3],
             rows_key: None,
         }

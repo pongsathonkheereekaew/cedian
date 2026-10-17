@@ -366,8 +366,25 @@ impl AccountPage {
     fn render_providers(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let panel = self.panel.read(cx);
         let account = panel.account().clone();
-        let running = matches!(panel.connection(), Connection::Ready { .. });
+        let connection = panel.connection();
+        let running = matches!(connection, Connection::Ready { .. });
+        let starting = matches!(connection, Connection::Starting | Connection::Checking);
         let mut rows = Vec::new();
+        if starting {
+            rows.push(
+                render_row(
+                    "cedian-account-agent",
+                    "Agent".into(),
+                    Some("Sign-in goes through the agent of the open project.".into()),
+                    None,
+                    Some(&RowState::Loading),
+                    div().into_any_element(),
+                    cx,
+                )
+                .into_any_element(),
+            );
+            return rows;
+        }
         if !running {
             let control = Button::new("cedian-account-start", "Start")
                 .style(ButtonStyle::OutlinedGhost)

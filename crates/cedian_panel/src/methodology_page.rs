@@ -31,6 +31,9 @@ pub struct Methodology {
     settings_path: Option<PathBuf>,
     sheet_path: Option<PathBuf>,
     pub switches: Switches,
+    /// Whether `cedian.toml` set `pstack` / `pstack_mandate` explicitly.
+    pstack_set: bool,
+    mandate_set: bool,
     pub sheet: PstackModels,
     pub error: Option<(Row, String)>,
 }
@@ -40,23 +43,28 @@ impl Methodology {
     /// sheet at `sheet_path`; defaults for a file that does not exist yet.
     pub fn load(settings_path: Option<PathBuf>, sheet_path: Option<PathBuf>) -> Self {
         let mut errors = Vec::new();
-        let switches = match settings_path.as_deref().map(std::fs::read_to_string) {
-            Some(Ok(text)) => match cedian_shell::parse_settings(&text) {
-                Ok(settings) => Switches {
-                    pstack: settings.pstack,
-                    mandate: settings.pstack_mandate,
+        let (switches, pstack_set, mandate_set) =
+            match settings_path.as_deref().map(std::fs::read_to_string) {
+                Some(Ok(text)) => match cedian_shell::parse_settings(&text) {
+                    Ok(settings) => (
+                        Switches {
+                            pstack: settings.pstack,
+                            mandate: settings.pstack_mandate,
+                        },
+                        settings.pstack_set,
+                        settings.pstack_mandate_set,
+                    ),
+                    Err(e) => {
+                        errors.push(e.to_string());
+                        (Switches::default(), false, false)
+                    }
                 },
-                Err(e) => {
+                Some(Err(e)) if e.kind() != std::io::ErrorKind::NotFound => {
                     errors.push(e.to_string());
-                    Switches::default()
+                    (Switches::default(), false, false)
                 }
-            },
-            Some(Err(e)) if e.kind() != std::io::ErrorKind::NotFound => {
-                errors.push(e.to_string());
-                Switches::default()
-            }
-            _ => Switches::default(),
-        };
+                _ => (Switches::default(), false, false),
+            };
         let sheet = match sheet_path.as_deref().map(PstackModels::read) {
             Some(Ok(sheet)) => sheet,
             Some(Err(e)) => {
@@ -72,17 +80,19 @@ impl Methodology {
             settings_path,
             sheet_path,
             switches,
+            pstack_set,
+            mandate_set,
             sheet,
             error: (!errors.is_empty()).then(|| (Row::Pstack, errors.join("; "))),
         }
     }
 
-    /// "User" on a row only while the user's files set it to something other
-    /// than the default; a fresh profile shows no badge.
+    /// "User" on a row only while the user's files set it explicitly
+    /// (`Option<bool>` in the raw file), including the default value.
     pub fn badge(&self, row: Row) -> Option<ScopeBadge> {
         let set = match row {
-            Row::Pstack => self.switches.pstack != Switches::default().pstack,
-            Row::Mandate => self.switches.mandate != Switches::default().mandate,
+            Row::Pstack => self.pstack_set,
+            Row::Mandate => self.mandate_set,
             Row::DefaultEffort => {
                 self.sheet.default_effort != PstackModels::default().default_effort
             }
@@ -178,6 +188,9 @@ impl Methodology {
         match write_switches(path, switches) {
             Ok(()) => {
                 self.switches = switches;
+                // write_switches always materializes both keys.
+                self.pstack_set = true;
+                self.mandate_set = true;
                 self.error = None;
             }
             Err(e) => self.error = Some((row, e)),
@@ -668,7 +681,7 @@ mod tests {
     #[test]
     fn a_row_shows_the_user_badge_only_once_the_user_sets_it() {
         let (_dir, settings, sheet) = paths();
-        let mut state = Methodology::load(Some(settings), Some(sheet));
+        let mut state = Methodology::load(Some(settings.clone()), Some(sheet));
         let rows = [
             Row::Pstack,
             Row::Mandate,
@@ -681,10 +694,16 @@ mod tests {
         state.set_mandate(false);
         state.pick(PstackRole::BugFix, "@slow");
         state.set_default_effort(DefaultEffort::Level(Effort::High));
-        for row in &rows[1..] {
-            assert_eq!(state.badge(*row), Some(ScopeBadge::User), "{row:?}");
+        // write_switches materializes both switch keys.
+        for row in rows {
+            assert_eq!(state.badge(row), Some(ScopeBadge::User), "{row:?}");
         }
-        assert_eq!(state.badge(Row::Pstack), None);
+        // An explicit default value still earns the badge.
+        let (_dir, settings, sheet) = paths();
+        std::fs::write(&settings, "schema = 1\npstack = true\n").unwrap();
+        let state = Methodology::load(Some(settings), Some(sheet));
+        assert_eq!(state.badge(Row::Pstack), Some(ScopeBadge::User));
+        assert_eq!(state.badge(Row::Mandate), None);
     }
 
     #[gpui::test]

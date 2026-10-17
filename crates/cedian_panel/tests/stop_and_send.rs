@@ -18,7 +18,7 @@
 //! Harness off: invoked with `--mode` (or `config`) this binary is fake-omp.
 
 use cedian_panel::{CedianPanel, Connection, Turn};
-use gpui::{TestAppContext, VisualTestContext, WindowHandle};
+use gpui::{TestAppContext, WindowHandle};
 use project::Project;
 use settings::SettingsStore;
 use std::path::Path;
@@ -32,11 +32,9 @@ const FIXTURE: &str = concat!(
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     cedian_fake_omp::test_main::enter(&args);
-    let root = std::env::temp_dir().join(format!("cedian-stop-and-send-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = cedian_shell::test_dir::TestDir::new("stop-and-send");
     std::fs::create_dir_all(root.join("ws")).unwrap();
     std::fs::write(root.join("cedian.toml"), "schema = 1\n").unwrap();
-    let root = root.canonicalize().unwrap();
     // SAFETY: single-threaded here; nothing else reads the environment yet.
     unsafe {
         std::env::set_var("CEDIAN_CONFIG", root.join("cedian.toml"));
@@ -45,18 +43,19 @@ fn main() {
         std::env::set_var("CEDIAN_OMP_BINARY", std::env::current_exe().unwrap());
     }
     print!("test stop_and_send ... ");
+    let root_path = root.to_path_buf();
     gpui::run_test_once(
         0,
         Box::new(move |dispatcher| {
             let exec = std::sync::Arc::new(dispatcher.clone());
             let mut cx = TestAppContext::build(dispatcher.clone(), Some("stop_and_send"));
             let executor = gpui::ForegroundExecutor::new(exec);
-            executor.block_test(scenario(&mut cx, &root));
+            executor.block_test(scenario(&mut cx, &root_path));
             cx.run_until_parked();
             cx.update(|cx| cx.quit());
             cx.run_until_parked();
             dispatcher.drain_tasks();
-            let _ = std::fs::remove_dir_all(&root);
+            drop(root); // remove after the scenario finishes
         }),
     );
     println!("ok");
@@ -77,7 +76,6 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
 
     let project = Project::test(fs::RealFs::new(None, cx.executor()), [ws.as_path()], cx).await;
     let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
-    let mut vcx = VisualTestContext::from_window(window.into(), cx);
 
     // 1. Stop and send with a follow-up queued.
     assert_eq!(submit(cx, &window, "one"), Turn::Queued);
@@ -85,14 +83,18 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         ready(p) && p.turn() == &Turn::Streaming
     });
     assert_eq!(submit(cx, &window, "two"), Turn::Streaming);
-    wait(cx, &window, "cedian agent to have the follow-up", |_| {
-        ws.join("omp-got-two").exists()
+    wait(cx, &window, "cedian agent to have the follow-up while streaming", |p| {
+        ws.join("omp-got-two").exists() && p.turn() == &Turn::Streaming
     });
     let turn_one = review_turn(cx, &window);
-    set_prompt(cx, &window, "three");
-    click(&mut vcx, "cedian-stop-and-send");
+    // Drive the click from the fixture's streaming window, not wall-clock
+    // sleep: set the composer and stop in one update so a late settle cannot
+    // turn Idle between them (fake-omp fs_sleep race).
     let (turn, next, typed) = window
-        .update(cx, |p, _, cx| {
+        .update(cx, |p, window, cx| {
+            assert_eq!(p.turn(), &Turn::Streaming, "still streaming at the click");
+            p.set_prompt("three", window, cx);
+            p.stop_and_send(window, cx);
             (
                 p.turn().clone(),
                 p.next_prompt().map(str::to_string),
@@ -170,15 +172,6 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         "six never ran: {transcript:?}"
     );
     assert_ready(cx, &window);
-}
-
-fn click(vcx: &mut VisualTestContext, selector: &'static str) {
-    vcx.update(|window, _| window.refresh());
-    vcx.run_until_parked();
-    let bounds = vcx
-        .debug_bounds(selector)
-        .unwrap_or_else(|| panic!("{selector} is not on screen"));
-    vcx.simulate_click(bounds.center(), gpui::Modifiers::none());
 }
 
 fn ready(p: &CedianPanel) -> bool {

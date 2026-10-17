@@ -140,6 +140,10 @@ pub struct Settings {
     pub pstack: bool,
     /// `pstack_mandate`: the poteto-mode mandate in the system prompt.
     pub pstack_mandate: bool,
+    /// Whether the user's file set `pstack` explicitly (vs the default).
+    pub pstack_set: bool,
+    /// Whether the user's file set `pstack_mandate` explicitly.
+    pub pstack_mandate_set: bool,
     projects: BTreeMap<String, Policy>,
     project_pstack: BTreeMap<String, bool>,
     project_read_folders: BTreeMap<String, Vec<PathBuf>>,
@@ -157,6 +161,8 @@ impl Default for Settings {
             floor: GateFloor::default(),
             pstack: true,
             pstack_mandate: true,
+            pstack_set: false,
+            pstack_mandate_set: false,
             projects: BTreeMap::new(),
             project_pstack: BTreeMap::new(),
             project_read_folders: BTreeMap::new(),
@@ -494,6 +500,8 @@ pub fn parse_settings(toml_src: &str) -> Result<Settings, SettingsError> {
         floor: GateFloor::from_specs(raw.workflow.floor).map_err(SettingsError::BadFloor)?,
         pstack: raw.pstack.unwrap_or(true),
         pstack_mandate: raw.pstack_mandate.unwrap_or(true),
+        pstack_set: raw.pstack.is_some(),
+        pstack_mandate_set: raw.pstack_mandate.is_some(),
         project_pstack: raw
             .projects
             .iter()

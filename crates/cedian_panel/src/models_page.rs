@@ -35,14 +35,18 @@ pub fn role_state(model: Option<&RoleModel>, choices: &[ModelChoice]) -> Option<
 }
 
 /// The Default Model row's state: the agent must run for the roles to load,
-/// so a stopped agent says so instead of loading forever.
+/// so a stopped agent says so instead of loading forever. While it is still
+/// starting, show Loading — not a Start button that would relaunch it.
 pub fn default_model_state(
     running: bool,
+    starting: bool,
     loaded: bool,
     model: Option<&RoleModel>,
     choices: &[ModelChoice],
 ) -> Option<RowState> {
-    if !running {
+    if starting {
+        Some(RowState::Loading)
+    } else if !running {
         Some(RowState::NotRunning("Agent not running".into()))
     } else if !loaded {
         Some(RowState::Loading)
@@ -361,11 +365,14 @@ impl Render for ModelsPage {
                     .ok();
             },
         );
-        let running = matches!(self.panel.read(cx).connection(), Connection::Ready { .. });
-        let default_state = default_model_state(running, loaded, default_model.as_ref(), &choices);
+        let connection = self.panel.read(cx).connection();
+        let running = matches!(connection, Connection::Ready { .. });
+        let starting = matches!(connection, Connection::Starting | Connection::Checking);
+        let default_state =
+            default_model_state(running, starting, loaded, default_model.as_ref(), &choices);
         let default_control = h_flex()
             .gap_2()
-            .when(!running, |this| {
+            .when(!running && !starting, |this| {
                 this.child(
                     Button::new("cedian-models-start", "Start")
                         .style(ButtonStyle::OutlinedGhost)
@@ -546,14 +553,26 @@ mod tests {
     fn a_stopped_agent_offers_start_instead_of_loading_forever() {
         let choices = [choice("anthropic", "opus")];
         assert_eq!(
-            default_model_state(false, false, None, &choices),
+            default_model_state(false, false, false, None, &choices),
             Some(RowState::NotRunning("Agent not running".into()))
         );
         assert_eq!(
-            default_model_state(true, false, None, &choices),
+            default_model_state(true, false, false, None, &choices),
             Some(RowState::Loading)
         );
-        assert_eq!(default_model_state(true, true, None, &choices), None);
+        assert_eq!(
+            default_model_state(true, false, true, None, &choices),
+            None
+        );
+    }
+
+    #[test]
+    fn a_starting_agent_shows_loading_not_start() {
+        let choices = [choice("anthropic", "opus")];
+        assert_eq!(
+            default_model_state(false, true, false, None, &choices),
+            Some(RowState::Loading)
+        );
     }
 
     #[test]

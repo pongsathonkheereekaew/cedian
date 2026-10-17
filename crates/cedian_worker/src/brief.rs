@@ -107,16 +107,21 @@ impl WorkerScope {
 
 /// `path` as the filesystem spells it — symlinks resolved, so `/var` and
 /// `/private/var` meet — with the part that does not exist yet kept as
-/// written. A tree root and a write must be compared in one spelling.
+/// written, except `..` and `.` which are applied so a missing tail cannot
+/// walk into another tree (`w1/missing/../../w2/x` attributes to `w2`).
 pub fn canonical_path(path: &Path) -> PathBuf {
     let mut existing = path;
     let mut missing = Vec::new();
     loop {
         if let Ok(real) = std::fs::canonicalize(existing) {
-            return missing
-                .iter()
-                .rev()
-                .fold(real, |joined, part| joined.join(part));
+            return missing.iter().rev().fold(real, |mut joined, part| {
+                if *part == std::ffi::OsStr::new("..") {
+                    joined.pop();
+                } else if *part != std::ffi::OsStr::new(".") {
+                    joined.push(part);
+                }
+                joined
+            });
         }
         match (existing.parent(), existing.file_name()) {
             (Some(parent), Some(name)) => {
@@ -410,6 +415,24 @@ mod tests {
         assert!(brief.scope.deny.is_empty());
         assert!(brief.context.is_empty());
         assert!(brief.forbidden.is_empty());
+    }
+
+    #[test]
+    fn canonical_path_normalizes_dotdot_in_a_missing_tail() {
+        let dir = std::env::temp_dir().join(format!(
+            "cedian-canonical-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("w1")).unwrap();
+        std::fs::create_dir_all(dir.join("w2")).unwrap();
+        let sneaky = dir.join("w1/missing/../../w2/x");
+        assert_eq!(
+            canonical_path(&sneaky),
+            dir.join("w2/x"),
+            "a missing tail must not keep attribution on w1"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
