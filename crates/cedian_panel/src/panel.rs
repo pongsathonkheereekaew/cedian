@@ -2566,12 +2566,11 @@ impl CedianPanel {
         self.account.dialogs.clear();
         self.account.accounts.clear();
         self.account.account_read_errors.clear();
-        // A manual Restart during AfterTurn must keep the "agent restarted"
-        // note; clearing to None hid the save quietly.
-        self.account.key_restart = match self.account.key_restart {
-            KeyRestart::AfterTurn => KeyRestart::Restarted,
-            _ => KeyRestart::None,
-        };
+        // Keep AfterTurn so the caller can claim Restarted only when the
+        // connection actually comes up (same honesty as restart_for_key).
+        if self.account.key_restart != KeyRestart::AfterTurn {
+            self.account.key_restart = KeyRestart::None;
+        }
         self.account.shown_in_settings = false;
         self.toasts.clear();
         self.session_notes.clear();
@@ -2666,7 +2665,21 @@ impl CedianPanel {
 
     /// The Restart button: a fresh OMP on the same session.
     pub fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let pending_key = self.account.key_restart == KeyRestart::AfterTurn;
         self.start(window, cx);
+        if pending_key {
+            self.claim_key_restart();
+        }
+    }
+
+    /// Set `key_restart` to Restarted only when the connection came up.
+    fn claim_key_restart(&mut self) {
+        self.account.key_restart = match &self.connection {
+            Connection::Starting | Connection::Checking | Connection::Ready { .. } => {
+                KeyRestart::Restarted
+            }
+            _ => KeyRestart::None,
+        };
     }
 
     fn on_link_event(&mut self, event: LinkEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -2686,7 +2699,6 @@ impl CedianPanel {
         self.send_next_if_due(window, cx);
         if self.account.key_restart == KeyRestart::AfterTurn && !self.turn_running() {
             self.restart(window, cx);
-            self.account.key_restart = KeyRestart::Restarted;
         }
         self.tell(window, cx);
     }
@@ -4491,13 +4503,7 @@ impl CedianPanel {
             self.account.key_restart = KeyRestart::AfterTurn;
         } else {
             self.restart(window, cx);
-            // Only claim a restart when the connection actually came up.
-            self.account.key_restart = match &self.connection {
-                Connection::Starting | Connection::Checking | Connection::Ready { .. } => {
-                    KeyRestart::Restarted
-                }
-                _ => KeyRestart::None,
-            };
+            self.claim_key_restart();
         }
         cx.notify();
     }
@@ -5173,7 +5179,9 @@ impl CedianPanel {
         let Some(root) = self.workspace_root(cx) else {
             return;
         };
-        let barriers = self.scan_worker_trees(cx);
+        // Start the ignored-tree scan, but register CallMarks immediately so
+        // ToolEnd / bash_changed never miss the call while expand runs.
+        let _ = self.scan_worker_trees(cx);
         let open: Vec<PathBuf> = self
             .project
             .read(cx)
@@ -5182,36 +5190,10 @@ impl CedianPanel {
             .filter_map(|b| b.read(cx).file()?.as_local().map(|f| f.abs_path(cx)))
             .filter(|path| path.starts_with(&root))
             .collect();
-        if barriers.is_empty() {
-            self.mark_files(tool_call_id.clone(), open, true, cx);
-            if let Some(call) = self.calls.get_mut(&tool_call_id) {
-                call.disk_tool = Some(tool);
-            }
-            return;
+        self.mark_files(tool_call_id.clone(), open, true, cx);
+        if let Some(call) = self.calls.get_mut(&tool_call_id) {
+            call.disk_tool = Some(tool);
         }
-        // Await the first scan before tracking disk writes: a write that
-        // lands as PathChange::Loaded during the scan would otherwise be
-        // dropped by bash_changed (fail-open).
-        cx.spawn(async move |this, cx| {
-            for barrier in barriers {
-                barrier.await;
-            }
-            this.update(cx, |this, cx| {
-                if this
-                    .calls
-                    .get(&tool_call_id)
-                    .is_some_and(|call| call.ended.is_some())
-                {
-                    return;
-                }
-                this.mark_files(tool_call_id.clone(), open, true, cx);
-                if let Some(call) = this.calls.get_mut(&tool_call_id) {
-                    call.disk_tool = Some(tool);
-                }
-            })
-            .ok();
-        })
-        .detach();
     }
 
     /// Have the project watch each running worker's tree in full. The trees
@@ -7048,6 +7030,11 @@ mod tests {
                 panel.set_turn(Turn::Streaming);
                 panel.restart_for_key(window, cx);
                 panel.restart(window, cx);
+                assert_eq!(
+                    panel.account.key_restart,
+                    KeyRestart::None,
+                    "no folder: Restarted would lie"
+                );
                 panel.on_link_event(
                     LinkEvent::Ready {
                         session_id: "fresh".into(),
@@ -7972,6 +7959,78 @@ mod tests {
                 .any(|write| write.path.ends_with("w1/other.txt") && write.out_of_scope.is_some()),
             "{listed:?}"
         );
+        release_fixture(&f, cx);
+    }
+
+    /// With a running worker, ToolStart schedules scan barriers. ToolEnd in
+    /// the same update (before the executor runs those awaits) must still
+    /// see the call — otherwise a short bash finishes untracked and its
+    /// writes are dropped (issue #31.1).
+    #[gpui::test]
+    async fn a_short_bash_under_a_running_worker_is_tracked_before_scan_finishes(
+        cx: &mut TestAppContext,
+    ) {
+        let state = state_dir("scope-bash-race");
+        let (f, _buffer) = fixture_in(
+            cx,
+            serde_json::json!({
+                ".git": {},
+                ".gitignore": ".worktrees/\n",
+                "notes.txt": ORIGINAL,
+                ".worktrees": {"w1": {"notes.txt": ORIGINAL, "other.txt": "one\ntwo\n"}},
+            }),
+        )
+        .await;
+        running_worker(&state, &["notes.txt"]);
+        f.window
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
+            .unwrap();
+        f.window
+            .update(cx, |panel, _, cx| {
+                panel.on_event(
+                    RouterEvent::ToolStart {
+                        tool_call_id: "b1".into(),
+                        tool_name: "bash".into(),
+                        args_preview: String::new(),
+                        paths: Vec::new(),
+                    },
+                    cx,
+                );
+                assert!(
+                    panel.calls.get("b1").is_some_and(|call| call.bash.is_some()),
+                    "CallMarks must exist before scan barriers complete"
+                );
+                panel.on_event(
+                    RouterEvent::ToolEnd {
+                        tool_call_id: "b1".into(),
+                        tool_name: "bash".into(),
+                        result_summary: String::new(),
+                        is_error: false,
+                        before: Vec::new(),
+                    },
+                    cx,
+                );
+                assert!(
+                    !panel
+                        .calls
+                        .get("b1")
+                        .is_some_and(|call| call.ended.is_none()),
+                    "ToolEnd must end or import the call while barriers are still pending"
+                );
+            })
+            .unwrap();
+        cx.run_until_parked();
+        f.window
+            .update(cx, |panel, _, _| {
+                assert!(
+                    !panel
+                        .calls
+                        .get("b1")
+                        .is_some_and(|call| call.ended.is_none()),
+                    "barrier completion must not re-insert a live call"
+                );
+            })
+            .unwrap();
         release_fixture(&f, cx);
     }
 
