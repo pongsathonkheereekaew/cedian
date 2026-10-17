@@ -7142,7 +7142,7 @@ mod tests {
         let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
         let dir = cedian_shell::test_dir::TestDir::new("account-read");
-        let (tx, _rx) = futures::channel::mpsc::unbounded();
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
         let link =
             OmpLink::audit_only(tx, &dir, cedian_omp::SpawnPolicy::default().approvals).unwrap();
         let providers = vec![omp_rpc::LoginProvider {
@@ -7151,6 +7151,17 @@ mod tests {
             available: true,
             authenticated: true,
         }];
+        let drain = |rx: &mut futures::channel::mpsc::UnboundedReceiver<LinkEvent>,
+                     window: &WindowHandle<CedianPanel>,
+                     cx: &mut TestAppContext| {
+            while let Ok(event) = rx.try_recv() {
+                window
+                    .update(cx, |panel, window, cx| {
+                        panel.on_link_event(event, window, cx)
+                    })
+                    .unwrap();
+            }
+        };
         window
             .update(cx, |panel, window, cx| {
                 panel.link = Some(link);
@@ -7158,7 +7169,7 @@ mod tests {
                 panel.on_link_event(LinkEvent::LoginProviders(Ok(providers.clone())), window, cx);
             })
             .unwrap();
-        cx.run_until_parked();
+        drain(&mut rx, &window, cx);
         window
             .update(cx, |panel, window, cx| {
                 assert!(
@@ -7171,7 +7182,7 @@ mod tests {
                 panel.on_link_event(LinkEvent::LoginProviders(Ok(providers.clone())), window, cx);
             })
             .unwrap();
-        cx.run_until_parked();
+        drain(&mut rx, &window, cx);
         window
             .update(cx, |panel, window, cx| {
                 assert!(

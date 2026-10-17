@@ -907,8 +907,10 @@ mod tests {
         .unwrap();
         let env = std::fs::metadata(agent.join(".env")).unwrap();
         assert_eq!(env.permissions().mode() & 0o777, 0o600);
+        // No folder is open, so restart ends Stopped: do not claim Restarted.
         panel.read_with(cx, |panel, _| {
-            assert_eq!(panel.account().key_restart, KeyRestart::Restarted)
+            assert_eq!(panel.account().key_restart, KeyRestart::None);
+            assert!(matches!(panel.connection(), crate::Connection::Stopped(_)));
         });
 
         type_key(cx, "sk-next-9b1c");
