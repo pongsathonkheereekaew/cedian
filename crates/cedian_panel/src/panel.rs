@@ -7997,7 +7997,10 @@ mod tests {
                     cx,
                 );
                 assert!(
-                    panel.calls.get("b1").is_some_and(|call| call.bash.is_some()),
+                    panel
+                        .calls
+                        .get("b1")
+                        .is_some_and(|call| call.bash.is_some()),
                     "CallMarks must exist before scan barriers complete"
                 );
                 panel.on_event(
