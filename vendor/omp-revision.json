@@ -1,8 +1,8 @@
 {
   "repo": "cedian-agent (the OMP fork, submodule url ../cedian-agent.git; ADR-0078)",
-  "commit": "945e25d823083e1e9761beb55bdbe1a4b8f534e9",
-  "commitDate": "2026-10-16T21:27:03+07:00",
-  "subject": "feat(task): let a spawn choose the directory its subagent runs in",
+  "commit": "6621ee0c8d14f28e45fafa6c1b2dfb0e5679128d",
+  "commitDate": "2026-10-17T15:53:58+07:00",
+  "subject": "fix(task): refuse spawn cwd via judgePath including protectedPaths",
   "submodule": "vendor/cedian-agent",
   "build": "script/cedian-omp-build -> target/omp/omp + omp.stamp {commit, sha256}; the app runs only a build whose stamp names this commit (ADR-0075 decision 5)",
   "upstream": {
