@@ -1829,28 +1829,9 @@ mod tests {
             });
         });
         assert!(badges(cx).contains(&"Confirm Before Quitting"));
-        window.read_with(cx, |window, cx| {
-            for item in page(window, "Privacy").items.iter() {
-                if let SettingsPageItem::SettingItem(item) = item {
-                    if item.title == "Private Files" {
-                        let (set_in, found) = item.field.file_set_in(SettingsUiFile::User, cx);
-                        let store = SettingsStore::global(cx);
-                        let user_pick = store
-                            .raw_user_settings()
-                            .and_then(|u| u.content.project.worktree.private_files.as_ref());
-                        let default_pick = (store.raw_default_settings().project.worktree.private_files.as_ref()).is_some();
-                        eprintln!(
-                            "set_in={set_in:?} found={found} user_pick_is_some={} default_pick_is_some={default_pick} all_files={:?}",
-                            user_pick.is_some(),
-                            store.get_all_files()
-                        );
-                    }
-                }
-            }
-        });
         assert!(
             !badges(cx).contains(&"Private Files"),
-            "Private Files stays default unless the user sets it"
+            "Private Files is unimplemented: no User badge (pick always Some)"
         );
     }
 
