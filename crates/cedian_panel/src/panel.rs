@@ -7209,8 +7209,7 @@ mod tests {
     ) {
         init(cx);
         cx.executor().allow_parking();
-        let dir = std::env::temp_dir().join(format!("cedian-symroot-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = cedian_shell::test_dir::TestDir::new("symroot");
         std::fs::create_dir_all(dir.join("real")).unwrap();
         std::fs::write(dir.join("real/notes.txt"), "a\n").unwrap();
         std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
@@ -7231,7 +7230,6 @@ mod tests {
                 panel.unsaved.lock().keys().cloned().collect()
             })
             .unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(keys, ["notes.txt"]);
     }
 
@@ -7442,8 +7440,7 @@ mod tests {
         });
         let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
-        let state = std::env::temp_dir().join(format!("cedian-cmd-enter-{}", std::process::id()));
-        std::fs::create_dir_all(&state).unwrap();
+        let state = cedian_shell::test_dir::TestDir::new("cmd-enter");
         let (events, _) = mpsc::unbounded::<LinkEvent>();
         let link =
             OmpLink::audit_only(events, &state, cedian_omp::SpawnPolicy::default().approvals)
@@ -7625,6 +7622,7 @@ mod tests {
         fs: std::sync::Arc<fs::FakeFs>,
         project: Entity<Project>,
         window: gpui::WindowHandle<CedianPanel>,
+        _state: cedian_shell::test_dir::TestDir,
     }
 
     /// A workspace with `notes.txt` open and `other.txt` on disk only; no
@@ -7656,11 +7654,13 @@ mod tests {
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
         window
             .update(cx, |panel, _, _| {
-                let state =
-                    std::env::temp_dir().join(format!("cedian-panel-state-{}", std::process::id()));
-                std::fs::create_dir_all(&state).unwrap();
-                panel.set_state_dir(state);
                 panel.review.begin_turn();
+            })
+            .unwrap();
+        let state = cedian_shell::test_dir::TestDir::new("panel-state");
+        window
+            .update(cx, |panel, _, _| {
+                panel.set_state_dir(state.to_path_buf());
             })
             .unwrap();
         (
@@ -7668,6 +7668,7 @@ mod tests {
                 fs,
                 project,
                 window,
+                _state: state,
             },
             buffer,
         )
@@ -7849,7 +7850,7 @@ mod tests {
         let state = state_dir("scope-no-tree");
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         tool_start(&f, cx, "o1", &["other.txt"]);
         cx.run_until_parked();
@@ -7875,7 +7876,7 @@ mod tests {
         running_worker(&state, &["notes.txt"]);
         f.window
             .update(cx, |panel, _, cx| {
-                panel.set_state_dir(state.clone());
+                panel.set_state_dir(state.to_path_buf());
                 panel.on_event(
                     RouterEvent::SubagentLifecycle {
                         id: "sa-9".into(),
@@ -7955,7 +7956,7 @@ mod tests {
         let state = state_dir("scope-ignored");
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         tool_start_named(&f, cx, "b1", "bash", &[]);
         cx.run_until_parked();
@@ -7991,7 +7992,7 @@ mod tests {
         let state = state_dir("scope-two-workers");
         running_workers(&state, &[("w1", &["notes.txt"]), ("w2", &["notes.txt"])]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         tool_start_named(&f, cx, "b1", "bash", &[]);
         cx.run_until_parked();
@@ -8026,7 +8027,7 @@ mod tests {
         let state = state_dir("scope-import");
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
 
         covered_hunk(&f, cx).await;
@@ -8052,7 +8053,7 @@ mod tests {
         let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-none");
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         out_of_scope_hunk(&f, cx).await;
         let got = hunks(&f, cx);
@@ -8071,7 +8072,7 @@ mod tests {
         let state = state_dir("scope-accept-all");
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
 
         covered_hunk(&f, cx).await;
@@ -8104,7 +8105,7 @@ mod tests {
         let state = state_dir("scope-merge");
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         out_of_scope_hunk(&f, cx).await;
 
@@ -8146,7 +8147,7 @@ mod tests {
         let state = state_dir("scope-revert");
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         out_of_scope_hunk(&f, cx).await;
 
@@ -8677,8 +8678,7 @@ mod tests {
     #[gpui::test]
     async fn stopping_ends_the_workflow_turn(cx: &mut TestAppContext) {
         let (f, _buffer) = fixture(cx).await;
-        let dir = std::env::temp_dir().join(format!("cedian-panel-stop-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = cedian_shell::test_dir::TestDir::new("panel-stop");
         let mut state = cedian_workflow::WorkflowState::start(cedian_workflow::TaskProfile::new(
             "t",
             cedian_workflow::TaskKind::BugFix,
@@ -8693,12 +8693,11 @@ mod tests {
         cedian_shell::workflow_store::save(&dir, &state).unwrap();
         f.window
             .update(cx, |panel, window, cx| {
-                panel.set_state_dir(dir.clone());
+                panel.set_state_dir(dir.to_path_buf());
                 panel.stop("cedian agent exited".to_string(), window, cx);
             })
             .unwrap();
         let status = cedian_shell::workflow_store::load(&dir).unwrap().status;
-        std::fs::remove_dir_all(&dir).ok();
         assert_eq!(status, cedian_workflow::WorkflowStatus::Blocked);
     }
 
@@ -9030,11 +9029,8 @@ mod tests {
 
     /// A fresh temp dir for the link the panel's worktree gate audits
     /// through.
-    fn worktree_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("cedian-panel-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn worktree_dir(tag: &str) -> cedian_shell::test_dir::TestDir {
+        cedian_shell::test_dir::TestDir::new(&format!("panel-{tag}"))
     }
 
     /// Put a link with an audit log in `dir` and a worktree gate behind the
@@ -10420,11 +10416,8 @@ mod tests {
             .unwrap()
     }
 
-    fn state_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("cedian-panel-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn state_dir(tag: &str) -> cedian_shell::test_dir::TestDir {
+        cedian_shell::test_dir::TestDir::new(&format!("panel-{tag}"))
     }
 
     /// ADR-0032: each correction the person makes in Review Changes is one
@@ -10435,7 +10428,7 @@ mod tests {
         let (f, buffer) = fixture(cx).await;
         let dir = state_dir("corrections");
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(dir.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(dir.to_path_buf()))
             .unwrap();
         tool_start(&f, cx, "c1", &["notes.txt"]);
         omp_writes(&f, "/ws/notes.txt", "ALPHA\nbeta\nGAMMA\n").await;

@@ -17,12 +17,33 @@ const FIXTURE: &str = concat!(
     "/tests/fixtures/runtime_turn.jsonl"
 );
 
-fn temp_root(tag: &str) -> PathBuf {
+struct TempRoot(PathBuf);
+
+impl std::ops::Deref for TempRoot {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl AsRef<Path> for TempRoot {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempRoot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn temp_root(tag: &str) -> TempRoot {
     let root = std::env::temp_dir().join(format!("cedian-p2-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("ws")).unwrap();
     std::fs::write(root.join("ws/alpha.txt"), "line one\nline two\n").unwrap();
-    root.canonicalize().unwrap()
+    TempRoot(root.canonicalize().unwrap())
 }
 
 fn config(root: &Path) -> RuntimeConfig {

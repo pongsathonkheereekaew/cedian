@@ -5,10 +5,43 @@
 use std::path::{Path, PathBuf};
 
 fn root() -> Result<PathBuf, String> {
-    if cfg!(test) && std::env::var_os("CEDIAN_STATE_DIR").is_none() {
-        return Ok(std::env::temp_dir().join(format!("cedian-test-state-{}", std::process::id())));
+    #[cfg(test)]
+    if std::env::var_os("CEDIAN_STATE_DIR").is_none() {
+        return Ok(test_state_root());
     }
     cedian_shell::state::root()
+}
+
+/// One `cedian-test-state-*` root per test binary, scrubbed at process exit so
+/// `script/cedian-check`'s leak gate does not see it.
+#[cfg(test)]
+fn test_state_root() -> PathBuf {
+    use std::sync::{Once, OnceLock};
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    static ATEXIT: Once = Once::new();
+    let path = ROOT
+        .get_or_init(|| {
+            let dir = cedian_shell::test_dir::TestDir::new("test-state");
+            let path = dir.to_path_buf();
+            // Process exit does not run Drop for statics; atexit scrubs instead.
+            std::mem::forget(dir);
+            path
+        })
+        .clone();
+    ATEXIT.call_once(|| {
+        extern "C" fn scrub() {
+            if let Some(path) = ROOT.get() {
+                let _ = std::fs::remove_dir_all(path);
+            }
+        }
+        unsafe extern "C" {
+            fn atexit(cb: extern "C" fn()) -> i32;
+        }
+        unsafe {
+            atexit(scrub);
+        }
+    });
+    path
 }
 
 /// The state directory for `workdir`, created on first use.

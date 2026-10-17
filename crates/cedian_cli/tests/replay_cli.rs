@@ -19,6 +19,32 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Scratch root removed on drop (harness=false scenarios used to leave
+/// `cedian-*` dirs in `$TMPDIR` after the last scenario finished).
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new(tag: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("cedian-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(std::fs::canonicalize(&dir).unwrap())
+    }
+}
+
+impl std::ops::Deref for Scratch {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 const FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/cli_host_edit.jsonl"
@@ -184,12 +210,10 @@ fn cedian(root: &Path, args: &[&str]) -> String {
 /// P2: one `cedian prompt` turn edits with OMP's own tool; the tool card
 /// renders, the buffer edit lands on disk, timing adds up, no workflow.
 fn scenario(record: bool) {
-    let root: PathBuf = std::env::temp_dir().join(format!("cedian-p2-cli-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = Scratch::new("p2-cli");
     std::fs::create_dir_all(root.join("ws")).unwrap();
     let notes = root.join("ws/notes.txt");
     std::fs::write(&notes, ORIGINAL).unwrap();
-    let root = root.canonicalize().unwrap();
     let sessions = root.join("sessions");
     if record {
         arm(&sessions, &root);
@@ -248,13 +272,10 @@ fn scenario(record: bool) {
 /// `review dismiss` needs a reason, closes it and writes an audit gate row.
 /// The finding is written as a reviewer's host tool would store it.
 fn dismiss_scenario() {
-    let root: PathBuf =
-        std::env::temp_dir().join(format!("cedian-s3-dismiss-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = Scratch::new("s3-dismiss");
     std::fs::create_dir_all(root.join("ws")).unwrap();
     let notes = root.join("ws/notes.txt");
     std::fs::write(&notes, ORIGINAL).unwrap();
-    let root = root.canonicalize().unwrap();
     cedian_fake_omp::install_replay(&root.join("sessions"), Path::new(FIXTURE)).unwrap();
     cedian(
         &root,
@@ -309,11 +330,9 @@ fn dismiss_scenario() {
 /// No OMP process starts, the reply names the file and says inconclusive,
 /// and the audit log records the refusal.
 fn prompt_file_refusal_scenario() {
-    let root: PathBuf = std::env::temp_dir().join(format!("cedian-adr53-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = Scratch::new("adr53");
     std::fs::create_dir_all(root.join("ws")).unwrap();
     std::fs::write(root.join("ws/notes.txt"), ORIGINAL).unwrap();
-    let root = root.canonicalize().unwrap();
     cedian_fake_omp::install_replay(&root.join("sessions"), Path::new(FIXTURE)).unwrap();
     cedian(
         &root,
@@ -357,8 +376,7 @@ const S3_REVIEWER_FIXTURE: &str = concat!(
 /// dismisses it with a reason, which is audited. Recording proxies the
 /// reviewer to real OMP, so the allow-list names `omp` (exec rule).
 fn s3_review_scenario(record: bool) {
-    let root: PathBuf = std::env::temp_dir().join(format!("cedian-s3-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = Scratch::new("s3");
     std::fs::create_dir_all(root.join("ws")).unwrap();
     std::fs::write(root.join("ws/add.py"), "def add(a, b):\n    return a + b\n").unwrap();
     std::fs::write(
@@ -366,7 +384,6 @@ fn s3_review_scenario(record: bool) {
         "schema = 1\nreviewer_allow_list = [\"omp\"]\n",
     )
     .unwrap();
-    let root = root.canonicalize().unwrap();
     let sessions = root.join("sessions");
     let reviewer = sessions.join("reviewer");
     let implementer = implementer_model(record, S3_IMPLEMENTER_MODEL);
@@ -520,8 +537,7 @@ const S3_SAME_REVIEWER_FIXTURE: &str = concat!(
 /// `default`, the implementer's model, so the review is not independent and
 /// its evidence for the review gate is `inconclusive`, never `pass`.
 fn s3_same_model_scenario(record: bool) {
-    let root: PathBuf = std::env::temp_dir().join(format!("cedian-s3same-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = Scratch::new("s3same");
     std::fs::create_dir_all(root.join("ws")).unwrap();
     std::fs::write(root.join("ws/add.py"), "def add(a, b):\n    return a + b\n").unwrap();
     std::fs::write(
@@ -529,7 +545,6 @@ fn s3_same_model_scenario(record: bool) {
         "schema = 1\nreviewer_allow_list = [\"omp\"]\n",
     )
     .unwrap();
-    let root = root.canonicalize().unwrap();
     let sessions = root.join("sessions");
     let reviewer = sessions.join("reviewer");
     roles(
@@ -681,12 +696,9 @@ fn shell_scenario(record: bool) {
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
-    let root: PathBuf =
-        std::env::temp_dir().join(format!("cedian-p4-shell-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = Scratch::new("p4-shell");
     std::fs::create_dir_all(root.join("ws")).unwrap();
     std::fs::write(root.join("ws/notes.txt"), ORIGINAL).unwrap();
-    let root = root.canonicalize().unwrap();
     let sessions = root.join("sessions");
     if record {
         arm(&sessions, &root);
@@ -843,11 +855,9 @@ const CHANNEL_FIXTURE: &str = concat!(
 /// unattributed — unit-tested in `cedian_workflow::channel` (the live model
 /// refuses to self-certify when asked, so a turn cannot exercise it).
 fn channel_scenario(record: bool) {
-    let root: PathBuf = std::env::temp_dir().join(format!("cedian-p5-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = Scratch::new("p5");
     std::fs::create_dir_all(root.join("ws")).unwrap();
     std::fs::write(root.join("ws/notes.txt"), ORIGINAL).unwrap();
-    let root = root.canonicalize().unwrap();
     let sessions = root.join("sessions");
     if record {
         arm(&sessions, &root);
@@ -926,8 +936,7 @@ const WORKTREE_FIXTURE: &str = concat!(
 /// OMP's approval dialog, which headless answers at once with Deny instead
 /// of stalling until the prompt timeout.
 fn worktree_scenario(record: bool) {
-    let root: PathBuf = std::env::temp_dir().join(format!("cedian-p5wt-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = Scratch::new("p5wt");
     let ws = root.join("ws");
     std::fs::create_dir_all(&ws).unwrap();
     std::fs::write(ws.join("notes.txt"), ORIGINAL).unwrap();
@@ -950,7 +959,6 @@ fn worktree_scenario(record: bool) {
             .success();
         assert!(ok, "git {args:?}");
     }
-    let root = root.canonicalize().unwrap();
     let sessions = root.join("sessions");
     if record {
         arm(&sessions, &root);
@@ -1030,12 +1038,7 @@ const BUG_FIX_SKILL: &str = concat!(
 /// `floor`: replay the same turn with a `[[workflow.floor]]` rule in the
 /// user's `cedian.toml` (ADR-0018): OMP's `op=start` gets the floor gate too.
 fn s2_blocked_scenario(record: bool, floor: bool) {
-    let root: PathBuf = std::env::temp_dir().join(format!(
-        "cedian-s2-{}{}",
-        std::process::id(),
-        if floor { "-floor" } else { "" }
-    ));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = Scratch::new(if floor { "s2-floor" } else { "s2" });
     let skill_dir = root.join("ws/.omp/skills/bug-fix"); // pre-canonical: setup only
     std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::copy(BUG_FIX_SKILL, skill_dir.join("SKILL.md")).unwrap();
@@ -1053,7 +1056,6 @@ fn s2_blocked_scenario(record: bool, floor: bool) {
         )
         .unwrap();
     }
-    let root = root.canonicalize().unwrap();
     let sessions = root.join("sessions");
     if record {
         arm(&sessions, &root);
@@ -1184,15 +1186,9 @@ fn audit(root: &Path) -> Vec<serde_json::Value> {
 /// "deny"` in the user's `cedian.toml`: the cedian Deny still reaches OMP and
 /// the write is refused (strict-wins, ADR-0012).
 fn p8_scenario(record: bool, deny: bool) {
-    let root: PathBuf = std::env::temp_dir().join(format!(
-        "cedian-p8-{}{}",
-        std::process::id(),
-        if deny { "-deny" } else { "" }
-    ));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = Scratch::new(if deny { "p8-deny" } else { "p8" });
     std::fs::create_dir_all(root.join("ws/.omp")).unwrap();
     std::fs::write(root.join("ws/.omp/config.yml"), PROJECT_YOLO).unwrap();
-    let root = root.canonicalize().unwrap();
     let ws = root.join("ws");
     let permissions = if deny {
         "[permissions]\nsafe = \"allow\"\nproject_write = \"deny\"\ndangerous = \"allow\"\n"
@@ -1331,9 +1327,7 @@ const NOTES_APP: &[(&str, &str)] = &[
 /// end-to-end run, feature evidence counts; a surprising drive makes the
 /// instance's evidence inconclusive until its Doctor passes again.
 fn s2_profile_scenario(record: bool) {
-    let root: PathBuf =
-        std::env::temp_dir().join(format!("cedian-s2-profile-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = Scratch::new("s2-profile");
     let skill_dir = root.join("ws/.omp/skills/verify-notes");
     std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::copy(VERIFY_NOTES_SKILL, skill_dir.join("SKILL.md")).unwrap();
@@ -1341,7 +1335,6 @@ fn s2_profile_scenario(record: bool) {
     for (name, body) in NOTES_APP {
         std::fs::write(root.join("ws").join(name), body).unwrap();
     }
-    let root = root.canonicalize().unwrap();
     let ws = root.join("ws");
     std::fs::write(
         root.join("cedian.toml"),
