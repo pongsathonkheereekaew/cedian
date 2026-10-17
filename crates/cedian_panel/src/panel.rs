@@ -7622,6 +7622,7 @@ mod tests {
         fs: std::sync::Arc<fs::FakeFs>,
         project: Entity<Project>,
         window: gpui::WindowHandle<CedianPanel>,
+        // Last: fields drop in declaration order, after the window releases handles.
         _state: cedian_shell::test_dir::TestDir,
     }
 
@@ -7846,8 +7847,8 @@ mod tests {
     async fn a_write_in_the_workspace_outside_every_tree_is_not_out_of_scope(
         cx: &mut TestAppContext,
     ) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-no-tree");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
             .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
@@ -7871,8 +7872,8 @@ mod tests {
     async fn a_task_calls_disk_writes_are_attributed_to_its_subagents_tree(
         cx: &mut TestAppContext,
     ) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-task");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
             .update(cx, |panel, _, cx| {
@@ -7943,6 +7944,7 @@ mod tests {
     /// outside the brief is still out of scope, not dropped as ignored.
     #[gpui::test]
     async fn an_ignored_write_under_a_running_workers_tree_is_not_dropped(cx: &mut TestAppContext) {
+        let state = state_dir("scope-ignored");
         let (f, _buffer) = fixture_in(
             cx,
             serde_json::json!({
@@ -7953,7 +7955,6 @@ mod tests {
             }),
         )
         .await;
-        let state = state_dir("scope-ignored");
         running_worker(&state, &["notes.txt"]);
         f.window
             .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
@@ -7978,6 +7979,7 @@ mod tests {
     async fn a_clean_worker_merges_while_another_has_an_out_of_scope_write(
         cx: &mut TestAppContext,
     ) {
+        let state = state_dir("scope-two-workers");
         let (f, _buffer) = fixture_in(
             cx,
             serde_json::json!({
@@ -7989,7 +7991,6 @@ mod tests {
             }),
         )
         .await;
-        let state = state_dir("scope-two-workers");
         running_workers(&state, &[("w1", &["notes.txt"]), ("w2", &["notes.txt"])]);
         f.window
             .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
@@ -8023,8 +8024,8 @@ mod tests {
     /// decision 1).
     #[gpui::test]
     async fn a_covered_file_is_pending_and_another_is_out_of_scope(cx: &mut TestAppContext) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-import");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
             .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
@@ -8050,8 +8051,8 @@ mod tests {
     /// ADR-0063.
     #[gpui::test]
     async fn with_no_running_worker_the_same_edit_stays_pending(cx: &mut TestAppContext) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-none");
+        let (f, _buffer) = fixture(cx).await;
         f.window
             .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
@@ -8068,8 +8069,8 @@ mod tests {
     /// skipped (ADR-0033 decision 3).
     #[gpui::test]
     async fn accept_all_skips_an_out_of_scope_hunk_and_says_how_many(cx: &mut TestAppContext) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-accept-all");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
             .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
@@ -8101,8 +8102,8 @@ mod tests {
     /// (ADR-0033 decision 3), and a resolved review lets the action through.
     #[gpui::test]
     async fn merge_is_refused_while_a_change_is_out_of_scope(cx: &mut TestAppContext) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-merge");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
             .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
@@ -8143,8 +8144,8 @@ mod tests {
     /// decision 3).
     #[gpui::test]
     async fn revert_turn_keeps_an_out_of_scope_change(cx: &mut TestAppContext) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-revert");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
             .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
@@ -10425,8 +10426,8 @@ mod tests {
     #[gpui::test]
     async fn review_corrections_are_ledger_rows(cx: &mut TestAppContext) {
         use cedian_shell::corrections::{self, CorrectionKind};
-        let (f, buffer) = fixture(cx).await;
         let dir = state_dir("corrections");
+        let (f, buffer) = fixture(cx).await;
         f.window
             .update(cx, |panel, _, _| panel.set_state_dir(dir.to_path_buf()))
             .unwrap();
