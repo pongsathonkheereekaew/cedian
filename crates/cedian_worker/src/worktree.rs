@@ -405,7 +405,8 @@ pub(crate) mod tests {
         );
         // A repository with no commits has an unborn `main`.
         let empty = TempRepo({
-            let empty = std::env::temp_dir().join(format!("cedian-wt-empty-{}", super::unique_tag()));
+            let empty =
+                std::env::temp_dir().join(format!("cedian-wt-empty-{}", super::unique_tag()));
             let _ = std::fs::remove_dir_all(&empty);
             std::fs::create_dir_all(&empty).unwrap();
             empty
