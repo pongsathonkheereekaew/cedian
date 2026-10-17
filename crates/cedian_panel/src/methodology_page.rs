@@ -681,7 +681,7 @@ mod tests {
     #[test]
     fn a_row_shows_the_user_badge_only_once_the_user_sets_it() {
         let (_dir, settings, sheet) = paths();
-        let mut state = Methodology::load(Some(settings.clone()), Some(sheet));
+        let mut state = Methodology::load(Some(settings), Some(sheet));
         let rows = [
             Row::Pstack,
             Row::Mandate,
