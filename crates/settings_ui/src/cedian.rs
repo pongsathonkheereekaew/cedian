@@ -525,7 +525,9 @@ pub(crate) fn arrange(zed: Vec<SettingsPage>) -> Vec<SettingsPage> {
     let accessible = take_item(&mut zed_general, "Accessible Mode");
     let restore = take_item(&mut zed_general, "Restore On Startup");
     let redact = take_item(&mut zed_general, "Redact Private Values");
-    let private_files = take_item(&mut zed_general, "Private Files");
+    // Private Files uses SettingField::unimplemented, whose pick always
+    // returns Some — a User badge would light up for any user settings file.
+    let private_files = take_item_with_badge(&mut zed_general, "Private Files", false);
     for gone in [
         "Trust All Projects By Default",
         "Telemetry Diagnostics",
@@ -1827,6 +1829,25 @@ mod tests {
             });
         });
         assert!(badges(cx).contains(&"Confirm Before Quitting"));
+        window.read_with(cx, |window, cx| {
+            for item in page(window, "Privacy").items.iter() {
+                if let SettingsPageItem::SettingItem(item) = item {
+                    if item.title == "Private Files" {
+                        let (set_in, found) = item.field.file_set_in(SettingsUiFile::User, cx);
+                        let store = SettingsStore::global(cx);
+                        let user_pick = store
+                            .raw_user_settings()
+                            .and_then(|u| u.content.project.worktree.private_files.as_ref());
+                        let default_pick = (store.raw_default_settings().project.worktree.private_files.as_ref()).is_some();
+                        eprintln!(
+                            "set_in={set_in:?} found={found} user_pick_is_some={} default_pick_is_some={default_pick} all_files={:?}",
+                            user_pick.is_some(),
+                            store.get_all_files()
+                        );
+                    }
+                }
+            }
+        });
         assert!(
             !badges(cx).contains(&"Private Files"),
             "Private Files stays default unless the user sets it"
