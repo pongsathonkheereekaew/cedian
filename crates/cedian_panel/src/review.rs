@@ -414,14 +414,21 @@ impl FileReview {
 
     fn rebuild(&mut self, buffer: &Buffer, abs_path: Option<&Path>) -> Vec<HunkKey> {
         let snapshot = buffer.text_snapshot();
-        self.out_of_scope_worker = match (&self.scope, abs_path) {
+        let previous_owner = self.out_of_scope_worker.clone();
+        let previously_out_of_scope: collections::HashSet<HunkKey> = self
+            .hunks
+            .iter()
+            .filter(|h| h.status == HunkStatus::OutOfScope)
+            .map(|h| h.key.clone())
+            .collect();
+        let attributed = match (&self.scope, abs_path) {
             (Some(scope), Some(abs_path)) => scope
                 .attribute(abs_path)
                 .filter(|attribution| !attribution.in_scope)
                 .map(|attribution| attribution.worker.to_string()),
             _ => None,
         };
-        let out_of_scope = self.out_of_scope_worker.is_some();
+        let out_of_scope = attributed.is_some();
         let edits: Vec<text::Edit<usize>> = snapshot
             .edits_since::<usize>(self.baseline.version())
             .collect();
@@ -482,7 +489,9 @@ impl FileReview {
                 }
                 let status = if accepted {
                     HunkStatus::Accepted
-                } else if out_of_scope {
+                } else if out_of_scope || previously_out_of_scope.contains(&key) {
+                    // Keep OutOfScope after the worker finishes (leaves the
+                    // turn scope) so merge still waits on the person.
                     HunkStatus::OutOfScope
                 } else if user.iter().any(|r| touches(&new, r)) {
                     HunkStatus::Stale
@@ -525,6 +534,14 @@ impl FileReview {
             !revived.iter().any(|h| touches(h, &r))
         });
         self.built_at = snapshot.version().clone();
+        // Preserve the worker that owned OutOfScope hunks after it finishes.
+        self.out_of_scope_worker = attributed.or_else(|| {
+            previous_owner.filter(|_| {
+                self.hunks
+                    .iter()
+                    .any(|h| h.status == HunkStatus::OutOfScope)
+            })
+        });
         newly_stale
     }
 

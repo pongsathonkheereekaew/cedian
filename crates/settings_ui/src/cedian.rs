@@ -192,10 +192,16 @@ pub(crate) const SIDEBAR: &[SidebarPage] = {
 pub(crate) const HIDDEN_PAGES: &[&str] = &["Collaboration", "AI", "Developer"];
 
 /// The window height that shows every sidebar row and group heading
-/// without scrolling: 28 px rows plus the search box, footer and padding.
+/// without scrolling: 28 px rows plus the search box, footer and chrome.
+/// Non-macOS builds include the client title bar in the chrome budget.
 pub(crate) fn sidebar_fit_height() -> Pixels {
     let rows = SIDEBAR.len() + SidebarGroup::ALL.len();
-    px(28. * rows as f32 + 140.)
+    let chrome = if cfg!(target_os = "macos") {
+        140.
+    } else {
+        180.
+    };
+    px(28. * rows as f32 + chrome)
 }
 
 pub(crate) fn sidebar_page(title: &str) -> Option<&'static SidebarPage> {
@@ -411,15 +417,19 @@ fn value_text(text: impl Into<SharedString>) -> AnyElement {
         .into_any_element()
 }
 
-/// The badge a row shows: "User" only while the user's file sets the value.
+/// The badge a row shows: "User" only while the user's file sets the value
+/// (not merely because a user settings file exists and a default still wins).
 pub(crate) fn shown_badge(
     item: &SettingItem,
     set_in: &settings::SettingsFile,
+    found_in_file: bool,
 ) -> Option<ScopeBadge> {
     item.metadata
         .as_ref()
         .and_then(|metadata| metadata.badge)
-        .filter(|badge| *badge != ScopeBadge::User || *set_in == settings::SettingsFile::User)
+        .filter(|badge| {
+            *badge != ScopeBadge::User || (*set_in == settings::SettingsFile::User && found_in_file)
+        })
 }
 
 fn user(metadata: Option<Box<SettingsFieldMetadata>>) -> Option<Box<SettingsFieldMetadata>> {
@@ -515,7 +525,9 @@ pub(crate) fn arrange(zed: Vec<SettingsPage>) -> Vec<SettingsPage> {
     let accessible = take_item(&mut zed_general, "Accessible Mode");
     let restore = take_item(&mut zed_general, "Restore On Startup");
     let redact = take_item(&mut zed_general, "Redact Private Values");
-    let private_files = take_item(&mut zed_general, "Private Files");
+    // Private Files uses SettingField::unimplemented, whose pick always
+    // returns Some — a User badge would light up for any user settings file.
+    let private_files = take_item_with_badge(&mut zed_general, "Private Files", false);
     for gone in [
         "Trust All Projects By Default",
         "Telemetry Diagnostics",
@@ -603,13 +615,23 @@ pub(crate) fn arrange(zed: Vec<SettingsPage>) -> Vec<SettingsPage> {
 }
 
 fn take_item(items: &mut Vec<SettingsPageItem>, title: &str) -> Option<SettingsPageItem> {
+    take_item_with_badge(items, title, true)
+}
+
+/// Move a setting out of Zed's page. When `badge` is true, mark it User so
+/// the chip shows only while the user file actually sets the value.
+fn take_item_with_badge(
+    items: &mut Vec<SettingsPageItem>,
+    title: &str,
+    badge: bool,
+) -> Option<SettingsPageItem> {
     let index = items.iter().position(|item| match item {
         SettingsPageItem::SettingItem(item) => item.title == title,
         SettingsPageItem::DynamicItem(item) => item.discriminant.title == title,
         _ => false,
     })?;
     let mut item = items.remove(index);
-    if let SettingsPageItem::SettingItem(setting) = &mut item {
+    if badge && let SettingsPageItem::SettingItem(setting) = &mut item {
         setting.metadata = user(setting.metadata.take());
     }
     Some(item)
@@ -1032,7 +1054,7 @@ fn cedian_version(cx: &App) -> String {
     let commit = release_channel::AppCommitSha::try_global(cx)
         .map(|sha| short(&sha.full()).to_string())
         .unwrap_or_else(|| "unknown commit".to_string());
-    format!("pre-release · {channel} · {commit}")
+    format!("{} · {channel} · {commit}", paths::APP_VERSION)
 }
 
 fn zed_version(cx: &App) -> String {
@@ -1290,6 +1312,26 @@ impl SettingsWindow {
         self.nav_rows()
             .iter()
             .position(|row| *row == NavRow::Entry(entry_index))
+    }
+
+    /// The group heading that should pin above `nav_row` while that row's
+    /// pages are in view. None when search is active or the row is itself a
+    /// group heading still on screen.
+    pub(crate) fn sticky_nav_group(&self, nav_row: usize) -> Option<SidebarGroup> {
+        if self.has_query {
+            return None;
+        }
+        let rows = self.nav_rows();
+        if matches!(rows.get(nav_row), Some(NavRow::Group(_))) {
+            return None;
+        }
+        rows[..nav_row.min(rows.len())]
+            .iter()
+            .rev()
+            .find_map(|row| match row {
+                NavRow::Group(group) => Some(*group),
+                NavRow::Entry(_) => None,
+            })
     }
 }
 
@@ -1607,6 +1649,13 @@ mod tests {
             let lines = about_lines(cx);
             let names: Vec<_> = lines.iter().map(|(name, _)| *name).collect();
             assert_eq!(names, ["cedian", "Zed", "Agent", "pstack"]);
+            assert!(
+                lines[0]
+                    .1
+                    .starts_with(&format!("{} · ", paths::APP_VERSION)),
+                "About shows the release version, not pre-release: {}",
+                lines[0].1
+            );
             let pin = agent_pin().unwrap();
             assert!(lines[2].1.contains(&pin.version) && lines[2].1.contains(&pin.commit[..10]));
             assert_eq!(lines[3].1, "0.15.24 · 1e5c90a4b6 · Lauren Tan, MIT");
@@ -1756,8 +1805,8 @@ mod tests {
                 for title in ["General", "Notifications", "Privacy"] {
                     for item in page(window, title).items.iter() {
                         if let SettingsPageItem::SettingItem(item) = item {
-                            let (set_in, _) = item.field.file_set_in(SettingsUiFile::User, cx);
-                            if shown_badge(item, &set_in) == Some(ScopeBadge::User) {
+                            let (set_in, found) = item.field.file_set_in(SettingsUiFile::User, cx);
+                            if shown_badge(item, &set_in, found) == Some(ScopeBadge::User) {
                                 badges.push(item.title);
                             }
                         }
@@ -1780,6 +1829,40 @@ mod tests {
             });
         });
         assert!(badges(cx).contains(&"Confirm Before Quitting"));
+        assert!(
+            !badges(cx).contains(&"Private Files"),
+            "Private Files is unimplemented: no User badge (pick always Some)"
+        );
+    }
+
+    #[gpui::test]
+    fn sticky_nav_group_follows_the_scrolled_page(cx: &mut TestAppContext) {
+        let (window, cx) = open_window(cx);
+        window.read_with(cx, |window, _| {
+            let rows = window.nav_rows();
+            let system = rows
+                .iter()
+                .position(|row| matches!(row, NavRow::Group(SidebarGroup::System)))
+                .expect("SYSTEM group");
+            let about = rows
+                .iter()
+                .position(|row| match row {
+                    NavRow::Entry(index) => window.navbar_entries[*index].title == "About",
+                    _ => false,
+                })
+                .expect("About");
+            assert_eq!(window.sticky_nav_group(system), None, "group row itself");
+            assert_eq!(
+                window.sticky_nav_group(about),
+                Some(SidebarGroup::System),
+                "pages under SYSTEM pin that heading"
+            );
+            assert_eq!(
+                window.sticky_nav_group(1),
+                Some(SidebarGroup::Personal),
+                "first page under PERSONAL"
+            );
+        });
     }
 
     #[gpui::test]
@@ -1787,7 +1870,12 @@ mod tests {
         let (window, cx) = open_window(cx);
         cx.update(|window, _| window.activate_window());
         window.read_with(cx, |window, _| {
-            assert!(window.navbar_entries.iter().all(|entry| entry.is_root));
+            assert!(
+                window
+                    .visible_navbar_entries()
+                    .all(|(_, entry)| entry.is_root),
+                "without search the sidebar lists pages only"
+            );
         });
         window.update_in(cx, |window, gpui_window, cx| {
             window.focus_and_scroll_to_nav_entry(0, gpui_window, cx);

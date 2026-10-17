@@ -263,7 +263,11 @@ mod tests {
     /// tree, plus a foreign worktree outside `.worktrees/`. Returns the repo,
     /// the unmerged head (so a test can merge it later) and the foreign path
     /// (outside the repo, so the caller must clean it up itself).
-    fn scene() -> (PathBuf, crate::registry::WorkerHead, PathBuf) {
+    fn scene() -> (
+        crate::worktree::tests::TempRepo,
+        crate::registry::WorkerHead,
+        PathBuf,
+    ) {
         let repo = crate::worktree::tests::fixture();
 
         // Merged: a real commit landed on `main`.

@@ -2564,7 +2564,13 @@ impl CedianPanel {
         self.account.running = None;
         self.account.url = None;
         self.account.dialogs.clear();
-        self.account.key_restart = KeyRestart::None;
+        self.account.accounts.clear();
+        self.account.account_read_errors.clear();
+        // Keep AfterTurn so the caller can claim Restarted only when the
+        // connection actually comes up (same honesty as restart_for_key).
+        if self.account.key_restart != KeyRestart::AfterTurn {
+            self.account.key_restart = KeyRestart::None;
+        }
         self.account.shown_in_settings = false;
         self.toasts.clear();
         self.session_notes.clear();
@@ -2659,7 +2665,21 @@ impl CedianPanel {
 
     /// The Restart button: a fresh OMP on the same session.
     pub fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let pending_key = self.account.key_restart == KeyRestart::AfterTurn;
         self.start(window, cx);
+        if pending_key {
+            self.claim_key_restart();
+        }
+    }
+
+    /// Set `key_restart` to Restarted only when the connection came up.
+    fn claim_key_restart(&mut self) {
+        self.account.key_restart = match &self.connection {
+            Connection::Starting | Connection::Checking | Connection::Ready { .. } => {
+                KeyRestart::Restarted
+            }
+            _ => KeyRestart::None,
+        };
     }
 
     fn on_link_event(&mut self, event: LinkEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -2679,7 +2699,6 @@ impl CedianPanel {
         self.send_next_if_due(window, cx);
         if self.account.key_restart == KeyRestart::AfterTurn && !self.turn_running() {
             self.restart(window, cx);
-            self.account.key_restart = KeyRestart::Restarted;
         }
         self.tell(window, cx);
     }
@@ -2994,6 +3013,8 @@ impl CedianPanel {
                     self.account.accounts.insert(provider, accounts);
                 }
                 Err(e) => {
+                    // A failed read must not leave a prior Ok enabling Log Out.
+                    self.account.accounts.remove(&provider);
                     self.account.account_read_errors.insert(provider, e);
                 }
             },
@@ -3794,6 +3815,17 @@ impl CedianPanel {
         if matches!(event, RouterEvent::SubagentLifecycle { .. }) {
             self.refresh_worker_trees(cx);
         }
+        // Start scanning a worker's tree as soon as a subagent is Running so
+        // the first bash/task call does not race the initial Loaded pass.
+        if matches!(
+            event,
+            RouterEvent::SubagentLifecycle {
+                status: SubagentStatus::Running,
+                ..
+            }
+        ) {
+            let _ = self.scan_worker_trees(cx);
+        }
         self.thread.apply(&event);
         cx.notify();
     }
@@ -4471,7 +4503,7 @@ impl CedianPanel {
             self.account.key_restart = KeyRestart::AfterTurn;
         } else {
             self.restart(window, cx);
-            self.account.key_restart = KeyRestart::Restarted;
+            self.claim_key_restart();
         }
         cx.notify();
     }
@@ -5147,7 +5179,9 @@ impl CedianPanel {
         let Some(root) = self.workspace_root(cx) else {
             return;
         };
-        self.scan_worker_trees(cx);
+        // Start the ignored-tree scan, but register CallMarks immediately so
+        // ToolEnd / bash_changed never miss the call while expand runs.
+        let _ = self.scan_worker_trees(cx);
         let open: Vec<PathBuf> = self
             .project
             .read(cx)
@@ -5165,9 +5199,15 @@ impl CedianPanel {
     /// Have the project watch each running worker's tree in full. The trees
     /// are usually gitignored, and the worktree loads an ignored directory
     /// only on demand, so a write there would raise no change to attribute.
-    fn scan_worker_trees(&mut self, cx: &mut Context<Self>) {
+    /// Returns scan barriers the caller may await before treating the tree
+    /// as observed.
+    fn scan_worker_trees(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Vec<impl std::future::Future<Output = ()> + use<>> {
+        let mut barriers = Vec::new();
         let Some(scope) = self.turn_scope(cx) else {
-            return;
+            return barriers;
         };
         for worktree in self.project.read(cx).visible_worktrees(cx) {
             let worktree = worktree.read(cx);
@@ -5185,9 +5225,14 @@ impl CedianPanel {
                 else {
                     continue;
                 };
-                drop(local.add_path_prefix_to_scan(rel.into_arc()));
+                let mut rx = local.add_path_prefix_to_scan(rel.into_arc());
+                // postage::barrier::Receiver is a Stream, not a Future.
+                barriers.push(async move {
+                    rx.next().await;
+                });
             }
         }
+        barriers
     }
 
     /// Files the worktree saw change: a running `bash` call's, when not open.
@@ -6490,7 +6535,7 @@ mod tests {
     use super::*;
     use cedian_worker::WorkerHead;
     use fs::Fs as _;
-    use gpui::{Modifiers, TestAppContext, VisualTestContext};
+    use gpui::{Modifiers, TestAppContext, VisualTestContext, WindowHandle};
     use settings::SettingsStore;
     use std::time::{Duration, Instant};
 
@@ -6576,6 +6621,178 @@ mod tests {
             20,
             "fewer history rows move the anchor up with them"
         );
+    }
+
+    #[test]
+    fn thread_list_follows_the_tail_until_the_person_scrolls_up() {
+        let mut list = ThreadList::new();
+        list.sync([0, 3, 0]);
+        assert_eq!(
+            list.state.logical_scroll_top().item_ix,
+            3,
+            "Bottom alignment pins to the end before any scroll"
+        );
+        list.sync([0, 8, 0]);
+        assert_eq!(
+            list.state.logical_scroll_top().item_ix,
+            8,
+            "new streaming rows keep the tail pinned"
+        );
+        list.state.scroll_to(gpui::ListOffset {
+            item_ix: 2,
+            offset_in_item: px(0.),
+        });
+        assert_eq!(list.state.logical_scroll_top().item_ix, 2);
+        list.sync([0, 12, 0]);
+        assert_eq!(
+            list.state.logical_scroll_top().item_ix,
+            2,
+            "after scrolling up, a new delta must not jump the view"
+        );
+    }
+
+    #[test]
+    fn thread_list_reset_clears_the_rows_key() {
+        let mut list = ThreadList::new();
+        list.sync([1, 1, 0]);
+        list.rows_key = Some(ThreadRowsKey {
+            thread: 1,
+            subagents: 0,
+            history: 1,
+            history_total: None,
+        });
+        list.reset();
+        assert_eq!(list.state.item_count(), 0);
+        assert_eq!(list.rows_key, None);
+    }
+
+    /// More history than the viewport plus overdraw: a deep row stays
+    /// unrendered until `scroll_to_reveal_item`. The last row (Bottom pin)
+    /// is already on screen.
+    #[gpui::test]
+    async fn a_deep_thread_row_is_not_rendered_until_scroll_to_reveal(cx: &mut TestAppContext) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let mut vcx = VisualTestContext::from_window(window.into(), cx);
+        vcx.simulate_resize(gpui::size(px(480.), px(220.)));
+        window
+            .update(cx, |panel, _, cx| {
+                panel.sessions.history.lines =
+                    (0..120).map(|i| format!("history-line-{i}")).collect();
+                panel.sessions.history.total = Some(120);
+                cx.notify();
+            })
+            .unwrap();
+        for _ in 0..4 {
+            vcx.update(|window, cx| {
+                window.simulate_next_frame(cx);
+            });
+            cx.run_until_parked();
+        }
+        assert!(
+            vcx.debug_bounds("cedian-history-119").is_some(),
+            "Bottom alignment keeps the last history row on screen"
+        );
+        assert!(
+            vcx.debug_bounds("cedian-history-0").is_none(),
+            "a deep row above the overdraw must not be rendered yet"
+        );
+        window
+            .update(cx, |panel, _, cx| {
+                panel.thread_list.state.scroll_to_reveal_item(0);
+                cx.notify();
+            })
+            .unwrap();
+        for _ in 0..4 {
+            vcx.update(|window, cx| {
+                window.simulate_next_frame(cx);
+            });
+            cx.run_until_parked();
+        }
+        assert!(
+            vcx.debug_bounds("cedian-history-0").is_some(),
+            "scroll_to_reveal_item must render the deep row"
+        );
+    }
+
+    /// An unchanged frame must not rebuild `thread_rows` (ThreadRowsKey skip).
+    #[gpui::test]
+    async fn sync_thread_rows_skips_rebuild_when_the_key_is_unchanged(cx: &mut TestAppContext) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let mut vcx = VisualTestContext::from_window(window.into(), cx);
+        window
+            .update(cx, |panel, _, cx| {
+                panel.sessions.history.lines =
+                    (0..8).map(|i| format!("history-line-{i}")).collect();
+                cx.notify();
+            })
+            .unwrap();
+        vcx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+        });
+        cx.run_until_parked();
+        let (key, ptr) = window
+            .update(cx, |panel, _, _| {
+                (
+                    panel.thread_list.rows_key,
+                    panel.thread_rows.as_ptr() as usize,
+                )
+            })
+            .unwrap();
+        assert!(key.is_some(), "first render builds a rows key");
+        window.update(cx, |_panel, _, cx| cx.notify()).unwrap();
+        vcx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+        });
+        cx.run_until_parked();
+        window
+            .update(cx, |panel, _, _| {
+                assert_eq!(panel.thread_list.rows_key, key);
+                assert_eq!(
+                    panel.thread_rows.as_ptr() as usize,
+                    ptr,
+                    "unchanged key must keep the same thread_rows allocation"
+                );
+            })
+            .unwrap();
+    }
+
+    /// Session switch and a successful hand-off both reset the list and key.
+    #[gpui::test]
+    async fn session_switch_and_handoff_reset_the_thread_list(cx: &mut TestAppContext) {
+        init(cx);
+        let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
+        let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        window
+            .update(cx, |panel, window, cx| {
+                panel.on_session("session-a", None, Some("a".into()), window, cx);
+                panel.sessions.history.lines = vec!["one".into()];
+                panel.sync_thread_rows();
+                assert!(panel.thread_list.rows_key.is_some());
+                assert!(panel.thread_list.state.item_count() > 0);
+                panel.on_session("session-b", None, Some("b".into()), window, cx);
+                assert_eq!(panel.thread_list.rows_key, None);
+                assert_eq!(panel.thread_list.state.item_count(), 0);
+
+                panel.sessions.history.lines = vec!["two".into()];
+                panel.sync_thread_rows();
+                assert!(panel.thread_list.rows_key.is_some());
+                panel.on_link_event(LinkEvent::HandedOff(Ok(None)), window, cx);
+                assert!(
+                    panel.thread_list.rows_key.is_some(),
+                    "empty hand-off does not reset the list"
+                );
+                let handoff = omp_rpc::HandoffResult {
+                    saved_path: Some("summary.md".into()),
+                };
+                panel.on_link_event(LinkEvent::HandedOff(Ok(Some(handoff))), window, cx);
+                assert_eq!(panel.thread_list.rows_key, None);
+                assert_eq!(panel.thread_list.state.item_count(), 0);
+            })
+            .unwrap();
     }
 
     /// OMP's refusal of a prompt for want of a model names /login and
@@ -6813,6 +7030,11 @@ mod tests {
                 panel.set_turn(Turn::Streaming);
                 panel.restart_for_key(window, cx);
                 panel.restart(window, cx);
+                assert_eq!(
+                    panel.account.key_restart,
+                    KeyRestart::None,
+                    "no folder: Restarted would lie"
+                );
                 panel.on_link_event(
                     LinkEvent::Ready {
                         session_id: "fresh".into(),
@@ -6897,7 +7119,8 @@ mod tests {
     }
 
     /// Who is signed in is read only while Settings > Account is open: a
-    /// restart forgets it, and so does closing the page.
+    /// restart forgets it, and so does closing the page. Asserted via the
+    /// link's get_logout_accounts requests (refused when OMP is not running).
     #[gpui::test]
     async fn signed_in_accounts_are_read_only_while_the_account_page_is_open(
         cx: &mut TestAppContext,
@@ -6905,24 +7128,64 @@ mod tests {
         init(cx);
         let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
+        let dir = cedian_shell::test_dir::TestDir::new("account-read");
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let link =
+            OmpLink::audit_only(tx, &dir, cedian_omp::SpawnPolicy::default().approvals).unwrap();
         let providers = vec![omp_rpc::LoginProvider {
             id: "anthropic".into(),
             name: "Anthropic".into(),
             available: true,
             authenticated: true,
         }];
+        let drain = |rx: &mut futures::channel::mpsc::UnboundedReceiver<LinkEvent>,
+                     window: &WindowHandle<CedianPanel>,
+                     cx: &mut TestAppContext| {
+            while let Ok(event) = rx.try_recv() {
+                window
+                    .update(cx, |panel, window, cx| {
+                        panel.on_link_event(event, window, cx)
+                    })
+                    .unwrap();
+            }
+        };
         window
             .update(cx, |panel, window, cx| {
+                panel.link = Some(link);
                 panel.show_account();
-                assert_eq!(panel.accounts_to_read(&providers), ["anthropic"]);
-                panel.hide_account();
-                assert!(panel.accounts_to_read(&providers).is_empty(), "closed");
-
-                panel.show_account();
-                panel.restart(window, cx);
-                assert!(panel.accounts_to_read(&providers).is_empty(), "restarted");
+                panel.on_link_event(LinkEvent::LoginProviders(Ok(providers.clone())), window, cx);
             })
             .unwrap();
+        drain(&mut rx, &window, cx);
+        window
+            .update(cx, |panel, window, cx| {
+                assert!(
+                    panel.account.account_read_errors.contains_key("anthropic"),
+                    "open page asks the link for logout accounts: {:?}",
+                    panel.account.account_read_errors
+                );
+                panel.account.account_read_errors.clear();
+                panel.hide_account();
+                panel.on_link_event(LinkEvent::LoginProviders(Ok(providers.clone())), window, cx);
+            })
+            .unwrap();
+        drain(&mut rx, &window, cx);
+        window
+            .update(cx, |panel, window, cx| {
+                assert!(
+                    panel.account.account_read_errors.is_empty(),
+                    "closed page sends no logout-accounts request"
+                );
+                panel.show_account();
+                panel.restart(window, cx);
+                assert!(
+                    panel.account.accounts.is_empty()
+                        && panel.account.account_read_errors.is_empty(),
+                    "restart clears signed-in state"
+                );
+            })
+            .unwrap();
+        drop(dir);
     }
 
     /// Through a symlinked worktree root, an unsaved buffer is keyed by
@@ -6933,8 +7196,7 @@ mod tests {
     ) {
         init(cx);
         cx.executor().allow_parking();
-        let dir = std::env::temp_dir().join(format!("cedian-symroot-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = cedian_shell::test_dir::TestDir::new("symroot");
         std::fs::create_dir_all(dir.join("real")).unwrap();
         std::fs::write(dir.join("real/notes.txt"), "a\n").unwrap();
         std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
@@ -6955,7 +7217,6 @@ mod tests {
                 panel.unsaved.lock().keys().cloned().collect()
             })
             .unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(keys, ["notes.txt"]);
     }
 
@@ -7166,8 +7427,7 @@ mod tests {
         });
         let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
-        let state = std::env::temp_dir().join(format!("cedian-cmd-enter-{}", std::process::id()));
-        std::fs::create_dir_all(&state).unwrap();
+        let state = cedian_shell::test_dir::TestDir::new("cmd-enter");
         let (events, _) = mpsc::unbounded::<LinkEvent>();
         let link =
             OmpLink::audit_only(events, &state, cedian_omp::SpawnPolicy::default().approvals)
@@ -7349,6 +7609,7 @@ mod tests {
         fs: std::sync::Arc<fs::FakeFs>,
         project: Entity<Project>,
         window: gpui::WindowHandle<CedianPanel>,
+        _state: cedian_shell::test_dir::TestDir,
     }
 
     /// A workspace with `notes.txt` open and `other.txt` on disk only; no
@@ -7380,11 +7641,13 @@ mod tests {
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
         window
             .update(cx, |panel, _, _| {
-                let state =
-                    std::env::temp_dir().join(format!("cedian-panel-state-{}", std::process::id()));
-                std::fs::create_dir_all(&state).unwrap();
-                panel.set_state_dir(state);
                 panel.review.begin_turn();
+            })
+            .unwrap();
+        let state = cedian_shell::test_dir::TestDir::new("panel-state");
+        window
+            .update(cx, |panel, _, _| {
+                panel.set_state_dir(state.to_path_buf());
             })
             .unwrap();
         (
@@ -7392,6 +7655,7 @@ mod tests {
                 fs,
                 project,
                 window,
+                _state: state,
             },
             buffer,
         )
@@ -7569,11 +7833,11 @@ mod tests {
     async fn a_write_in_the_workspace_outside_every_tree_is_not_out_of_scope(
         cx: &mut TestAppContext,
     ) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-no-tree");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         tool_start(&f, cx, "o1", &["other.txt"]);
         cx.run_until_parked();
@@ -7585,6 +7849,7 @@ mod tests {
                 .any(|(p, s, _)| p.ends_with("ws/other.txt") && *s == HunkStatus::Pending),
             "{got:?}"
         );
+        release_fixture(&f, cx);
     }
 
     /// A `task` call's subagent working in w1's tree writes two files no
@@ -7594,12 +7859,12 @@ mod tests {
     async fn a_task_calls_disk_writes_are_attributed_to_its_subagents_tree(
         cx: &mut TestAppContext,
     ) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-task");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
             .update(cx, |panel, _, cx| {
-                panel.set_state_dir(state.clone());
+                panel.set_state_dir(state.to_path_buf());
                 panel.on_event(
                     RouterEvent::SubagentLifecycle {
                         id: "sa-9".into(),
@@ -7660,12 +7925,14 @@ mod tests {
                 );
             })
             .unwrap();
+        release_fixture(&f, cx);
     }
 
     /// Worker trees are usually gitignored: a write a bash call makes there
     /// outside the brief is still out of scope, not dropped as ignored.
     #[gpui::test]
     async fn an_ignored_write_under_a_running_workers_tree_is_not_dropped(cx: &mut TestAppContext) {
+        let state = state_dir("scope-ignored");
         let (f, _buffer) = fixture_in(
             cx,
             serde_json::json!({
@@ -7676,10 +7943,9 @@ mod tests {
             }),
         )
         .await;
-        let state = state_dir("scope-ignored");
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         tool_start_named(&f, cx, "b1", "bash", &[]);
         cx.run_until_parked();
@@ -7693,6 +7959,82 @@ mod tests {
                 .any(|write| write.path.ends_with("w1/other.txt") && write.out_of_scope.is_some()),
             "{listed:?}"
         );
+        release_fixture(&f, cx);
+    }
+
+    /// With a running worker, ToolStart schedules scan barriers. ToolEnd in
+    /// the same update (before the executor runs those awaits) must still
+    /// see the call — otherwise a short bash finishes untracked and its
+    /// writes are dropped (issue #31.1).
+    #[gpui::test]
+    async fn a_short_bash_under_a_running_worker_is_tracked_before_scan_finishes(
+        cx: &mut TestAppContext,
+    ) {
+        let state = state_dir("scope-bash-race");
+        let (f, _buffer) = fixture_in(
+            cx,
+            serde_json::json!({
+                ".git": {},
+                ".gitignore": ".worktrees/\n",
+                "notes.txt": ORIGINAL,
+                ".worktrees": {"w1": {"notes.txt": ORIGINAL, "other.txt": "one\ntwo\n"}},
+            }),
+        )
+        .await;
+        running_worker(&state, &["notes.txt"]);
+        f.window
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
+            .unwrap();
+        f.window
+            .update(cx, |panel, _, cx| {
+                panel.on_event(
+                    RouterEvent::ToolStart {
+                        tool_call_id: "b1".into(),
+                        tool_name: "bash".into(),
+                        args_preview: String::new(),
+                        paths: Vec::new(),
+                    },
+                    cx,
+                );
+                assert!(
+                    panel
+                        .calls
+                        .get("b1")
+                        .is_some_and(|call| call.bash.is_some()),
+                    "CallMarks must exist before scan barriers complete"
+                );
+                panel.on_event(
+                    RouterEvent::ToolEnd {
+                        tool_call_id: "b1".into(),
+                        tool_name: "bash".into(),
+                        result_summary: String::new(),
+                        is_error: false,
+                        before: Vec::new(),
+                    },
+                    cx,
+                );
+                assert!(
+                    !panel
+                        .calls
+                        .get("b1")
+                        .is_some_and(|call| call.ended.is_none()),
+                    "ToolEnd must end or import the call while barriers are still pending"
+                );
+            })
+            .unwrap();
+        cx.run_until_parked();
+        f.window
+            .update(cx, |panel, _, _| {
+                assert!(
+                    !panel
+                        .calls
+                        .get("b1")
+                        .is_some_and(|call| call.ended.is_none()),
+                    "barrier completion must not re-insert a live call"
+                );
+            })
+            .unwrap();
+        release_fixture(&f, cx);
     }
 
     /// One worker's unresolved out-of-scope write does not hold back
@@ -7701,6 +8043,7 @@ mod tests {
     async fn a_clean_worker_merges_while_another_has_an_out_of_scope_write(
         cx: &mut TestAppContext,
     ) {
+        let state = state_dir("scope-two-workers");
         let (f, _buffer) = fixture_in(
             cx,
             serde_json::json!({
@@ -7712,10 +8055,9 @@ mod tests {
             }),
         )
         .await;
-        let state = state_dir("scope-two-workers");
         running_workers(&state, &[("w1", &["notes.txt"]), ("w2", &["notes.txt"])]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         tool_start_named(&f, cx, "b1", "bash", &[]);
         cx.run_until_parked();
@@ -7739,6 +8081,7 @@ mod tests {
                 );
             })
             .unwrap();
+        release_fixture(&f, cx);
     }
 
     /// With a running worker covering only `notes.txt`, an edit to another
@@ -7746,11 +8089,11 @@ mod tests {
     /// decision 1).
     #[gpui::test]
     async fn a_covered_file_is_pending_and_another_is_out_of_scope(cx: &mut TestAppContext) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-import");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
 
         covered_hunk(&f, cx).await;
@@ -7767,16 +8110,17 @@ mod tests {
                 .any(|(p, s, _)| p.ends_with("other.txt") && *s == HunkStatus::OutOfScope),
             "{got:?}"
         );
+        release_fixture(&f, cx);
     }
 
     /// With no running worker the same edit stays Pending, exactly as before
     /// ADR-0063.
     #[gpui::test]
     async fn with_no_running_worker_the_same_edit_stays_pending(cx: &mut TestAppContext) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-none");
+        let (f, _buffer) = fixture(cx).await;
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         out_of_scope_hunk(&f, cx).await;
         let got = hunks(&f, cx);
@@ -7785,17 +8129,18 @@ mod tests {
                 .any(|(p, s, _)| p.ends_with("other.txt") && *s == HunkStatus::Pending),
             "{got:?}"
         );
+        release_fixture(&f, cx);
     }
 
     /// Accept all never takes an OutOfScope hunk, and says how many it
     /// skipped (ADR-0033 decision 3).
     #[gpui::test]
     async fn accept_all_skips_an_out_of_scope_hunk_and_says_how_many(cx: &mut TestAppContext) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-accept-all");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
 
         covered_hunk(&f, cx).await;
@@ -7818,17 +8163,18 @@ mod tests {
                 .any(|(p, s, _)| p.ends_with("other.txt") && *s == HunkStatus::OutOfScope),
             "{got:?}"
         );
+        release_fixture(&f, cx);
     }
 
     /// Merge is refused while an out-of-scope change is unresolved
     /// (ADR-0033 decision 3), and a resolved review lets the action through.
     #[gpui::test]
     async fn merge_is_refused_while_a_change_is_out_of_scope(cx: &mut TestAppContext) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-merge");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         out_of_scope_hunk(&f, cx).await;
 
@@ -7860,17 +8206,18 @@ mod tests {
                 );
             })
             .unwrap();
+        release_fixture(&f, cx);
     }
 
     /// Revert turn keeps an OutOfScope change and says so (ADR-0033
     /// decision 3).
     #[gpui::test]
     async fn revert_turn_keeps_an_out_of_scope_change(cx: &mut TestAppContext) {
-        let (f, _buffer) = fixture(cx).await;
         let state = state_dir("scope-revert");
+        let (f, _buffer) = fixture(cx).await;
         running_worker(&state, &["notes.txt"]);
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(state.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(state.to_path_buf()))
             .unwrap();
         out_of_scope_hunk(&f, cx).await;
 
@@ -7889,6 +8236,7 @@ mod tests {
                 .any(|(p, s, _)| p.ends_with("other.txt") && *s == HunkStatus::OutOfScope),
             "the change stays: {got:?}"
         );
+        release_fixture(&f, cx);
     }
 
     #[gpui::test]
@@ -8401,8 +8749,7 @@ mod tests {
     #[gpui::test]
     async fn stopping_ends_the_workflow_turn(cx: &mut TestAppContext) {
         let (f, _buffer) = fixture(cx).await;
-        let dir = std::env::temp_dir().join(format!("cedian-panel-stop-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = cedian_shell::test_dir::TestDir::new("panel-stop");
         let mut state = cedian_workflow::WorkflowState::start(cedian_workflow::TaskProfile::new(
             "t",
             cedian_workflow::TaskKind::BugFix,
@@ -8417,13 +8764,13 @@ mod tests {
         cedian_shell::workflow_store::save(&dir, &state).unwrap();
         f.window
             .update(cx, |panel, window, cx| {
-                panel.set_state_dir(dir.clone());
+                panel.set_state_dir(dir.to_path_buf());
                 panel.stop("cedian agent exited".to_string(), window, cx);
             })
             .unwrap();
         let status = cedian_shell::workflow_store::load(&dir).unwrap().status;
-        std::fs::remove_dir_all(&dir).ok();
         assert_eq!(status, cedian_workflow::WorkflowStatus::Blocked);
+        release_fixture(&f, cx);
     }
 
     /// The correction ledger failing again and again says so once.
@@ -8448,6 +8795,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(notice.matches("did not record").count(), 1, "{notice}");
+        release_fixture(&f, cx);
     }
 
     /// The person opens the file and types between the tool's start and its
@@ -8752,13 +9100,15 @@ mod tests {
             .collect()
     }
 
+    fn release_fixture(f: &Fixture, cx: &mut TestAppContext) {
+        let _ = f.window.update(cx, |_, window, _| window.remove_window());
+        cx.run_until_parked();
+    }
+
     /// A fresh temp dir for the link the panel's worktree gate audits
     /// through.
-    fn worktree_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("cedian-panel-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn worktree_dir(tag: &str) -> cedian_shell::test_dir::TestDir {
+        cedian_shell::test_dir::TestDir::new(&format!("panel-{tag}"))
     }
 
     /// Put a link with an audit log in `dir` and a worktree gate behind the
@@ -8819,6 +9169,7 @@ mod tests {
             [("allow".to_string(), "user".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     #[gpui::test]
@@ -8838,6 +9189,7 @@ mod tests {
             [("deny".to_string(), "user".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// The lease firing is the panel's `expire_worktree` — driven directly
@@ -8863,6 +9215,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     #[gpui::test]
@@ -8890,6 +9243,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// The host-tool thread gave up before the person clicked: the click
@@ -8918,6 +9272,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// A `cedian_debug start` Ask whose call is cancelled (the turn
@@ -8986,6 +9341,7 @@ mod tests {
             "a late Approve writes no allow row"
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// A worktree ask is pending when the person presses Stop: the bar
@@ -9013,6 +9369,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// OMP stops (the session ends) with a worktree ask pending: the ask is
@@ -9044,6 +9401,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// OMP cancels the tool call with no Stop in the panel: the thread
@@ -9088,6 +9446,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// Open cedian's own Ask for a `cedian_debug start` behind a link that
@@ -9153,6 +9512,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// The call stopped waiting and dropped its receiver before the panel
@@ -9181,6 +9541,7 @@ mod tests {
             "the dialog is closed"
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// The question is about the STALE hunks there are: when the person
@@ -10144,11 +10505,8 @@ mod tests {
             .unwrap()
     }
 
-    fn state_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("cedian-panel-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn state_dir(tag: &str) -> cedian_shell::test_dir::TestDir {
+        cedian_shell::test_dir::TestDir::new(&format!("panel-{tag}"))
     }
 
     /// ADR-0032: each correction the person makes in Review Changes is one
@@ -10156,10 +10514,10 @@ mod tests {
     #[gpui::test]
     async fn review_corrections_are_ledger_rows(cx: &mut TestAppContext) {
         use cedian_shell::corrections::{self, CorrectionKind};
-        let (f, buffer) = fixture(cx).await;
         let dir = state_dir("corrections");
+        let (f, buffer) = fixture(cx).await;
         f.window
-            .update(cx, |panel, _, _| panel.set_state_dir(dir.clone()))
+            .update(cx, |panel, _, _| panel.set_state_dir(dir.to_path_buf()))
             .unwrap();
         tool_start(&f, cx, "c1", &["notes.txt"]);
         omp_writes(&f, "/ws/notes.txt", "ALPHA\nbeta\nGAMMA\n").await;
@@ -10200,6 +10558,7 @@ mod tests {
         assert_eq!(rows[2].turn, Some(1));
         assert!(rows.iter().all(|r| r.task == "panel"));
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// While a later call is writing the file, a keystroke inside a Pending
@@ -10609,7 +10968,7 @@ enum ThreadRow {
 
 /// What the thread column's rows were built from. A scroll redraws the panel
 /// without changing any of it, and then the rows are not rebuilt.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct ThreadRowsKey {
     thread: u64,
     subagents: usize,
@@ -10630,7 +10989,7 @@ struct ThreadList {
 impl ThreadList {
     fn new() -> Self {
         Self {
-            state: ListState::new(0, ListAlignment::Top, px(1024.)),
+            state: ListState::new(0, ListAlignment::Bottom, px(1024.)),
             sections: [0; 3],
             rows_key: None,
         }

@@ -5,10 +5,40 @@
 use std::path::{Path, PathBuf};
 
 fn root() -> Result<PathBuf, String> {
-    if cfg!(test) && std::env::var_os("CEDIAN_STATE_DIR").is_none() {
-        return Ok(std::env::temp_dir().join(format!("cedian-test-state-{}", std::process::id())));
+    #[cfg(test)]
+    if std::env::var_os("CEDIAN_STATE_DIR").is_none() {
+        return Ok(test_state_root());
     }
     cedian_shell::state::root()
+}
+
+#[cfg(test)]
+fn test_state_root() -> PathBuf {
+    use std::sync::{Once, OnceLock};
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    static ATEXIT: Once = Once::new();
+    let path = ROOT
+        .get_or_init(|| {
+            let dir =
+                std::env::temp_dir().join(format!("cedian-test-state-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            dir
+        })
+        .clone();
+    ATEXIT.call_once(|| {
+        extern "C" fn scrub() {
+            if let Some(path) = ROOT.get() {
+                let _ = std::fs::remove_dir_all(path);
+            }
+        }
+        unsafe extern "C" {
+            fn atexit(cb: extern "C" fn()) -> i32;
+        }
+        unsafe {
+            atexit(scrub);
+        }
+    });
+    path
 }
 
 /// The state directory for `workdir`, created on first use.

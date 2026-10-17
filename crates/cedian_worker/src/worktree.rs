@@ -282,10 +282,40 @@ pub(crate) mod tests {
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
     }
 
+    pub(crate) struct TempRepo(PathBuf);
+
+    impl std::ops::Deref for TempRepo {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl AsRef<Path> for TempRepo {
+        fn as_ref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempRepo {
+        fn drop(&mut self) {
+            let state = self.0.with_extension("state");
+            let _ = std::fs::remove_dir_all(&state);
+            if let Some(name) = self.0.file_name() {
+                let foreign = self
+                    .0
+                    .with_file_name(format!("{}-foreign", name.to_string_lossy()));
+                let _ = std::fs::remove_dir_all(&foreign);
+            }
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     /// Fresh repo on `main` with one commit (shared with `host_tool` tests).
-    pub(crate) fn fixture() -> PathBuf {
+    pub(crate) fn fixture() -> TempRepo {
         let dir = std::env::temp_dir().join(format!("cedian-wt-test-{}", super::unique_tag()));
         let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(dir.with_extension("state"));
         std::fs::create_dir_all(&dir).unwrap();
         git(&dir, &["init", "-b", "main"]).unwrap();
         git(&dir, &["config", "user.email", "t@t"]).unwrap();
@@ -293,7 +323,7 @@ pub(crate) mod tests {
         std::fs::write(dir.join("a.txt"), "base\n").unwrap();
         git(&dir, &["add", "."]).unwrap();
         git(&dir, &["commit", "-m", "base"]).unwrap();
-        dir
+        TempRepo(dir)
     }
 
     #[test]
@@ -311,7 +341,6 @@ pub(crate) mod tests {
         merge_back(&repo, &head, "main").unwrap();
         assert!(repo.join("b.txt").exists());
         remove(&repo, &head).unwrap();
-        std::fs::remove_dir_all(&repo).unwrap();
     }
 
     #[test]
@@ -335,7 +364,6 @@ pub(crate) mod tests {
         ));
         assert!(repo.join(".worktrees/w1/a.txt").exists());
         assert!(git(&repo, &["rev-parse", "--verify", "cedian-worker/w1"]).is_ok());
-        std::fs::remove_dir_all(&repo).unwrap();
     }
 
     #[test]
@@ -352,7 +380,6 @@ pub(crate) mod tests {
             Err(WorkerError::WrongBase { .. })
         ));
         assert!(!repo.join("c.txt").exists());
-        std::fs::remove_dir_all(&repo).unwrap();
     }
 
     #[test]
@@ -376,13 +403,15 @@ pub(crate) mod tests {
             "a spawned branch points at the base commit"
         );
         // A repository with no commits has an unborn `main`.
-        let empty = std::env::temp_dir().join(format!("cedian-wt-empty-{}", super::unique_tag()));
-        let _ = std::fs::remove_dir_all(&empty);
-        std::fs::create_dir_all(&empty).unwrap();
+        let empty = TempRepo({
+            let empty =
+                std::env::temp_dir().join(format!("cedian-wt-empty-{}", super::unique_tag()));
+            let _ = std::fs::remove_dir_all(&empty);
+            std::fs::create_dir_all(&empty).unwrap();
+            empty
+        });
         git(&empty, &["init", "-b", "main"]).unwrap();
         assert!(super::last_commit_ms(&empty, "main").unwrap().is_none());
-        std::fs::remove_dir_all(&repo).unwrap();
-        std::fs::remove_dir_all(&empty).unwrap();
     }
 
     /// Regression: `spawn` works when the parent env carries hook-inherited
@@ -404,7 +433,6 @@ pub(crate) mod tests {
         let repo = fixture();
         let head = spawn(&repo, "w1", "main").unwrap();
         remove(&repo, &head).unwrap();
-        std::fs::remove_dir_all(&repo).unwrap();
         for (k, v) in saved {
             match v {
                 Some(val) => std::env::set_var(k, val),

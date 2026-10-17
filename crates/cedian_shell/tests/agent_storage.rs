@@ -47,8 +47,7 @@ fn files_under(root: &Path) -> Vec<PathBuf> {
 #[test]
 #[ignore = "needs script/cedian-omp-build"]
 fn the_bundled_agent_never_touches_the_persons_omp_dir() {
-    let root = std::env::temp_dir().join(format!("cedian-agent-storage-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = cedian_shell::test_dir::TestDir::new("agent-storage");
     let home = root.join("home");
     let omp = home.join(".omp");
     for dir in [
@@ -182,5 +181,4 @@ fn the_bundled_agent_never_touches_the_persons_omp_dir() {
         "no session-owner lease dir under {}",
         state.display()
     );
-    let _ = std::fs::remove_dir_all(&root);
 }

@@ -16,11 +16,13 @@ use editor::{Editor, EditorEvent};
 use futures::{StreamExt, channel::mpsc};
 use fuzzy::StringMatchCandidate;
 use gpui::{
-    Action, App, AsyncApp, AvailableSpace, ClipboardItem, DEFAULT_ADDITIONAL_WINDOW_SIZE, Div,
-    Entity, FocusHandle, Focusable, Global, KeyContext, ListState, ReadGlobal as _, Role,
-    ScrollHandle, Stateful, Subscription, Task, TitlebarOptions, UniformListScrollHandle,
-    WeakEntity, Window, WindowBounds, WindowHandle, WindowOptions, actions, container_query, div,
-    list, point, prelude::*, px, uniform_list,
+    Action, AnyElement, App, AsyncApp, AvailableSpace, Bounds, ClipboardItem,
+    DEFAULT_ADDITIONAL_WINDOW_SIZE, Div, Element, Entity, FocusHandle, Focusable, Global,
+    GlobalElementId, InspectorElementId, IntoElement, KeyContext, LayoutId, ListState, Pixels,
+    Point, ReadGlobal as _, Role, ScrollHandle, Stateful, Style, Subscription, Task,
+    TitlebarOptions, UniformListDecoration, UniformListScrollHandle, WeakEntity, Window,
+    WindowBounds, WindowHandle, WindowOptions, actions, container_query, div, list, point,
+    prelude::*, px, size, uniform_list,
 };
 
 use language::Buffer;
@@ -895,11 +897,8 @@ fn open_settings_editor_with(
         scaled_bounds.height = scaled_bounds
             .height
             .max(cedian::sidebar_fit_height() * scale_factor);
-        if let Some(display) = cx.primary_display() {
-            scaled_bounds.height = scaled_bounds
-                .height
-                .min(display.visible_bounds().size.height);
-        }
+        // WindowBounds::centered already clamps to the display; do not
+        // double-cap here (that hid SYSTEM below the fold on short screens).
 
         let app_id = ReleaseChannel::global(cx).app_id();
         let window_decorations = match std::env::var("ZED_WINDOW_DECORATIONS") {
@@ -1529,7 +1528,7 @@ fn render_settings_item(
     sub_field: bool,
     cx: &mut Context<'_, SettingsWindow>,
 ) -> Stateful<Div> {
-    let (found_in_file, _) = setting_item.field.file_set_in(file.clone(), cx);
+    let (found_in_file, found) = setting_item.field.file_set_in(file.clone(), cx);
     let file_set_in = SettingsUiFile::from_settings(found_in_file.clone());
 
     let reset_fn = if sub_field {
@@ -1582,7 +1581,7 @@ fn render_settings_item(
         modified_in,
         setting_item.field.json_path(),
         sub_field,
-        cedian::shown_badge(setting_item, &found_in_file),
+        cedian::shown_badge(setting_item, &found_in_file, found),
         cx,
     )
 }
@@ -2622,9 +2621,9 @@ impl SettingsWindow {
         if self.pages.is_empty() {
             self.pages = page_data::settings_data(cx);
             self.build_navbar(cx);
-            // cedian's sidebar lists pages only; sections are reached by
-            // scrolling the page and by search.
-            self.navbar_entries.retain(|entry| entry.is_root);
+            // Keep section entries for search selection; without a query,
+            // visible_navbar_entries skips children of collapsed roots so
+            // the sidebar stays a flat page list (ruling 44).
             self.setup_navbar_focus_subscriptions(window, cx);
             self.build_content_handles(window, cx);
         }
@@ -3401,7 +3400,8 @@ impl SettingsWindow {
                             }),
                         )
                         .size_full()
-                        .track_scroll(&self.navbar_scroll_handle),
+                        .track_scroll(&self.navbar_scroll_handle)
+                        .with_decoration(sticky_nav_group_headings(cx.entity())),
                     )
                     .vertical_scrollbar_for(&self.navbar_scroll_handle, window, cx),
             )
@@ -5535,6 +5535,113 @@ fn render_icon_theme_picker(
         })
         .with_handle(handle)
         .into_any_element()
+}
+
+/// Keeps the current sidebar group heading pinned while its pages scroll
+/// under it, so SYSTEM stays labeled on short displays (#29).
+fn sticky_nav_group_headings(entity: Entity<SettingsWindow>) -> StickyNavGroupHeadings {
+    StickyNavGroupHeadings { entity }
+}
+
+struct StickyNavGroupHeadings {
+    entity: Entity<SettingsWindow>,
+}
+
+struct StickyNavGroupElement {
+    heading: Option<AnyElement>,
+}
+
+impl IntoElement for StickyNavGroupElement {
+    type Element = Self;
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for StickyNavGroupElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        (window.request_layout(Style::default(), [], cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Self::PrepaintState {
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if let Some(heading) = self.heading.as_mut() {
+            heading.paint(window, cx);
+        }
+    }
+}
+
+impl UniformListDecoration for StickyNavGroupHeadings {
+    fn compute(
+        &self,
+        visible_range: Range<usize>,
+        bounds: Bounds<Pixels>,
+        scroll_offset: Point<Pixels>,
+        item_height: Pixels,
+        _item_count: usize,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        let Some(group) = self.entity.read(cx).sticky_nav_group(visible_range.start) else {
+            return StickyNavGroupElement { heading: None }.into_any_element();
+        };
+        let width = bounds.size.width + scroll_offset.x.abs();
+        let mut heading = div()
+            .w(width)
+            .bg(cx.theme().colors().panel_background)
+            .child(cedian::render_group_heading(group))
+            .into_any_element();
+        let sticky_origin = bounds.origin - point(px(0.), scroll_offset.y);
+        heading.layout_as_root(
+            size(
+                AvailableSpace::Definite(width),
+                AvailableSpace::Definite(item_height),
+            ),
+            window,
+            cx,
+        );
+        heading.prepaint_at(sticky_origin, window, cx);
+        StickyNavGroupElement {
+            heading: Some(heading),
+        }
+        .into_any_element()
+    }
 }
 
 #[cfg(test)]
