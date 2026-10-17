@@ -7622,7 +7622,6 @@ mod tests {
         fs: std::sync::Arc<fs::FakeFs>,
         project: Entity<Project>,
         window: gpui::WindowHandle<CedianPanel>,
-        // Last: fields drop in declaration order, after the window releases handles.
         _state: cedian_shell::test_dir::TestDir,
     }
 
@@ -7863,6 +7862,7 @@ mod tests {
                 .any(|(p, s, _)| p.ends_with("ws/other.txt") && *s == HunkStatus::Pending),
             "{got:?}"
         );
+        release_fixture(&f, cx);
     }
 
     /// A `task` call's subagent working in w1's tree writes two files no
@@ -7938,6 +7938,7 @@ mod tests {
                 );
             })
             .unwrap();
+        release_fixture(&f, cx);
     }
 
     /// Worker trees are usually gitignored: a write a bash call makes there
@@ -7971,6 +7972,7 @@ mod tests {
                 .any(|write| write.path.ends_with("w1/other.txt") && write.out_of_scope.is_some()),
             "{listed:?}"
         );
+        release_fixture(&f, cx);
     }
 
     /// One worker's unresolved out-of-scope write does not hold back
@@ -8017,6 +8019,7 @@ mod tests {
                 );
             })
             .unwrap();
+        release_fixture(&f, cx);
     }
 
     /// With a running worker covering only `notes.txt`, an edit to another
@@ -8045,6 +8048,7 @@ mod tests {
                 .any(|(p, s, _)| p.ends_with("other.txt") && *s == HunkStatus::OutOfScope),
             "{got:?}"
         );
+        release_fixture(&f, cx);
     }
 
     /// With no running worker the same edit stays Pending, exactly as before
@@ -8063,6 +8067,7 @@ mod tests {
                 .any(|(p, s, _)| p.ends_with("other.txt") && *s == HunkStatus::Pending),
             "{got:?}"
         );
+        release_fixture(&f, cx);
     }
 
     /// Accept all never takes an OutOfScope hunk, and says how many it
@@ -8096,6 +8101,7 @@ mod tests {
                 .any(|(p, s, _)| p.ends_with("other.txt") && *s == HunkStatus::OutOfScope),
             "{got:?}"
         );
+        release_fixture(&f, cx);
     }
 
     /// Merge is refused while an out-of-scope change is unresolved
@@ -8138,6 +8144,7 @@ mod tests {
                 );
             })
             .unwrap();
+        release_fixture(&f, cx);
     }
 
     /// Revert turn keeps an OutOfScope change and says so (ADR-0033
@@ -8167,6 +8174,7 @@ mod tests {
                 .any(|(p, s, _)| p.ends_with("other.txt") && *s == HunkStatus::OutOfScope),
             "the change stays: {got:?}"
         );
+        release_fixture(&f, cx);
     }
 
     #[gpui::test]
@@ -8700,6 +8708,7 @@ mod tests {
             .unwrap();
         let status = cedian_shell::workflow_store::load(&dir).unwrap().status;
         assert_eq!(status, cedian_workflow::WorkflowStatus::Blocked);
+        release_fixture(&f, cx);
     }
 
     /// The correction ledger failing again and again says so once.
@@ -8724,6 +8733,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(notice.matches("did not record").count(), 1, "{notice}");
+        release_fixture(&f, cx);
     }
 
     /// The person opens the file and types between the tool's start and its
@@ -9028,6 +9038,11 @@ mod tests {
             .collect()
     }
 
+    fn release_fixture(f: &Fixture, cx: &mut TestAppContext) {
+        let _ = f.window.update(cx, |_, window, _| window.remove_window());
+        cx.run_until_parked();
+    }
+
     /// A fresh temp dir for the link the panel's worktree gate audits
     /// through.
     fn worktree_dir(tag: &str) -> cedian_shell::test_dir::TestDir {
@@ -9092,6 +9107,7 @@ mod tests {
             [("allow".to_string(), "user".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     #[gpui::test]
@@ -9111,6 +9127,7 @@ mod tests {
             [("deny".to_string(), "user".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// The lease firing is the panel's `expire_worktree` — driven directly
@@ -9136,6 +9153,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     #[gpui::test]
@@ -9163,6 +9181,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// The host-tool thread gave up before the person clicked: the click
@@ -9191,6 +9210,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// A `cedian_debug start` Ask whose call is cancelled (the turn
@@ -9259,6 +9279,7 @@ mod tests {
             "a late Approve writes no allow row"
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// A worktree ask is pending when the person presses Stop: the bar
@@ -9286,6 +9307,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// OMP stops (the session ends) with a worktree ask pending: the ask is
@@ -9317,6 +9339,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// OMP cancels the tool call with no Stop in the panel: the thread
@@ -9361,6 +9384,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// Open cedian's own Ask for a `cedian_debug start` behind a link that
@@ -9426,6 +9450,7 @@ mod tests {
             [("abstain".to_string(), "cedian".to_string())]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// The call stopped waiting and dropped its receiver before the panel
@@ -9454,6 +9479,7 @@ mod tests {
             "the dialog is closed"
         );
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// The question is about the STALE hunks there are: when the person
@@ -10470,6 +10496,7 @@ mod tests {
         assert_eq!(rows[2].turn, Some(1));
         assert!(rows.iter().all(|r| r.task == "panel"));
         let _ = std::fs::remove_dir_all(&dir);
+        release_fixture(&f, cx);
     }
 
     /// While a later call is writing the file, a keystroke inside a Pending
