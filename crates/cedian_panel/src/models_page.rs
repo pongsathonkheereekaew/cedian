@@ -560,10 +560,7 @@ mod tests {
             default_model_state(true, false, false, None, &choices),
             Some(RowState::Loading)
         );
-        assert_eq!(
-            default_model_state(true, false, true, None, &choices),
-            None
-        );
+        assert_eq!(default_model_state(true, false, true, None, &choices), None);
     }
 
     #[test]

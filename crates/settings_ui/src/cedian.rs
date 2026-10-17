@@ -428,8 +428,7 @@ pub(crate) fn shown_badge(
         .as_ref()
         .and_then(|metadata| metadata.badge)
         .filter(|badge| {
-            *badge != ScopeBadge::User
-                || (*set_in == settings::SettingsFile::User && found_in_file)
+            *badge != ScopeBadge::User || (*set_in == settings::SettingsFile::User && found_in_file)
         })
 }
 
@@ -1649,7 +1648,9 @@ mod tests {
             let names: Vec<_> = lines.iter().map(|(name, _)| *name).collect();
             assert_eq!(names, ["cedian", "Zed", "Agent", "pstack"]);
             assert!(
-                lines[0].1.starts_with(&format!("{} · ", paths::APP_VERSION)),
+                lines[0]
+                    .1
+                    .starts_with(&format!("{} · ", paths::APP_VERSION)),
                 "About shows the release version, not pre-release: {}",
                 lines[0].1
             );
@@ -1802,8 +1803,7 @@ mod tests {
                 for title in ["General", "Notifications", "Privacy"] {
                     for item in page(window, title).items.iter() {
                         if let SettingsPageItem::SettingItem(item) = item {
-                            let (set_in, found) =
-                                item.field.file_set_in(SettingsUiFile::User, cx);
+                            let (set_in, found) = item.field.file_set_in(SettingsUiFile::User, cx);
                             if shown_badge(item, &set_in, found) == Some(ScopeBadge::User) {
                                 badges.push(item.title);
                             }

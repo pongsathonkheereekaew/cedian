@@ -419,20 +419,23 @@ mod tests {
 
     #[test]
     fn canonical_path_normalizes_dotdot_in_a_missing_tail() {
-        let dir = std::env::temp_dir().join(format!(
-            "cedian-canonical-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("w1")).unwrap();
-        std::fs::create_dir_all(dir.join("w2")).unwrap();
-        let sneaky = dir.join("w1/missing/../../w2/x");
+        struct Scratch(std::path::PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir =
+            Scratch(std::env::temp_dir().join(format!("cedian-canonical-{}", std::process::id())));
+        let _ = std::fs::remove_dir_all(&dir.0);
+        std::fs::create_dir_all(dir.0.join("w1")).unwrap();
+        std::fs::create_dir_all(dir.0.join("w2")).unwrap();
+        let sneaky = dir.0.join("w1/missing/../../w2/x");
         assert_eq!(
             canonical_path(&sneaky),
-            dir.join("w2/x"),
+            dir.0.join("w2/x"),
             "a missing tail must not keep attribution on w1"
         );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

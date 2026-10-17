@@ -19,9 +19,10 @@ use gpui::{
     Action, AnyElement, App, AsyncApp, AvailableSpace, Bounds, ClipboardItem,
     DEFAULT_ADDITIONAL_WINDOW_SIZE, Div, Element, Entity, FocusHandle, Focusable, Global,
     GlobalElementId, InspectorElementId, IntoElement, KeyContext, LayoutId, ListState, Pixels,
-    Point, ReadGlobal as _, Role, ScrollHandle, Stateful, Style, Subscription, Task, TitlebarOptions,
-    UniformListDecoration, UniformListScrollHandle, WeakEntity, Window, WindowBounds, WindowHandle,
-    WindowOptions, actions, container_query, div, list, point, prelude::*, px, size, uniform_list,
+    Point, ReadGlobal as _, Role, ScrollHandle, Stateful, Style, Subscription, Task,
+    TitlebarOptions, UniformListDecoration, UniformListScrollHandle, WeakEntity, Window,
+    WindowBounds, WindowHandle, WindowOptions, actions, container_query, div, list, point,
+    prelude::*, px, size, uniform_list,
 };
 
 use language::Buffer;

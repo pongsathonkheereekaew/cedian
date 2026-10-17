@@ -83,9 +83,12 @@ async fn scenario(cx: &mut TestAppContext, root: &Path) {
         ready(p) && p.turn() == &Turn::Streaming
     });
     assert_eq!(submit(cx, &window, "two"), Turn::Streaming);
-    wait(cx, &window, "cedian agent to have the follow-up while streaming", |p| {
-        ws.join("omp-got-two").exists() && p.turn() == &Turn::Streaming
-    });
+    wait(
+        cx,
+        &window,
+        "cedian agent to have the follow-up while streaming",
+        |p| ws.join("omp-got-two").exists() && p.turn() == &Turn::Streaming,
+    );
     let turn_one = review_turn(cx, &window);
     // Drive the click from the fixture's streaming window, not wall-clock
     // sleep: set the composer and stop in one update so a late settle cannot

@@ -6688,9 +6688,7 @@ mod tests {
     /// unrendered until `scroll_to_reveal_item`. The last row (Bottom pin)
     /// is already on screen.
     #[gpui::test]
-    async fn a_deep_thread_row_is_not_rendered_until_scroll_to_reveal(
-        cx: &mut TestAppContext,
-    ) {
+    async fn a_deep_thread_row_is_not_rendered_until_scroll_to_reveal(cx: &mut TestAppContext) {
         init(cx);
         let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
@@ -6738,9 +6736,7 @@ mod tests {
 
     /// An unchanged frame must not rebuild `thread_rows` (ThreadRowsKey skip).
     #[gpui::test]
-    async fn sync_thread_rows_skips_rebuild_when_the_key_is_unchanged(
-        cx: &mut TestAppContext,
-    ) {
+    async fn sync_thread_rows_skips_rebuild_when_the_key_is_unchanged(cx: &mut TestAppContext) {
         init(cx);
         let project = Project::test(fs::FakeFs::new(cx.executor()), [], cx).await;
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
@@ -6765,9 +6761,7 @@ mod tests {
             })
             .unwrap();
         assert!(key.is_some(), "first render builds a rows key");
-        window
-            .update(cx, |_panel, _, cx| cx.notify())
-            .unwrap();
+        window.update(cx, |_panel, _, cx| cx.notify()).unwrap();
         vcx.update(|window, cx| {
             window.simulate_next_frame(cx);
         });
@@ -7149,8 +7143,8 @@ mod tests {
         let window = cx.add_window(|window, cx| CedianPanel::new(project.clone(), window, cx));
         let dir = cedian_shell::test_dir::TestDir::new("account-read");
         let (tx, _rx) = futures::channel::mpsc::unbounded();
-        let link = OmpLink::audit_only(tx, &dir, cedian_omp::SpawnPolicy::default().approvals)
-            .unwrap();
+        let link =
+            OmpLink::audit_only(tx, &dir, cedian_omp::SpawnPolicy::default().approvals).unwrap();
         let providers = vec![omp_rpc::LoginProvider {
             id: "anthropic".into(),
             name: "Anthropic".into(),
@@ -7161,11 +7155,7 @@ mod tests {
             .update(cx, |panel, window, cx| {
                 panel.link = Some(link);
                 panel.show_account();
-                panel.on_link_event(
-                    LinkEvent::LoginProviders(Ok(providers.clone())),
-                    window,
-                    cx,
-                );
+                panel.on_link_event(LinkEvent::LoginProviders(Ok(providers.clone())), window, cx);
             })
             .unwrap();
         cx.run_until_parked();
@@ -7178,11 +7168,7 @@ mod tests {
                 );
                 panel.account.account_read_errors.clear();
                 panel.hide_account();
-                panel.on_link_event(
-                    LinkEvent::LoginProviders(Ok(providers.clone())),
-                    window,
-                    cx,
-                );
+                panel.on_link_event(LinkEvent::LoginProviders(Ok(providers.clone())), window, cx);
             })
             .unwrap();
         cx.run_until_parked();
