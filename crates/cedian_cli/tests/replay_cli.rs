@@ -19,8 +19,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Scratch root removed on drop (harness=false scenarios used to leave
-/// `cedian-*` dirs in `$TMPDIR` after the last scenario finished).
 struct Scratch(PathBuf);
 
 impl Scratch {

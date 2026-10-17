@@ -12,8 +12,6 @@ fn root() -> Result<PathBuf, String> {
     cedian_shell::state::root()
 }
 
-/// One `cedian-test-state-*` root per test binary, scrubbed at process exit so
-/// `script/cedian-check`'s leak gate does not see it.
 #[cfg(test)]
 fn test_state_root() -> PathBuf {
     use std::sync::{Once, OnceLock};
@@ -21,11 +19,10 @@ fn test_state_root() -> PathBuf {
     static ATEXIT: Once = Once::new();
     let path = ROOT
         .get_or_init(|| {
-            let dir = cedian_shell::test_dir::TestDir::new("test-state");
-            let path = dir.to_path_buf();
-            // Process exit does not run Drop for statics; atexit scrubs instead.
-            std::mem::forget(dir);
-            path
+            let dir =
+                std::env::temp_dir().join(format!("cedian-test-state-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            dir
         })
         .clone();
     ATEXIT.call_once(|| {

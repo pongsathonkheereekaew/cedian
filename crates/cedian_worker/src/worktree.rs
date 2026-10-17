@@ -282,7 +282,6 @@ pub(crate) mod tests {
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
     }
 
-    /// Repo + sibling `{repo}.state` directory; both removed on drop.
     pub(crate) struct TempRepo(PathBuf);
 
     impl std::ops::Deref for TempRepo {
