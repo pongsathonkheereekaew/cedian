@@ -110,26 +110,30 @@ impl WorkerScope {
 /// written, except `..` and `.` which are applied so a missing tail cannot
 /// walk into another tree (`w1/missing/../../w2/x` attributes to `w2`).
 pub fn canonical_path(path: &Path) -> PathBuf {
-    let mut existing = path;
+    let mut existing = path.to_path_buf();
     let mut missing = Vec::new();
     loop {
-        if let Ok(real) = std::fs::canonicalize(existing) {
-            return missing.iter().rev().fold(real, |mut joined, part| {
-                if *part == std::ffi::OsStr::new("..") {
+        if let Ok(real) = std::fs::canonicalize(&existing) {
+            return missing.into_iter().rev().fold(real, |mut joined, part| {
+                if part == *std::ffi::OsStr::new("..") {
                     joined.pop();
-                } else if *part != std::ffi::OsStr::new(".") {
+                } else if part != *std::ffi::OsStr::new(".") {
                     joined.push(part);
                 }
                 joined
             });
         }
-        match (existing.parent(), existing.file_name()) {
-            (Some(parent), Some(name)) => {
-                missing.push(name);
-                existing = parent;
-            }
+        // `file_name()` is None for `..`, so walk components explicitly.
+        let Some(parent) = existing.parent().map(Path::to_path_buf) else {
+            return path.to_path_buf();
+        };
+        match existing.components().next_back() {
+            Some(std::path::Component::Normal(name)) => missing.push(name.to_os_string()),
+            Some(std::path::Component::ParentDir) => missing.push(std::ffi::OsString::from("..")),
+            Some(std::path::Component::CurDir) => {}
             _ => return path.to_path_buf(),
         }
+        existing = parent;
     }
 }
 
@@ -431,9 +435,10 @@ mod tests {
         std::fs::create_dir_all(dir.0.join("w1")).unwrap();
         std::fs::create_dir_all(dir.0.join("w2")).unwrap();
         let sneaky = dir.0.join("w1/missing/../../w2/x");
+        let expected = std::fs::canonicalize(&dir.0).unwrap().join("w2/x");
         assert_eq!(
             canonical_path(&sneaky),
-            dir.0.join("w2/x"),
+            expected,
             "a missing tail must not keep attribution on w1"
         );
     }
