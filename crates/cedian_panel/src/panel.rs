@@ -6553,7 +6553,7 @@ mod tests {
     use super::*;
     use cedian_worker::WorkerHead;
     use fs::Fs as _;
-    use gpui::{Modifiers, TestAppContext, VisualTestContext};
+    use gpui::{Modifiers, TestAppContext, VisualTestContext, WindowHandle};
     use settings::SettingsStore;
     use std::time::{Duration, Instant};
 
