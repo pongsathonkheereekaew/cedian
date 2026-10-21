@@ -46,6 +46,8 @@ The native macOS desktop for [cedia](https://github.com/pongsathonkheereekaew/ce
 | Remote | Protocol ready from day one; remote client later |
 | Platform | macOS on Apple silicon; standard macOS keys |
 | Tests | Replay recorded cedia JSONL logs; no model calls in tests |
+| Reactions | cedian draws cedia's `message` and `delivered` events as reactions on your messages; your 👍/👎 on an answer is logged as an event for picking eval cases and never sent to the model |
+| Bots | A bot is a named profile in `settings.json` (role, model, instructions, tools). Start a thread with one, or @mention one to send it work in its own thread through cedia's `message_thread`. Never several bots answering in one conversation (one session, one model) |
 
 ## Settings
 
@@ -67,8 +69,8 @@ The native macOS desktop for [cedia](https://github.com/pongsathonkheereekaew/ce
 | --- | --- | --- | --- |
 | 0 Clean | Repo cleared | Stage 0 | Both repos clean (done) |
 | A Window | GPUI app, agent pane over recorded threads; spike on Zed editor and terminal | Stage 2: tools, sandbox, ledger | A recorded thread renders; replay test green |
-| B One live thread | Daemon spawns bundled cedia; terminal, review, settings UI; Keychain | `hello`, prompt images, state events | Delegate a task into a worktree, quit and reopen with the thread intact, review and accept |
-| C Parallel | Many threads, tabs by state, notifications, search, shared Chromium | Stage 5: sub-agents, MCP, web, host tools | Three threads at once, memory measured |
+| B One live thread | Daemon spawns bundled cedia; terminal, review, settings UI; Keychain; message reactions | `hello`, prompt images, state events | Delegate a task into a worktree, quit and reopen with the thread intact, review and accept |
+| C Parallel | Many threads, tabs by state, notifications, search, shared Chromium; bot profiles and @mention | Stage 5: sub-agents, MCP, web, host tools | Three threads at once, memory measured |
 | D Media, depth | Video and image panes, editor with LSP, git pane, surface protocol | Stage 6 plus video read | The agent fixes a bug shown in a screen recording |
 | Later | Remote over QUIC, computer use via `cua-driver`, scheduled runs | Classifier, goal mode | |
 
