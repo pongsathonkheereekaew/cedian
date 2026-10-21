@@ -1,0 +1,8 @@
+{
+  "name": "cedian",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh",
+  "repositoryDependencies": [
+    "github.com/pongsathonkheereekaew/cedia"
+  ]
+}
