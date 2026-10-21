@@ -69,10 +69,21 @@ The native macOS desktop for [cedia](https://github.com/pongsathonkheereekaew/ce
 | --- | --- | --- | --- |
 | 0 Clean | Repo cleared | Stage 0 | Both repos clean (done) |
 | A Window | GPUI app, agent pane over recorded threads; spike on Zed editor and terminal | Stage 2: tools, sandbox, ledger | A recorded thread renders; replay test green |
-| B One live thread | Daemon spawns bundled cedia; terminal, review, settings UI; Keychain; message reactions | `hello`, prompt images, state events | Delegate a task into a worktree, quit and reopen with the thread intact, review and accept |
-| C Parallel | Many threads, tabs by state, notifications, search, shared Chromium; bot profiles and @mention | Stage 5: sub-agents, MCP, web, host tools | Three threads at once, memory measured |
-| D Media, depth | Video and image panes, editor with LSP, git pane, surface protocol | Stage 6 plus video read | The agent fixes a bug shown in a screen recording |
+| B One live thread | Daemon spawns bundled cedia; terminal, review, settings UI; Keychain; message reactions; steering while it works, view modes, context meter, thread details, open in other apps | `hello`, prompt images, state events | Delegate a task into a worktree, quit and reopen with the thread intact, review and accept |
+| C Parallel | Many threads, tabs by state, notifications, search, shared Chromium; bot profiles and @mention; side chat, background tasks pane, task chips, app preview with per-site approval, safe archive | Stage 5: sub-agents, MCP, web, host tools | Three threads at once, memory measured |
+| D Media, depth | Video and image panes, editor with LSP, git pane, surface protocol, pop-out panes | Stage 6 plus video read | The agent fixes a bug shown in a screen recording |
 | Later | Remote over QUIC, computer use via `cua-driver`, scheduled runs | Classifier, goal mode | |
+
+## Learned from the Claude desktop app
+
+From Anthropic's public [desktop docs](https://code.claude.com/docs/en/desktop) and first-hand use, never from the app's code (Anthropic's Consumer Terms §3 forbid reverse engineering). Each maps onto something cedia already has:
+
+- Steering: text typed while a thread works goes in as a cedia `message`, delivered at the next turn boundary.
+- View modes (answers, plus thinking, plus every tool call), a context meter from `usage`, and a thread details card.
+- Side chat: cedia `fork` at the current event into a throwaway session.
+- Background tasks pane over sub-threads and running bash calls; task chips that open a new thread with its own worktree.
+- App preview: the browser pane runs the project's preview command from `settings.json` and captures after writes, with a per-site allow list.
+- Archive checks a worktree for uncommitted changes first; pop-out panes.
 
 ## Ideas carried over from the earlier cedian
 
