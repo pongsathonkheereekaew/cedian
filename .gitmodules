@@ -1,3 +1,0 @@
-[submodule "vendor/cedian-agent"]
-	path = vendor/cedian-agent
-	url = ../cedian-agent.git

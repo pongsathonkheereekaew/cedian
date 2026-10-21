@@ -1,5 +1,0 @@
-{"event":"frames","frames":37,"draw_p50_ms":0.47,"draw_p95_ms":1.21,"draw_p99_ms":1.9,"draw_max_ms":1.9,"window_total":false}
-{"event":"frames","frames":16,"draw_p50_ms":0.45,"draw_p95_ms":1.7,"draw_p99_ms":1.7,"draw_max_ms":1.7,"window_total":false}
-{"event":"frames","frames":16,"draw_p50_ms":0.64,"draw_p95_ms":1.72,"draw_p99_ms":1.72,"draw_max_ms":1.72,"window_total":false}
-{"event":"frames","frames":17,"draw_p50_ms":0.58,"draw_p95_ms":1.01,"draw_p99_ms":1.01,"draw_max_ms":1.01,"window_total":false}
-{"event":"frames","frames":16,"draw_p50_ms":0.5,"draw_p95_ms":1.56,"draw_p99_ms":1.56,"draw_max_ms":1.56,"window_total":false}
