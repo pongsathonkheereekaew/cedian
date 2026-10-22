@@ -55,8 +55,12 @@ pub fn markdown(title: &str, id: &str, blocks: &[Block]) -> String {
                 } else {
                     "unverified"
                 };
+                let turns = match turns {
+                    1 => "1 turn".to_owned(),
+                    n => format!("{n} turns"),
+                };
                 out.push_str(&format!(
-                    "\n> **{}** · {verified} · {turns} turns · ${cost_usd:.4}\n",
+                    "\n> **{}** · {verified} · {turns} · ${cost_usd:.4}\n",
                     receipt::verdict(*subtype)
                 ));
                 if let Some(evidence) = evidence
