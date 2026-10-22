@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use cedian_protocol::{AssistantBlock, EventId, Line, SessionEvent, StreamEvent};
+use cedian_protocol::{AssistantBlock, EventId, HeadlessResult, Line, SessionEvent, StreamEvent};
 
 use crate::block::{Block, Permission, ToolCall, ToolState};
 
@@ -47,6 +47,11 @@ impl Transcript {
         self.blocks.push(block);
     }
 
+    /// This transcript's thread id, once its first session event has arrived.
+    pub fn thread(&self) -> Option<&str> {
+        self.thread.as_deref()
+    }
+
     /// Sub-threads started from this one, by thread id.
     pub fn subthreads(&self) -> &BTreeMap<String, Transcript> {
         &self.subthreads
@@ -70,14 +75,20 @@ impl Transcript {
                     self.apply_event(event);
                 }
             },
-            Line::Result(result) => self.push(Block::Result {
-                subtype: result.subtype,
-                text: result.result.clone(),
-                cost_usd: result.cost_usd,
-                turns: result.num_turns as u32,
-                evidence: result.evidence.clone(),
-            }),
+            Line::Result(result) => self.push_result(result),
         }
+    }
+
+    /// A run's receipt: the stream's last line on a live run, or the `result` event a session
+    /// log ends with when the thread is rebuilt from cedia's files.
+    fn push_result(&mut self, result: &HeadlessResult) {
+        self.push(Block::Result {
+            subtype: result.subtype,
+            text: result.result.clone(),
+            cost_usd: result.cost_usd,
+            turns: result.num_turns as u32,
+            evidence: result.evidence.clone(),
+        });
     }
 
     /// The sub-thread an event belongs to, or `None` when it is this thread's.
@@ -149,6 +160,7 @@ impl Transcript {
                 role: role.clone(),
             }),
             SessionEvent::User { text, .. } => self.push(Block::User { text: text.clone() }),
+            SessionEvent::Result { result, .. } => self.push_result(result),
             SessionEvent::Assistant { blocks, .. } => {
                 if let Some(start) = self.streaming_from.take() {
                     self.blocks.truncate(start);

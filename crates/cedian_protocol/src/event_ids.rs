@@ -19,12 +19,15 @@ impl SessionEvent {
             | SessionEvent::Request { id, parent_id, .. }
             | SessionEvent::Attempt { id, parent_id, .. }
             | SessionEvent::Assistant { id, parent_id, .. }
+            | SessionEvent::Keepalive { id, parent_id, .. }
             | SessionEvent::Snapshot { id, parent_id, .. }
             | SessionEvent::Permission { id, parent_id, .. }
             | SessionEvent::ToolIntent { id, parent_id, .. }
             | SessionEvent::ToolResult { id, parent_id, .. }
             | SessionEvent::Reminder { id, parent_id, .. }
-            | SessionEvent::TurnEnd { id, parent_id, .. } => (id, parent_id.as_ref()),
+            | SessionEvent::Effort { id, parent_id, .. }
+            | SessionEvent::TurnEnd { id, parent_id, .. }
+            | SessionEvent::Result { id, parent_id, .. } => (id, parent_id.as_ref()),
         }
     }
 }

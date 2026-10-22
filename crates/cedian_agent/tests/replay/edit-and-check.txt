@@ -5,3 +5,4 @@ tool edit [e1] allowed by mode:workspace: completed: edited f.txt
 tool bash [c1] allowed by effect:read: completed: (no output)
 text: f.txt now says good, and grep -q good f.txt passes.
 result success after 4 turns, verified: f.txt now says good, and grep -q good f.txt passes.
+  check `grep -q good f.txt` exit 0 in t-00000001
