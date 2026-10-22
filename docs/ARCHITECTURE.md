@@ -117,10 +117,11 @@ The agent pane followed on the same day. `cedian_agent` folds cedia's stream-jso
 On the owner's Mac (Apple silicon, same day):
 
 - A debug build of the window needs full Xcode for GPUI's Metal shaders; with Command Line Tools only it fails with `unable to find utility "metal"`. `cargo build -p cedian_window --features runtime_shaders` builds without Xcode (about 3 minutes clean) and compiles the shaders at launch instead. Builds that ship leave the feature off and need Xcode.
-- The window opens and runs without a panic: about 122 MB resident at start, falling to about 100 MB a minute later, at 1.5% CPU. A screenshot needs Screen Recording permission for the process taking it.
+- The window opens and runs without a panic, at about 100 to 130 MB resident and under 2% CPU. With the replay of a fixture, screenshots show the agent pane (tool cards, receipt with the verified badge) beside Zed's editor and a live zsh. Cold start, from launch until the window is on screen, has a median of 285 ms over three runs of the debug build; the first launch after a build takes about 6 s while macOS checks the new binary.
+- A sub-thread's receipt lists the same check twice, because cedia's evidence counts the sub-thread's run of it and the parent's. The fix is in cedia: say which thread ran each check.
 - cedia at the pin compiles with `bun build --compile` in under a second to a 72 MB binary. Its sandbox tests pass (13 of 13), and the compiled binary runs sandboxed bash under `--sandbox on` while a write outside the working directory fails with `Operation not permitted`.
 
-Still to do: the performance budgets (cold start, keystroke latency, scrolling 10k blocks, idle memory) measured the same way against the Claude desktop app.
+Still to do: keystroke latency (it needs Accessibility permission to send keys), scrolling a 10k-block thread, and the same measurements on the Claude desktop app.
 
 ## Learned from the Claude desktop app
 
