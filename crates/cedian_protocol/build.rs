@@ -11,6 +11,7 @@ fn main() -> anyhow::Result<()> {
     let mut schema: serde_json::Value =
         serde_json::from_str(&text).context("parsing cedia's protocol schema")?;
     inline_union_refs(&mut schema);
+    allow_unknown_members(&mut schema);
     let schema: schemars::schema::RootSchema =
         serde_json::from_value(schema).context("reading cedia's protocol schema")?;
 
@@ -57,5 +58,21 @@ fn inline_union_refs(schema: &mut serde_json::Value) {
                 *member = target.clone();
             }
         }
+    }
+}
+
+/// Drops every `additionalProperties: false`, so the generated types read a member cedia added
+/// after the pin instead of refusing the whole line. cedia only ever adds optional members
+/// between pins; a receipt lost to one (`cacheMisses`) is how this was learned.
+fn allow_unknown_members(schema: &mut serde_json::Value) {
+    match schema {
+        serde_json::Value::Object(map) => {
+            if map.get("additionalProperties") == Some(&serde_json::Value::Bool(false)) {
+                map.remove("additionalProperties");
+            }
+            map.values_mut().for_each(allow_unknown_members);
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(allow_unknown_members),
+        _ => {}
     }
 }

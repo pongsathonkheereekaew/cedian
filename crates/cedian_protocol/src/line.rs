@@ -55,3 +55,28 @@ fn take(value: &mut serde_json::Value, field: &str) -> Result<serde_json::Value,
 fn decode<T: DeserializeOwned>(value: serde_json::Value, what: &str) -> Result<T, LineError> {
     serde_json::from_value(value).map_err(|e| LineError(format!("bad {what} line: {e}")))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_result_naming_its_cache_misses_parses() {
+        let text = r#"{"type":"result","subtype":"success","sessionId":"s","numTurns":2,"usage":{"uncached":10,"cacheRead":0,"cacheWrite":0,"output":5},"costUsd":0.01,"cacheHitRatio":0,"cacheMisses":[{"session":"s","request":2,"cause":"idle_over_ttl","tokens":4000}],"result":"done"}"#;
+        assert!(
+            matches!(Line::parse(text), Ok(Line::Result(_))),
+            "{:?}",
+            Line::parse(text).err()
+        );
+    }
+
+    #[test]
+    fn a_member_cedia_adds_after_the_pin_is_read_past() {
+        let text = r#"{"type":"result","subtype":"success","sessionId":"s","numTurns":1,"usage":{"uncached":1,"cacheRead":0,"cacheWrite":0,"output":1},"costUsd":0,"cacheHitRatio":0,"result":"done","addedLater":{"any":"shape"}}"#;
+        assert!(
+            matches!(Line::parse(text), Ok(Line::Result(_))),
+            "{:?}",
+            Line::parse(text).err()
+        );
+    }
+}

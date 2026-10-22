@@ -28,7 +28,20 @@ pub struct ThreadSummary {
     /// The person's latest 👍 or 👎 on the thread (`cedia threads rate`).
     #[serde(default)]
     pub rating: Option<Rating>,
+    /// The latest run that changed files: the shadow-git trees before its first write and
+    /// after its last, what `cedia threads diff|undo|redo` call the thread's turn.
+    #[serde(default)]
+    pub last_turn: Option<ThreadTurn>,
     pub updated_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ThreadTurn {
+    pub cwd: String,
+    pub before: String,
+    pub after: String,
+    pub sessions: Vec<String>,
+    pub at: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -71,6 +84,7 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
         pending: Vec::new(),
         question: None,
         rating: None,
+        last_turn: None,
         updated_at: String::new(),
     };
     let mut delivered = std::collections::HashSet::new();
@@ -149,6 +163,22 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
             }
             ThreadEvent::Rate { rating, at, .. } => {
                 thread.rating = Some(*rating);
+                thread.updated_at = at.clone();
+            }
+            ThreadEvent::Turn {
+                cwd,
+                before,
+                after,
+                sessions,
+                at,
+            } => {
+                thread.last_turn = Some(ThreadTurn {
+                    cwd: cwd.clone(),
+                    before: before.clone(),
+                    after: after.clone(),
+                    sessions: sessions.clone(),
+                    at: at.clone(),
+                });
                 thread.updated_at = at.clone();
             }
             ThreadEvent::Handoff { at, .. } => thread.updated_at = at.clone(),

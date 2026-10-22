@@ -21,6 +21,24 @@ fn edit_and_check_thread_folds() {
 }
 
 #[test]
+fn a_turn_names_its_trees_and_every_session_it_took() {
+    let dir = fixtures_dir().join("handoff").join("threads");
+    let thread = read_thread(&dir, "t-00000001").expect("thread");
+    let turn = thread.last_turn.expect("the handoff run changed files");
+    assert_eq!(turn.cwd, "/fixture/repo");
+    assert_ne!(turn.before, turn.after);
+    assert_eq!(turn.sessions.len(), 2);
+    assert_eq!(
+        turn.sessions,
+        thread
+            .sessions
+            .iter()
+            .map(|s| s.session_id.clone())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn subthread_has_a_parent() {
     let dir = fixtures_dir().join("subthread").join("threads");
     let threads = list_threads(&dir).expect("threads");

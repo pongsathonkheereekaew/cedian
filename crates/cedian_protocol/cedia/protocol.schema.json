@@ -135,6 +135,38 @@
         "quota"
       ]
     },
+    "CacheMiss": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "request": {
+          "type": "number"
+        },
+        "cause": {
+          "type": "string",
+          "enum": [
+            "system_changed",
+            "tools_changed",
+            "model_changed",
+            "idle_over_ttl",
+            "below_minimum",
+            "provider"
+          ]
+        },
+        "tokens": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "session",
+        "request",
+        "cause",
+        "tokens"
+      ],
+      "additionalProperties": false
+    },
     "Capability": {
       "type": "string",
       "enum": [
@@ -388,6 +420,18 @@
         },
         "cacheHitRatio": {
           "type": "number"
+        },
+        "inputRepairs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "cacheMisses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CacheMiss"
+          }
         },
         "result": {
           "type": "string"
@@ -1081,6 +1125,53 @@
             "kind",
             "parentId",
             "text"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "input_repaired"
+            },
+            "callId": {
+              "type": "string"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "repairs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "id": {
+              "$ref": "#/definitions/EventId"
+            },
+            "parentId": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/EventId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "callId",
+            "id",
+            "kind",
+            "parentId",
+            "repairs",
+            "tool"
           ]
         },
         {
@@ -1905,6 +1996,42 @@
             "at",
             "kind",
             "state"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "turn"
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "before": {
+              "type": "string"
+            },
+            "after": {
+              "type": "string"
+            },
+            "sessions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "after",
+            "at",
+            "before",
+            "cwd",
+            "kind",
+            "sessions"
           ]
         },
         {
