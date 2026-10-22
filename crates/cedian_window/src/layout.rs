@@ -1,8 +1,8 @@
 //! The window's layout, kept in the `layout` key of `desktop` so a window opened after quit
-//! looks the way the last one did: its bounds, the open tools, and the thread each project had
-//! open.
+//! looks the way the last one did: its bounds, the open tools, the project tabs, and the thread
+//! each project had open.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use gpui::{App, Bounds, Pixels, WindowBounds, point, px, size};
 use serde_json::{Value, json};
@@ -20,6 +20,10 @@ pub struct Layout {
     pub tool_sizes: BTreeMap<String, f32>,
     /// The sidebar folded to its rail of dots (`⌘B`).
     pub sidebar_folded: bool,
+    /// The project tabs' directories, in tab order.
+    pub projects: Vec<String>,
+    /// The tab in front.
+    pub project: Option<String>,
 }
 
 impl Default for Layout {
@@ -30,6 +34,8 @@ impl Default for Layout {
             open: BTreeMap::new(),
             tool_sizes: BTreeMap::new(),
             sidebar_folded: false,
+            projects: Vec::new(),
+            project: None,
         }
     }
 }
@@ -98,7 +104,52 @@ impl Layout {
             open,
             tool_sizes,
             sidebar_folded: layout.get("sidebar").and_then(Value::as_str) == Some("folded"),
+            projects: layout
+                .get("projects")
+                .and_then(Value::as_array)
+                .map(|p| {
+                    p.iter()
+                        .filter_map(|cwd| Some(cwd.as_str()?.to_owned()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            project: layout
+                .get("project")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
         }
+    }
+
+    /// The tabs to open and the one in front: the saved tabs whose directory is still there,
+    /// with `asked` (the `--cwd`) in front, added when it is not one of them. With nothing
+    /// asked and nothing saved, `here` alone.
+    pub fn tabs(&self, asked: Option<PathBuf>, here: PathBuf) -> (Vec<PathBuf>, usize) {
+        let mut tabs: Vec<PathBuf> = self
+            .projects
+            .iter()
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_dir())
+            .collect();
+        tabs.dedup();
+        let front = match asked {
+            Some(dir) => match tabs.iter().position(|t| *t == dir) {
+                Some(n) => n,
+                None => {
+                    tabs.push(dir);
+                    tabs.len() - 1
+                }
+            },
+            None if tabs.is_empty() => {
+                tabs.push(here);
+                0
+            }
+            None => self
+                .project
+                .as_ref()
+                .and_then(|p| tabs.iter().position(|t| t.as_os_str() == p.as_str()))
+                .unwrap_or(0),
+        };
+        (tabs, front)
     }
 
     /// The share of the panel `tool` takes.
@@ -111,7 +162,11 @@ impl Layout {
             "tools": self.tools.iter().map(|t| t.key()).collect::<Vec<_>>(),
             "open": self.open,
             "sidebar": if self.sidebar_folded { "folded" } else { "open" },
+            "projects": self.projects,
         });
+        if let Some(project) = &self.project {
+            layout["project"] = project.as_str().into();
+        }
         if !self.tool_sizes.is_empty() {
             // Two decimals keep the file readable; a drag never needs finer.
             let sizes: BTreeMap<&str, f64> = self
@@ -164,11 +219,44 @@ mod tests {
             open: BTreeMap::from([("/repo".to_owned(), "t-1".to_owned())]),
             tool_sizes: BTreeMap::from([("review".to_owned(), 1.25)]),
             sidebar_folded: true,
+            projects: vec!["/repo".to_owned(), "/other".to_owned()],
+            project: Some("/other".to_owned()),
         };
         let desktop = json!({ "layout": layout.to_value() });
         assert_eq!(Layout::from_desktop(&desktop), layout);
         assert_eq!(Layout::from_desktop(&json!({})), Layout::default());
         let old = json!({ "layout": { "right": "review" } });
         assert_eq!(Layout::from_desktop(&old).tools, [Tool::Review]);
+    }
+
+    #[test]
+    fn tabs_open_where_they_were_left() {
+        let dir = std::env::temp_dir().join(format!("cedian-tabs-{}", std::process::id()));
+        let (a, b) = (dir.join("a"), dir.join("b"));
+        std::fs::create_dir_all(&a).expect("a");
+        std::fs::create_dir_all(&b).expect("b");
+        let gone = dir.join("gone");
+        let s = |p: &PathBuf| p.display().to_string();
+        let layout = Layout {
+            projects: vec![s(&a), s(&gone), s(&b)],
+            project: Some(s(&b)),
+            ..Layout::default()
+        };
+        let here = PathBuf::from("/here");
+        assert_eq!(
+            layout.tabs(None, here.clone()),
+            (vec![a.clone(), b.clone()], 1)
+        );
+        assert_eq!(
+            layout.tabs(Some(a.clone()), here.clone()),
+            (vec![a.clone(), b.clone()], 0)
+        );
+        let c = dir.join("c");
+        assert_eq!(
+            layout.tabs(Some(c.clone()), here.clone()),
+            (vec![a.clone(), b.clone(), c], 2)
+        );
+        assert_eq!(Layout::default().tabs(None, here.clone()), (vec![here], 0));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
