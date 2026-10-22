@@ -13,6 +13,8 @@ use gpui::{
 use terminal::{Terminal, TerminalBuilder, TerminalMode};
 use util::paths::PathStyle;
 
+use crate::tokens;
+
 pub struct ShellPane {
     terminal: Option<Entity<Terminal>>,
     error: Option<String>,
@@ -124,7 +126,7 @@ impl Render for ShellPane {
             .relative()
             .size_full()
             .p_2()
-            .font_family("Lilex")
+            .font(tokens::code_font())
             .track_focus(&self.focus)
             .on_mouse_down(
                 MouseButton::Left,
