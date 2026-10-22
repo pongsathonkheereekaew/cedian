@@ -20,6 +20,14 @@ if [[ "${1:-}" == "threads" && "${4:-}" == "unsend" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "threads" && ( "${4:-}" == "archive" || "${4:-}" == "unarchive" ) ]]; then
+  # threads --cwd <dir> archive|unarchive <id>
+  archived=$([[ "$4" == "archive" ]] && echo true || echo false)
+  printf '{"at":"2026-10-22T03:00:04.000Z","kind":"archived","archived":%s}\n' "$archived" >>"$FAKE_THREADS/$5.jsonl"
+  echo "$4d $5"
+  exit 0
+fi
+
 if [[ "${1:-}" == "threads" && "${4:-}" == "rate" ]]; then
   # threads --cwd <dir> rate <id> up|down
   printf '{"at":"2026-10-22T03:00:02.000Z","kind":"rate","rating":"%s"}\n' "$6" >>"$FAKE_THREADS/$5.jsonl"

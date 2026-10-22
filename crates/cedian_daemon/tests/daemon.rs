@@ -265,6 +265,45 @@ fn a_queued_message_can_be_taken_back() {
 }
 
 #[test]
+fn a_thread_archives_and_comes_back() {
+    let harness = start("edit-and-check");
+    std::fs::create_dir_all(&harness.threads).expect("threads dir");
+    std::fs::write(
+        harness.threads.join("t-0000000c.jsonl"),
+        "{\"at\":\"2026-10-22T03:00:00.000Z\",\"kind\":\"open\",\"title\":\"x\",\"task\":\"x\"}\n\
+         {\"at\":\"2026-10-22T03:00:01.000Z\",\"kind\":\"state\",\"state\":\"done\"}\n",
+    )
+    .expect("thread");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    let archived = |want: bool| {
+        move |n: &Notice| {
+            matches!(n, Notice::Threads { threads, .. }
+                if threads.first().is_some_and(|t| t.thread.archived == want && !t.needs_you))
+        }
+    };
+    window.until(archived(false));
+    // Seen once, so a change it did not make itself would make it need the person.
+    window.ask(Request::Open {
+        cwd: harness.cwd.clone(),
+        thread: "t-0000000c".into(),
+    });
+    window.ask(Request::Close {
+        thread: "t-0000000c".into(),
+    });
+    for want in [true, false] {
+        window.ask(Request::Archive {
+            cwd: harness.cwd.clone(),
+            thread: "t-0000000c".into(),
+            archived: want,
+        });
+        window.until(archived(want));
+    }
+}
+
+#[test]
 fn a_thread_left_working_reads_as_interrupted() {
     let harness = start("edit-and-check");
     std::fs::create_dir_all(&harness.threads).expect("threads dir");

@@ -99,6 +99,8 @@ pub struct RootView {
     saving_layout: Option<Task<()>>,
     /// A press on the tab strip that moves the window once the mouse moves.
     should_move: bool,
+    /// The thread archived last, while the sidebar offers to bring it back.
+    archived: Option<Archived>,
     /// Whether a run that ends plays a sound (`desktop.sound`).
     sound: Sound,
     /// The count last put on the Dock icon.
@@ -318,6 +320,7 @@ impl RootView {
             layout: Layout::default(),
             saving_layout: None,
             should_move: false,
+            archived: None,
             sound: Sound::Off,
             dock_badge: None,
         }
@@ -1173,6 +1176,52 @@ impl RootView {
         rail.into_any_element()
     }
 
+    /// Archives a thread (`cedia threads archive`): it leaves the list, and the sidebar offers
+    /// to bring it back for a few seconds. The thread open in the pane gives way to a new one.
+    fn archive(&mut self, thread: &str, cx: &mut Context<Self>) {
+        let project = self.project();
+        let cwd = project.cwd.clone();
+        let title = project
+            .threads
+            .iter()
+            .find(|t| t.thread.id == thread)
+            .map_or_else(|| thread.to_owned(), |t| t.thread.title.clone());
+        self.request(Request::Archive {
+            cwd: cwd.clone(),
+            thread: thread.to_owned(),
+            archived: true,
+        });
+        if self.project().current.as_deref() == Some(thread) {
+            self.new_thread(cx);
+        }
+        let expiry = cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(UNDO_FOR).await;
+            this.update(cx, |view, cx| {
+                view.archived = None;
+                cx.notify();
+            })
+            .ok();
+        });
+        self.archived = Some(Archived {
+            cwd,
+            thread: thread.to_owned(),
+            title,
+            _expiry: expiry,
+        });
+        cx.notify();
+    }
+
+    fn unarchive(&mut self, cx: &mut Context<Self>) {
+        if let Some(archived) = self.archived.take() {
+            self.request(Request::Archive {
+                cwd: archived.cwd,
+                thread: archived.thread,
+                archived: false,
+            });
+        }
+        cx.notify();
+    }
+
     fn is_pinned(&self, thread: &str) -> bool {
         self.layout
             .is_pinned(&self.project().cwd.display().to_string(), thread)
@@ -1283,6 +1332,8 @@ impl RootView {
             for info in members {
                 let id = info.thread.id.clone();
                 let pin_id = id.clone();
+                let archive_id = id.clone();
+                let archivable = info.status != Status::Working;
                 let pinned = self.is_pinned(&id);
                 let selected = self.project().current.as_ref() == Some(&id);
                 let word = thread_list::state_word(info.status);
@@ -1367,6 +1418,29 @@ impl RootView {
                                         }),
                                 ),
                         )
+                        // A working thread is not archived from here: stop it first.
+                        .when(archivable, |row| {
+                            row.child(
+                                div()
+                                    .id(SharedString::from(format!("archive-{archive_id}")))
+                                    .flex_none()
+                                    .p_1()
+                                    .rounded(px(4.))
+                                    .opacity(0.)
+                                    .group_hover("thread-row", |b| b.opacity(1.))
+                                    .hover(|b| b.bg(colors.element_selected))
+                                    .on_click(cx.listener(move |view, _, _, cx| {
+                                        cx.stop_propagation();
+                                        view.archive(&archive_id, cx)
+                                    }))
+                                    .child(
+                                        svg()
+                                            .path("icons/archive.svg")
+                                            .size(px(12.))
+                                            .text_color(colors.text_muted),
+                                    ),
+                            )
+                        })
                         .when(info.needs_you, |row| {
                             row.child(div().flex_none().size(px(6.)).rounded_full().bg(
                                 if info.status == Status::Failed {
@@ -1390,9 +1464,53 @@ impl RootView {
             .bg(colors.panel_background)
             .text_color(colors.text)
             .child(list)
+            .when_some(self.archived.as_ref(), |sidebar, archived| {
+                sidebar.child(
+                    div()
+                        .flex_none()
+                        .mx_2()
+                        .mb_2()
+                        .px_3()
+                        .py_2()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .rounded(px(8.))
+                        .bg(colors.element_background)
+                        .text_size(px(12.))
+                        .child(
+                            div()
+                                .flex_grow(1.)
+                                .min_w_0()
+                                .truncate()
+                                .child(format!("เก็บ “{}” แล้ว", archived.title)),
+                        )
+                        .child(
+                            div()
+                                .id("unarchive")
+                                .flex_none()
+                                .cursor_pointer()
+                                .text_color(colors.text_accent)
+                                .on_click(cx.listener(|view, _, _, cx| view.unarchive(cx)))
+                                .child("เลิกทำ"),
+                        ),
+                )
+            })
             .into_any_element()
     }
 }
+
+/// The thread archived last, which the sidebar offers to bring back for a while.
+struct Archived {
+    cwd: PathBuf,
+    thread: String,
+    title: String,
+    /// Clears the offer after a while.
+    _expiry: Task<()>,
+}
+
+/// How long the sidebar offers to bring an archived thread back.
+const UNDO_FOR: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The person's messages the thread has not seen yet, oldest first.
 fn queued(info: &ThreadInfo) -> Vec<Queued> {
