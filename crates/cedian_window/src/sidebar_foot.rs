@@ -40,7 +40,7 @@ pub fn foot(line: StatusLine, settings: Stateful<Div>, cx: &App) -> Div {
                 .size(px(6.))
                 .rounded_full()
                 .bg(if line.connected {
-                    status.success
+                    crate::tokens::Tokens::of(cx).diff_add
                 } else {
                     status.error
                 }),
@@ -58,7 +58,7 @@ pub fn foot(line: StatusLine, settings: Stateful<Div>, cx: &App) -> Div {
             bar.child(sep()).child(
                 div()
                     .flex_none()
-                    .text_color(colors.text_accent)
+                    .text_color(colors.text)
                     .child(format!("{} ต้องดู", line.waiting)),
             )
         })

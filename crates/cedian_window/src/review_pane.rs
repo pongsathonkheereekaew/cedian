@@ -249,8 +249,8 @@ impl ReviewPane {
             HunkState::Pending => None,
             HunkState::Accepted => Some(
                 badge("รับแล้ว")
-                    .bg(colors.text_accent)
-                    .text_color(colors.background),
+                    .bg(colors.element_selected)
+                    .text_color(colors.text),
             ),
             HunkState::Rejected => Some(
                 badge("ปฏิเสธแล้ว")
@@ -270,7 +270,7 @@ impl ReviewPane {
                 actions = actions
                     .child(
                         button(cx, ("accept", index), "รับ", Some("Y"))
-                            .border_color(colors.text_accent)
+                            .border_color(colors.border_selected)
                             .on_click(cx.listener(move |pane, _, _, cx| {
                                 pane.select(index, cx);
                                 pane.decide_selected(true, cx);
@@ -309,7 +309,7 @@ impl ReviewPane {
                 let row = div().px_2().whitespace_nowrap().overflow_hidden();
                 body = body.child(match line.chars().next() {
                     Some('+') => row
-                        .bg(status.success.opacity(0.1))
+                        .bg(tokens::Tokens::of(cx).diff_add.opacity(0.1))
                         .text_color(colors.text)
                         .child(format!("+ {}", &line[1..])),
                     Some('-') => row
@@ -473,7 +473,7 @@ impl ReviewPane {
             .child(
                 div()
                     .flex_none()
-                    .font(tokens::code_font())
+                    .font(tokens::numeric_font())
                     .text_color(colors.text_muted)
                     .child(if file.binary {
                         "binary".to_owned()
@@ -527,7 +527,12 @@ impl ReviewPane {
                 div()
                     .flex()
                     .gap_2()
-                    .child(div().flex_none().text_color(status.success).child("✓"))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_color(tokens::Tokens::of(cx).diff_add)
+                            .child("✓"),
+                    )
                     .child(div().font(tokens::code_font()).child(command.clone())),
             );
         }
@@ -615,7 +620,7 @@ fn file_tag(file: &FileReview, cx: &App) -> Div {
             .border_color(colors.border)
             .text_color(colors.text_muted)
     } else if all_accepted {
-        badge("รับครบ").text_color(colors.text_accent)
+        badge("รับครบ").text_color(tokens::Tokens::of(cx).diff_add)
     } else {
         badge("ตัดสินครบ").text_color(colors.text_muted)
     }
@@ -713,7 +718,7 @@ impl Render for ReviewPane {
                     .when(total > 0, |row| {
                         row.child(
                             div()
-                                .font(tokens::code_font())
+                                .font(tokens::numeric_font())
                                 .text_meta()
                                 .text_color(muted)
                                 .child(format!("+{added} −{removed} · {decided}/{total} hunk")),

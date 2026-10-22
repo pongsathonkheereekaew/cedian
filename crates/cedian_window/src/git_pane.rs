@@ -298,7 +298,7 @@ impl Render for GitPane {
                     row.child(
                         div()
                             .text_meta()
-                            .text_color(colors.text_accent)
+                            .text_color(colors.text_muted)
                             .child(far.join(" ")),
                     )
                 }),

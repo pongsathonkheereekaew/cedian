@@ -101,6 +101,7 @@ impl Composer {
 impl Render for Composer {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors();
+        let tokens = crate::tokens::Tokens::of(cx);
         let working = cx.theme().status().info;
         let button = |id: (&'static str, usize), label: &'static str| {
             div()
@@ -161,7 +162,7 @@ impl Render for Composer {
             .items_center()
             .justify_center()
             .rounded(px(9.))
-            .bg(colors.text_accent)
+            .bg(tokens.primary)
             .cursor_pointer()
             .hover(|b| b.opacity(0.9))
             .on_click(cx.listener(|view, _, window, cx| view.submit(&Submit, window, cx)))
@@ -169,7 +170,7 @@ impl Render for Composer {
                 svg()
                     .path("icons/arrow_up.svg")
                     .size(px(16.))
-                    .text_color(colors.background),
+                    .text_color(tokens.on_primary),
             );
         div()
             .key_context("Composer")

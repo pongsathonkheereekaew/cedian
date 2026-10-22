@@ -22,20 +22,21 @@ TOKENS = {
         "hover": rgba(255, 248, 235, 0.045), "sel": rgba(255, 248, 235, 0.075),
         "line": rgba(255, 248, 235, 0.07), "line.strong": rgba(255, 248, 235, 0.13),
         "text": "#EDEBE5", "text.muted": "#ADA99F", "text.faint": "#99958B",
-        "accent": "#C6F432", "accent.text": "#C6F432", "working": "#6FB0FF",
+        "accent": "#C6F432", "accent.text": "#C6F432", "diff.add": "#7BD88F",
+        "working": "#6FB0FF",
         "failed": "#FF7A66", "warn": "#E8B931",
         # Syntax hues past the four the spec names, kept low in chroma so lime stays the accent.
         "function": "#C3C2FF", "type": "#86D4C4", "tag": "#FFA48F", "constant": "#E8B931",
         "ansi.magenta": "#CFA6FF", "ansi.cyan": "#76D3DB",
     },
     "light": {
-        "frame": "#E9E6DF", "app": "#F3F1EC", "sheet": "#FCFBF8", "raised": "#FFFFFF",
-        "field": "#E9E6DF", "code": "#F7F5F0",
-        "hover": rgba(40, 30, 10, 0.04), "sel": rgba(40, 30, 10, 0.065),
-        "line": rgba(40, 30, 10, 0.08), "line.strong": rgba(40, 30, 10, 0.15),
-        "text": "#1F1E1C", "text.muted": "#5C5850", "text.faint": "#6E6A62",
-        "accent": "#5E8A00", "accent.text": "#4F7500", "working": "#1B63BE",
-        "failed": "#C23A22", "warn": "#8F5D00",
+        "frame": "#EAEAE6", "app": "#F4F4F1", "sheet": "#FCFCFB", "raised": "#FFFFFF",
+        "field": "#ECECE8", "code": "#F7F7F5",
+        "hover": rgba(28, 28, 20, 0.04), "sel": rgba(28, 28, 20, 0.065),
+        "line": rgba(28, 28, 20, 0.08), "line.strong": rgba(28, 28, 20, 0.14),
+        "text": "#1C1C1A", "text.muted": "#5B5B56", "text.faint": "#6C6C66",
+        "accent": "#5E8A00", "accent.text": "#4F7500", "diff.add": "#2F7D3F",
+        "working": "#1B63BE", "failed": "#C23A22", "warn": "#8F5D00",
         "function": "#4A4FC4", "type": "#00796B", "tag": "#B23A1E", "constant": "#8F5D00",
         "ansi.magenta": "#8A3FC9", "ansi.cyan": "#007C8A",
     },
@@ -116,17 +117,17 @@ def style(t, dark):
         "terminal.bright_foreground": t["text"],
         "terminal.dim_foreground": t["text.muted"],
         "link_text.hover": t["working"],
-        "version_control.added": t["accent"],
+        "version_control.added": t["diff.add"],
         "version_control.modified": t["warn"],
         "version_control.deleted": t["failed"],
-        "version_control.word_added": alpha(t["accent"], 30),
+        "version_control.word_added": alpha(t["diff.add"], 30),
         "version_control.word_deleted": alpha(t["failed"], 30),
         "version_control.conflict_marker.ours": soft(t["accent"]),
         "version_control.conflict_marker.theirs": soft(t["working"]),
     }
     ansi = {
         "black": t["app"] if dark else t["text"],
-        "red": t["failed"], "green": t["accent"], "yellow": t["warn"], "blue": t["working"],
+        "red": t["failed"], "green": t["diff.add"], "yellow": t["warn"], "blue": t["working"],
         "magenta": t["ansi.magenta"], "cyan": t["ansi.cyan"],
         "white": t["text"] if dark else t["text.faint"],
     }
@@ -136,7 +137,7 @@ def style(t, dark):
         s[f"terminal.ansi.dim_{name}"] = alpha(color, 70)
     s["terminal.ansi.bright_black"] = t["text.faint"]
     statuses = {
-        "conflict": t["warn"], "created": t["accent"], "deleted": t["failed"],
+        "conflict": t["warn"], "created": t["diff.add"], "deleted": t["failed"],
         "error": t["failed"], "hidden": t["text.faint"], "hint": t["text.muted"],
         "ignored": t["text.faint"], "info": t["working"], "modified": t["warn"],
         "predictive": t["text.faint"], "renamed": t["working"], "success": t["accent"],
@@ -170,7 +171,7 @@ def style(t, dark):
         "tag": t["tag"], "text.literal": t["accent.text"], "title": t["text"],
         "type": t["type"], "variable": t["text"], "variable.parameter": t["text"],
         "variable.special": t["tag"], "variant": t["type"],
-        "diff.plus": t["accent.text"], "diff.minus": t["failed"],
+        "diff.plus": t["diff.add"], "diff.minus": t["failed"],
     }
     s["syntax"] = {
         name: {

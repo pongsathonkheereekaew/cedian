@@ -54,7 +54,7 @@ pub fn header(line: HeaderLine, toggles: Div, stop: OnClick, cx: &App) -> Div {
         .children(line.cost.map(|cost| {
             div()
                 .flex_none()
-                .font(tokens::code_font())
+                .font(tokens::numeric_font())
                 .text_meta()
                 .text_color(colors.text_muted)
                 .child(format!("${cost:.4}"))

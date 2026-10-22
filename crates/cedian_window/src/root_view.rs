@@ -921,6 +921,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let colors = cx.theme().colors();
+        let tokens = tokens::Tokens::of(cx);
         let mut options = div().flex().flex_wrap().gap_2();
         for (n, option) in question.options.into_iter().enumerate() {
             let answer = option.clone();
@@ -939,9 +940,9 @@ impl RootView {
                     .map(|button| {
                         if recommended {
                             button
-                                .bg(colors.text_accent)
-                                .border_color(colors.text_accent)
-                                .text_color(colors.background)
+                                .bg(tokens.primary)
+                                .border_color(tokens.primary)
+                                .text_color(tokens.on_primary)
                         } else {
                             button
                                 .bg(colors.element_background)
@@ -1223,7 +1224,7 @@ impl RootView {
                                 .border_color(if info.status == Status::Failed {
                                     status_colors.error
                                 } else {
-                                    colors.text_accent
+                                    colors.text
                                 })
                         })
                         .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
@@ -1411,7 +1412,7 @@ impl RootView {
                                 .text_color(if failed {
                                     status_colors.error
                                 } else {
-                                    colors.text_accent
+                                    colors.text
                                 })
                                 .child(counted.to_string()),
                         )
@@ -1467,7 +1468,7 @@ impl RootView {
                             row.child(
                                 div()
                                     .flex_none()
-                                    .font(tokens::code_font())
+                                    .font(tokens::numeric_font())
                                     .text_label()
                                     .text_color(meta_color)
                                     .child(meta),
@@ -1535,7 +1536,7 @@ impl RootView {
                                 if info.status == Status::Failed {
                                     status_colors.error
                                 } else {
-                                    colors.text_accent
+                                    colors.text
                                 },
                             ))
                         }),
@@ -1616,7 +1617,7 @@ impl RootView {
                                 .id("unarchive")
                                 .flex_none()
                                 .cursor_pointer()
-                                .text_color(colors.text_accent)
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .on_click(cx.listener(|view, _, _, cx| view.unarchive(cx)))
                                 .child("เลิกทำ"),
                         ),
@@ -1720,7 +1721,7 @@ impl RootView {
                                         .rounded(px(4.))
                                         .cursor_pointer()
                                         .text_meta()
-                                        .text_color(colors.text_accent)
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
                                         .opacity(0.)
                                         .group_hover("archived-row", |b| b.opacity(1.))
                                         .hover(|b| b.bg(colors.element_selected))

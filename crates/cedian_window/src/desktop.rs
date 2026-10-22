@@ -72,10 +72,10 @@ impl Desktop {
         let content = serde_json::json!({
             "theme": {"mode": mode, "light": "cedian Light", "dark": "cedian Dark"},
             "ui_font_family": tokens::UI_FAMILY,
-            "ui_font_fallbacks": [tokens::THAI_SANS],
+            "ui_font_fallbacks": tokens::thai_sans(),
             "ui_font_size": self.ui_font_size,
             "buffer_font_family": tokens::CODE_FAMILY,
-            "buffer_font_fallbacks": [tokens::THAI_SANS],
+            "buffer_font_fallbacks": tokens::thai_sans(),
             "buffer_font_size": self.code_font_size,
         })
         .to_string();

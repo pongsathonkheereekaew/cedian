@@ -177,7 +177,7 @@ fn button(tool: Tool, on: bool, badge: Option<usize>, cx: &App) -> Stateful<Div>
                 .items_center()
                 .justify_center()
                 .rounded_full()
-                .bg(colors.text_accent)
+                .bg(colors.text)
                 .text_color(colors.background)
                 .text_size(px(10.))
                 .font_weight(gpui::FontWeight::SEMIBOLD)

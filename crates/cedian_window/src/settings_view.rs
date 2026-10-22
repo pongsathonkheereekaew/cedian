@@ -148,7 +148,7 @@ impl SettingsView {
                 div()
                     .w(px(44.))
                     .text_center()
-                    .font(tokens::code_font())
+                    .font(tokens::numeric_font())
                     .text_meta()
                     .child(format!("{size}")),
             )
@@ -163,13 +163,20 @@ impl SettingsView {
         let sound = self.choices("sound", desktop.sound, &Sound::ALL, cx);
         let ui_size = self.size_control("ui_font_size", desktop.ui_font_size, cx);
         let code_size = self.size_control("code_font_size", desktop.code_font_size, cx);
+        let thai = if cfg!(target_os = "macos") {
+            "ภาษาไทยใช้ฟอนต์ของระบบ".to_owned()
+        } else {
+            format!(
+                "กับ {} และ {} สำหรับภาษาไทย",
+                tokens::thai_sans().join(""),
+                tokens::thai_serif().join("")
+            )
+        };
         let fonts = format!(
-            "{} · {} · {}, กับ {} และ {} สำหรับภาษาไทย",
+            "{} · {} · {}, {thai}",
             tokens::UI_FAMILY,
             tokens::ANSWER_FAMILY,
             tokens::CODE_FAMILY,
-            tokens::THAI_SANS,
-            tokens::THAI_SERIF
         );
         div()
             .flex()
@@ -294,7 +301,6 @@ fn row(
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors().clone();
-        let success = cx.theme().status().success;
         let code = tokens::Tokens::of(cx).code;
         let mut nav = div()
             .w(px(180.))
@@ -347,9 +353,9 @@ impl Render for SettingsView {
                 .px_2()
                 .whitespace_nowrap()
                 .when(changed, |l| {
-                    l.bg(success.opacity(0.12))
+                    l.bg(colors.element_hover)
                         .border_l_2()
-                        .border_color(colors.text_accent)
+                        .border_color(colors.border_selected)
                 })
                 .child(line.to_owned())
         });

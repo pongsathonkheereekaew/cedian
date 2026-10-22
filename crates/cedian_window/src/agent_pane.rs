@@ -401,7 +401,7 @@ impl AgentPane {
         if let Some(context) = self.transcript.context() {
             chips = chips.child(
                 chip()
-                    .font(tokens::code_font())
+                    .font(tokens::numeric_font())
                     .child(format!("{} context", short_tokens(context))),
             );
         }

@@ -25,6 +25,28 @@ const OWN: &[(&str, &[u8])] = &[
         include_bytes!("../assets/fonts/inter/Inter-SemiBold.ttf"),
     ),
     (
+        "fonts/source-serif-4/SourceSerif4-Bold.ttf",
+        include_bytes!("../assets/fonts/source-serif-4/SourceSerif4-Bold.ttf"),
+    ),
+    (
+        "fonts/source-serif-4/SourceSerif4-Regular.ttf",
+        include_bytes!("../assets/fonts/source-serif-4/SourceSerif4-Regular.ttf"),
+    ),
+    (
+        "fonts/source-serif-4/SourceSerif4-SemiBold.ttf",
+        include_bytes!("../assets/fonts/source-serif-4/SourceSerif4-SemiBold.ttf"),
+    ),
+    (
+        "themes/cedian.json",
+        include_bytes!("../assets/themes/cedian.json"),
+    ),
+];
+
+/// The Thai faces, bundled only where the system has no fixed Thai face: macOS sets Thai in
+/// its own (Thonburi), as Claude does.
+#[cfg(not(target_os = "macos"))]
+const THAI: &[(&str, &[u8])] = &[
+    (
         "fonts/noto-sans-thai/NotoSansThai-Bold.ttf",
         include_bytes!("../assets/fonts/noto-sans-thai/NotoSansThai-Bold.ttf"),
     ),
@@ -52,29 +74,15 @@ const OWN: &[(&str, &[u8])] = &[
         "fonts/noto-serif-thai/NotoSerifThai-SemiBold.ttf",
         include_bytes!("../assets/fonts/noto-serif-thai/NotoSerifThai-SemiBold.ttf"),
     ),
-    (
-        "fonts/source-serif-4/SourceSerif4-Bold.ttf",
-        include_bytes!("../assets/fonts/source-serif-4/SourceSerif4-Bold.ttf"),
-    ),
-    (
-        "fonts/source-serif-4/SourceSerif4-Regular.ttf",
-        include_bytes!("../assets/fonts/source-serif-4/SourceSerif4-Regular.ttf"),
-    ),
-    (
-        "fonts/source-serif-4/SourceSerif4-SemiBold.ttf",
-        include_bytes!("../assets/fonts/source-serif-4/SourceSerif4-SemiBold.ttf"),
-    ),
-    (
-        "themes/cedian.json",
-        include_bytes!("../assets/themes/cedian.json"),
-    ),
 ];
+#[cfg(target_os = "macos")]
+const THAI: &[(&str, &[u8])] = &[];
 
 pub struct Assets;
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
-        match OWN.iter().find(|(own, _)| *own == path) {
+        match OWN.iter().chain(THAI).find(|(own, _)| *own == path) {
             Some((_, bytes)) => Ok(Some(Cow::Borrowed(bytes))),
             None => ::assets::Assets.load(path),
         }
@@ -83,6 +91,7 @@ impl AssetSource for Assets {
     fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
         let mut paths: Vec<SharedString> = OWN
             .iter()
+            .chain(THAI)
             .filter(|(own, _)| own.starts_with(path))
             .map(|(own, _)| SharedString::from(*own))
             .collect();
@@ -128,12 +137,19 @@ mod tests {
         let fonts = Assets.list("fonts/").expect("list");
         for face in [
             "fonts/inter/Inter-Regular.ttf",
-            "fonts/noto-sans-thai/NotoSansThai-Regular.ttf",
             "fonts/source-serif-4/SourceSerif4-Regular.ttf",
-            "fonts/noto-serif-thai/NotoSerifThai-Regular.ttf",
             "fonts/lilex/Lilex-Regular.ttf",
         ] {
             assert!(fonts.iter().any(|f| f == face), "{face} missing");
+        }
+        let thai = [
+            "fonts/noto-sans-thai/NotoSansThai-Regular.ttf",
+            "fonts/noto-serif-thai/NotoSerifThai-Regular.ttf",
+        ];
+        for face in thai {
+            // macOS sets Thai in the system's face, so its bundle has none.
+            let bundled = fonts.iter().any(|f| f == face);
+            assert_eq!(bundled, !cfg!(target_os = "macos"), "{face}");
         }
     }
 }
