@@ -1153,6 +1153,7 @@ dependencies = [
  "futures",
  "libc",
  "log",
+ "serde",
  "serde_json",
  "tempfile",
  "util",

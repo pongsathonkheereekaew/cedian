@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    os::unix::process::CommandExt as _,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
 };
@@ -67,7 +68,9 @@ impl Cedia {
             .args(["--output-format", "stream-json", "--cwd"])
             .arg(cwd)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            // Its own process group, so the run outlives a daemon that launchd restarts.
+            .process_group(0);
         if let Some(thread) = thread {
             command.args(["--thread", thread]);
         }
