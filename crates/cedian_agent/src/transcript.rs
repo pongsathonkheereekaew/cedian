@@ -1,0 +1,236 @@
+//! Folds cedia's stream-json lines, in order, into blocks. Works the same on a live run and
+//! on a recorded fixture.
+//!
+//! A run's stream also carries its sub-threads' events. They go to a transcript of their own,
+//! keyed by thread id, so the parent shows only the spawn call and its report.
+
+use std::collections::{BTreeMap, HashMap};
+
+use cedian_protocol::{AssistantBlock, EventId, Line, SessionEvent, StreamEvent};
+
+use crate::block::{Block, Permission, ToolCall, ToolState};
+
+#[derive(Debug, Default)]
+pub struct Transcript {
+    blocks: Vec<Block>,
+    /// Where the in-flight turn's streamed blocks begin; the assistant event replaces them.
+    streaming_from: Option<usize>,
+    /// The provider's content index to the streamed block it fills.
+    streamed: HashMap<u64, usize>,
+    /// This transcript's thread, from its first session event.
+    thread: Option<String>,
+    subthreads: BTreeMap<String, Transcript>,
+    /// Events of a sub-thread's sessions, to the sub-thread they belong to.
+    routed: HashMap<EventId, String>,
+    /// The sub-thread whose request is streaming now, if it is not this thread's.
+    streaming_for: Option<String>,
+    /// The first block changed since the last `take_changed_from`.
+    changed_from: Option<usize>,
+}
+
+impl Transcript {
+    pub fn blocks(&self) -> &[Block] {
+        &self.blocks
+    }
+
+    /// The first block that changed since the last call, so a view re-lays out from there.
+    pub fn take_changed_from(&mut self) -> Option<usize> {
+        self.changed_from.take()
+    }
+
+    fn changed(&mut self, index: usize) {
+        self.changed_from = Some(self.changed_from.map_or(index, |from| from.min(index)));
+    }
+
+    fn push(&mut self, block: Block) {
+        self.changed(self.blocks.len());
+        self.blocks.push(block);
+    }
+
+    /// Sub-threads started from this one, by thread id.
+    pub fn subthreads(&self) -> &BTreeMap<String, Transcript> {
+        &self.subthreads
+    }
+
+    pub fn apply(&mut self, line: &Line) {
+        match line {
+            Line::Stream(event) => match &self.streaming_for {
+                Some(thread) => {
+                    let thread = thread.clone();
+                    self.subthread(thread).apply_stream(event);
+                }
+                None => self.apply_stream(event),
+            },
+            Line::Event(event) => match self.route(event) {
+                Some(thread) => self.subthread(thread).apply(line),
+                None => {
+                    if matches!(event, SessionEvent::Request { .. }) {
+                        self.streaming_for = None;
+                    }
+                    self.apply_event(event);
+                }
+            },
+            Line::Result(result) => self.push(Block::Result {
+                subtype: result.subtype,
+                text: result.result.clone(),
+                cost_usd: result.cost_usd,
+                turns: result.num_turns as u32,
+                evidence: result.evidence.clone(),
+            }),
+        }
+    }
+
+    /// The sub-thread an event belongs to, or `None` when it is this thread's.
+    fn route(&mut self, event: &SessionEvent) -> Option<String> {
+        let thread = match event {
+            SessionEvent::Session {
+                thread: Some(thread),
+                ..
+            } if self.thread.as_ref().is_some_and(|own| own != thread) => thread.clone(),
+            SessionEvent::Session { thread, .. } => {
+                if self.thread.is_none() {
+                    self.thread = thread.clone();
+                }
+                return None;
+            }
+            _ => self.routed.get(event.parent_id()?)?.clone(),
+        };
+        self.routed.insert(event.id().clone(), thread.clone());
+        if matches!(event, SessionEvent::Request { .. }) {
+            self.streaming_for = Some(thread.clone());
+        }
+        Some(thread)
+    }
+
+    fn subthread(&mut self, thread: String) -> &mut Transcript {
+        self.subthreads.entry(thread).or_default()
+    }
+
+    fn apply_stream(&mut self, event: &StreamEvent) {
+        match event {
+            StreamEvent::Start => {
+                self.streaming_from = Some(self.blocks.len());
+                self.streamed.clear();
+            }
+            StreamEvent::TextStart { index } => self.open_streamed(*index, |text| Block::Text {
+                text,
+                streaming: true,
+            }),
+            StreamEvent::ThinkingStart { index } => {
+                self.open_streamed(*index, |text| Block::Thinking {
+                    text,
+                    streaming: true,
+                })
+            }
+            StreamEvent::TextDelta { index, delta }
+            | StreamEvent::ThinkingDelta { index, delta } => {
+                let position = self.streamed.get(&(*index as u64)).copied();
+                if let Some(position) = position
+                    && let Some(Block::Text { text, .. } | Block::Thinking { text, .. }) =
+                        self.blocks.get_mut(position)
+                {
+                    text.push_str(delta);
+                    self.changed(position);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn open_streamed(&mut self, index: f64, block: impl FnOnce(String) -> Block) {
+        self.streamed.insert(index as u64, self.blocks.len());
+        self.push(block(String::new()));
+    }
+
+    fn apply_event(&mut self, event: &SessionEvent) {
+        match event {
+            SessionEvent::Session { model, role, .. } => self.push(Block::Session {
+                model: model.clone(),
+                role: role.clone(),
+            }),
+            SessionEvent::User { text, .. } => self.push(Block::User { text: text.clone() }),
+            SessionEvent::Assistant { blocks, .. } => {
+                if let Some(start) = self.streaming_from.take() {
+                    self.blocks.truncate(start);
+                    self.changed(start);
+                }
+                self.streamed.clear();
+                for block in blocks.iter().filter_map(final_block) {
+                    self.push(block);
+                }
+            }
+            SessionEvent::Permission {
+                call_id,
+                decision,
+                rule,
+                reason,
+                ..
+            } => {
+                if let Some(call) = self.tool_mut(call_id) {
+                    call.permission = Some(Permission {
+                        allowed: matches!(decision, cedian_protocol::SessionEventDecision::Allow),
+                        rule: rule.clone(),
+                        reason: reason.clone(),
+                    });
+                }
+            }
+            SessionEvent::ToolIntent { call_id, .. } => {
+                if let Some(call) = self.tool_mut(call_id) {
+                    call.state = ToolState::Running;
+                }
+            }
+            SessionEvent::ToolResult {
+                call_id,
+                status,
+                output,
+                ..
+            } => {
+                if let Some(call) = self.tool_mut(call_id) {
+                    call.state = ToolState::Done(*status);
+                    call.output = Some(output.text.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn tool_mut(&mut self, call_id: &str) -> Option<&mut ToolCall> {
+        let index = self
+            .blocks
+            .iter()
+            .rposition(|block| matches!(block, Block::Tool(call) if call.call_id == call_id))?;
+        self.changed(index);
+        match self.blocks.get_mut(index) {
+            Some(Block::Tool(call)) => Some(call),
+            _ => None,
+        }
+    }
+}
+
+fn final_block(block: &AssistantBlock) -> Option<Block> {
+    match block {
+        AssistantBlock::Text { text, .. } if !text.is_empty() => Some(Block::Text {
+            text: text.clone(),
+            streaming: false,
+        }),
+        AssistantBlock::Thinking { text, .. } if !text.is_empty() => Some(Block::Thinking {
+            text: text.clone(),
+            streaming: false,
+        }),
+        AssistantBlock::ToolUse {
+            call_id,
+            id,
+            name,
+            input,
+            ..
+        } => Some(Block::Tool(ToolCall {
+            call_id: call_id.clone().unwrap_or_else(|| id.clone()),
+            name: name.clone(),
+            input: input.0.clone(),
+            permission: None,
+            state: ToolState::Requested,
+            output: None,
+        })),
+        _ => None,
+    }
+}

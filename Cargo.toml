@@ -1,0 +1,56 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+
+# Zed v1.25.2. Bump all of these together, and copy Zed's [patch] section at the same rev.
+[workspace.dependencies]
+anyhow = "1"
+assets = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
+collections = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
+editor = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38", features = ["font-kit", "wayland", "x11"] }
+log = "0.4"
+release_channel = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+settings = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
+task = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
+terminal = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
+theme = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
+theme_settings = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
+util = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38", features = ["debug-embed"] }
+
+# Copied from Zed's Cargo.toml at the rev above; Zed's crates do not build without it.
+[patch.crates-io]
+cpal = { git = "https://github.com/RustAudio/cpal", rev = "e1612d5d98152f8dc2a62e1b51ef7cbf4f7f26b7" }
+# Unify `tree_sitter_language::LanguageFn` between crates.io grammar crates and
+# the git tree-sitter above; two instances of the crate would make grammar
+# constants type-incompatible with `tree_sitter::Language`.
+tree-sitter-language = { git = "https://github.com/tree-sitter/tree-sitter", rev = "43623ec9bf0eaaf7113285c46e8a09018f181b18" }
+async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
+async-task = { git = "https://github.com/zed-industries/async-task.git", rev = "015845a19fc31752c02367567d3b8900a406f9da" }
+windows-capture = { git = "https://github.com/zed-industries/windows-capture.git", rev = "f0d6c1b6691db75461b732f6d5ff56eed002eeb9" }
+calloop = { git = "https://github.com/zed-industries/calloop", rev = "3759371fee14c40066d64777e2a36b6ffcc22590" }
+livekit = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "0a1c519cfce9b365229026b55de9b9dbdb6fed3c" }
+libwebrtc = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "0a1c519cfce9b365229026b55de9b9dbdb6fed3c" }
+notify = { git = "https://github.com/zed-industries/notify", rev = "d842f16b2716bd60f09caf3ae3a894237ab38f54" }
+notify-types = { git = "https://github.com/zed-industries/notify", rev = "d842f16b2716bd60f09caf3ae3a894237ab38f54" }
+webrtc-sys = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "0a1c519cfce9b365229026b55de9b9dbdb6fed3c" }
+# Avoid panicking when a failed EGL call reports EGL_SUCCESS.
+# https://github.com/timothee-haudebourg/khronos-egl/pull/37
+khronos-egl = { git = "https://github.com/zed-industries/khronos-egl", rev = "42214b36347b108fd9630ca6254b96dde59e04fe" }
+
+[profile.dev]
+debug = "line-tables-only"
+incremental = true
+codegen-units = 16
+
+[profile.dev.build-override]
+codegen-units = 16

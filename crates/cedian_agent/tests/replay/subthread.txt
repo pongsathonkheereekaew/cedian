@@ -1,0 +1,18 @@
+session code on faux/scripted
+user: make f.txt say good
+tool spawn [s1] allowed by mode:workspace: completed: <subthread thread="t-60bab592" kind="work" model="faux/scripted" ended="success" cost="$0.0008">
+tool bash [c3] allowed by effect:read: completed: (no output)
+text: done, checked
+result success after 6 turns, verified: done, checked
+subthread t-60bab592:
+  session code on faux/scripted
+  user: You are a sub-thread of thread t-daa41c7c: another session handed you this task and will see only your final message. Do this task and nothing else.
+
+  <task>
+  Write good to f.txt, then run grep -q good f.txt.
+  </task>
+
+  End with the report it asked for: findings or changes with paths and line numbers, how you confirmed them, and anything left undone. Keep it short; leave out the steps you took to get there.
+  tool bash [c1] allowed by mode:workspace: completed: (no output)
+  tool bash [c2] allowed by effect:read: completed: (no output)
+  text: Wrote good to f.txt; grep -q good f.txt passes.

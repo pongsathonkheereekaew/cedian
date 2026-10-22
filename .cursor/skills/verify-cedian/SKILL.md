@@ -9,7 +9,7 @@ description: >
 
 # Verify cedian
 
-cedian is the native macOS desktop for cedia. The window is a viewer. The daemon owns the threads and spawns one cedia process per thread. The design source is `docs/ARCHITECTURE.md`. The README status is planning, and this checkout has no `Cargo.toml` and no `cedian` binary.
+cedian is the native macOS desktop for cedia. The window is a viewer. The daemon owns the threads and runs one cedia process per prompt. The design source is `docs/ARCHITECTURE.md`. The README status is phase A: the workspace builds a `cedian` binary whose agent pane replays recorded cedia runs (`--replay`), with no daemon yet.
 
 You drive the scripts in this skill. You do not start a binary that would write `~/.cedia`. That directory is the owner's settings and cedia's thread files. This skill never creates it, never reads `settings.json`, and never points a data directory at it.
 
@@ -27,7 +27,7 @@ bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh launch
 
 The script deletes `CEDIAN_DATA_DIR` (default `/tmp/verify-cedian/data`), creates it empty, and prints `key=value` lines. It does this from an empty directory on purpose. Override the directory with `CEDIAN_DATA_DIR` when a second run is already using the default.
 
-Ready means stdout contains `ready=yes` and the exit code is `0`. A shell prompt is not ready. Today the script prints `ready=no` and exits `1`, because `Cargo.toml` is missing and `cedian` is not on `PATH`.
+Ready means stdout contains `ready=yes` and the exit code is `0`. A shell prompt is not ready. Today the script prints `ready=no` and exits `1`: the spike binary has no daemon and no data-dir flag yet.
 
 The script starts no process. `pid_file=none` is the teardown handle. Run the cleanup command below when you are finished, including after a failed launch.
 

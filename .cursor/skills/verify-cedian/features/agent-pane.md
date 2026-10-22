@@ -5,12 +5,12 @@ The agent pane is the thread. You read your prompt, the agent's blocks, and the 
 ## Sub-features
 
 - `agent-open` opens one thread as a pane of blocks.
-- `agent-state` shows idle, working, waiting, done, or failed on the tab.
+- `agent-state` shows idle, working, done, failed, or stopped on the tab.
 - `agent-reopen` shows the same thread after the window quits and comes back.
 
 ## How to get to it (user POV)
 
-- Launch cedian. A headed start with no daemon running starts the daemon in-process.
+- Launch cedian. A headed start with no daemon running starts the daemon as its own process.
 - Open a thread. The pane shows the thread's blocks.
 - Quit the window and open cedian again. The same thread is still there.
 

@@ -1,0 +1,7 @@
+session code on faux/scripted
+user: make f.txt say good
+tool write [w1] allowed by mode:workspace: completed: created f.txt (1 lines)
+tool edit [e1] allowed by mode:workspace: completed: edited f.txt
+tool bash [c1] allowed by effect:read: completed: (no output)
+text: f.txt now says good, and grep -q good f.txt passes.
+result success after 4 turns, verified: f.txt now says good, and grep -q good f.txt passes.
