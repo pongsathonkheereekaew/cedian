@@ -14,11 +14,14 @@ mod root_view;
 mod settings_view;
 mod settings_window;
 mod shell_pane;
-mod spike_view;
+mod status_bar;
 mod tab_strip;
+mod thread_details;
 mod thread_list;
 mod tokens;
 mod tool_card;
+mod tool_rail;
+mod toolbar;
 mod view_mode;
 
 use std::path::PathBuf;
@@ -99,6 +102,14 @@ fn mode() -> anyhow::Result<Mode> {
 const STOP_KEY: &str = "cmd-.";
 #[cfg(not(target_os = "macos"))]
 const STOP_KEY: &str = "ctrl-.";
+#[cfg(target_os = "macos")]
+const OMNIBOX_KEY: &str = "cmd-k";
+#[cfg(not(target_os = "macos"))]
+const OMNIBOX_KEY: &str = "ctrl-k";
+#[cfg(target_os = "macos")]
+const TOOL_KEY: &str = "cmd-alt";
+#[cfg(not(target_os = "macos"))]
+const TOOL_KEY: &str = "ctrl-alt";
 
 fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     crate::assets::Assets
@@ -128,6 +139,21 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         // the key to code actions.
         KeyBinding::new(STOP_KEY, agent_pane::StopRun, None),
         KeyBinding::new(STOP_KEY, agent_pane::StopRun, Some("Composer > Editor")),
+        KeyBinding::new(OMNIBOX_KEY, toolbar::FocusOmnibox, None),
+        KeyBinding::new(
+            OMNIBOX_KEY,
+            toolbar::FocusOmnibox,
+            Some("Composer > Editor"),
+        ),
+        KeyBinding::new("up", toolbar::SelectPrevious, Some("Omnibox > Editor")),
+        KeyBinding::new("down", toolbar::SelectNext, Some("Omnibox > Editor")),
+        KeyBinding::new("enter", toolbar::Confirm, Some("Omnibox > Editor")),
+        KeyBinding::new("escape", toolbar::Dismiss, Some("Omnibox > Editor")),
+        KeyBinding::new(&format!("{TOOL_KEY}-1"), tool_rail::ToggleEditor, None),
+        KeyBinding::new(&format!("{TOOL_KEY}-2"), tool_rail::ToggleTerminal, None),
+        KeyBinding::new(&format!("{TOOL_KEY}-3"), tool_rail::ToggleReview, None),
+        KeyBinding::new(&format!("{TOOL_KEY}-4"), tool_rail::ToggleDetails, None),
+        KeyBinding::new(&format!("{TOOL_KEY}-0"), tool_rail::HideTools, None),
     ]);
     // Zed's keymap binds cmd-q (ctrl-q on Linux) to zed::Quit; the app menu gives macOS its
     // Quit item. Quitting the window never stops a thread: the daemon runs on.

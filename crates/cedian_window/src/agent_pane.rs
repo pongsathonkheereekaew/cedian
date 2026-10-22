@@ -81,6 +81,10 @@ impl AgentPane {
     }
 
     /// The latest receipt's checks, split by whether they ran after `path` was last edited.
+    pub fn transcript(&self) -> &Transcript {
+        &self.transcript
+    }
+
     pub fn file_checks(&self, path: &str) -> cedian_agent::FileChecks {
         self.transcript.file_checks(path)
     }
@@ -528,7 +532,7 @@ const STOP_KEY: &str = "⌘.";
 const STOP_KEY: &str = "Ctrl+.";
 
 /// The branch of a worktree the daemon made: `.cedian/worktrees/<name>` is on `cedian/<name>`.
-fn branch_of(cwd: &Path) -> Option<String> {
+pub(crate) fn branch_of(cwd: &Path) -> Option<String> {
     let name = cwd.file_name()?.to_str()?;
     let parent = cwd.parent()?;
     (parent.file_name()? == "worktrees" && parent.parent()?.file_name()? == ".cedian")

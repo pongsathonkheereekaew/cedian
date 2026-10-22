@@ -1,18 +1,31 @@
 //! The window's layout, kept in the `layout` key of `desktop` so a window opened after quit
-//! looks the way the last one did: its bounds, the right column's tab, and the thread each
-//! project had open.
+//! looks the way the last one did: its bounds, the open tools, and the thread each project had
+//! open.
 
 use std::collections::BTreeMap;
 
 use gpui::{App, Bounds, Pixels, WindowBounds, point, px, size};
 use serde_json::{Value, json};
 
-#[derive(Clone, Debug, Default, PartialEq)]
+use crate::tool_rail::Tool;
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Layout {
     pub bounds: Option<WindowBounds>,
-    pub showing_review: bool,
+    /// The tools open in the panel, in rail order.
+    pub tools: Vec<Tool>,
     /// The open thread by project directory.
     pub open: BTreeMap<String, String>,
+}
+
+impl Default for Layout {
+    fn default() -> Self {
+        Self {
+            bounds: None,
+            tools: vec![Tool::Editor, Tool::Terminal],
+            open: BTreeMap::new(),
+        }
+    }
 }
 
 impl Layout {
@@ -46,16 +59,32 @@ impl Layout {
                     .collect()
             })
             .unwrap_or_default();
+        let tools = match layout.get("tools").and_then(Value::as_array) {
+            Some(tools) => {
+                let mut tools: Vec<Tool> = tools
+                    .iter()
+                    .filter_map(|t| Tool::from_key(t.as_str()?))
+                    .collect();
+                tools.sort();
+                tools.dedup();
+                tools
+            }
+            // Before the rail, the right column had two tabs.
+            None => match layout.get("right").and_then(Value::as_str) {
+                Some("review") => vec![Tool::Review],
+                _ => Self::default().tools,
+            },
+        };
         Self {
             bounds,
-            showing_review: layout.get("right").and_then(Value::as_str) == Some("review"),
+            tools,
             open,
         }
     }
 
     pub fn to_value(&self) -> Value {
         let mut layout = json!({
-            "right": if self.showing_review { "review" } else { "tools" },
+            "tools": self.tools.iter().map(|t| t.key()).collect::<Vec<_>>(),
             "open": self.open,
         });
         if let Some(bounds) = self.bounds {
@@ -97,11 +126,13 @@ mod tests {
                 point(px(10.), px(20.)),
                 size(px(1200.), px(700.)),
             ))),
-            showing_review: true,
+            tools: vec![Tool::Review, Tool::Details],
             open: BTreeMap::from([("/repo".to_owned(), "t-1".to_owned())]),
         };
         let desktop = json!({ "layout": layout.to_value() });
         assert_eq!(Layout::from_desktop(&desktop), layout);
         assert_eq!(Layout::from_desktop(&json!({})), Layout::default());
+        let old = json!({ "layout": { "right": "review" } });
+        assert_eq!(Layout::from_desktop(&old).tools, [Tool::Review]);
     }
 }
