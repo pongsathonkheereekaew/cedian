@@ -1,9 +1,11 @@
 mod agent_pane;
 mod composer;
 mod daemon_client;
+mod desktop;
 mod replay;
 mod review_pane;
 mod root_view;
+mod settings_view;
 mod shell_pane;
 mod spike_view;
 
@@ -83,7 +85,9 @@ fn mode() -> anyhow::Result<Mode> {
 fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     assets::Assets.load_fonts(cx).context("loading fonts")?;
     settings::init(cx);
-    theme_settings::init(theme::LoadThemes::JustBase, cx);
+    // The bundled themes include One Light and One Dark, which the `desktop` theme setting picks
+    // between until cedian's own themes land.
+    theme_settings::init(theme::LoadThemes::All(Box::new(assets::Assets)), cx);
     release_channel::init(semver::Version::new(0, 1, 0), cx);
     editor::init(cx);
     let bindings = KeymapFile::load_asset_allow_partial_failure(settings::DEFAULT_KEYMAP_PATH, cx)

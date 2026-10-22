@@ -46,6 +46,13 @@ pub enum Request {
         hunk: String,
         decision: Decision,
     },
+    /// The `desktop` key of cedia's settings file, answered with `Notice::Settings`.
+    Settings,
+    /// Sets one key of `desktop`; `null` removes it. Every window gets `Notice::Settings`.
+    SetDesktop {
+        key: String,
+        value: serde_json::Value,
+    },
 }
 
 /// What the person decided about a hunk.
@@ -102,6 +109,10 @@ pub enum Notice {
     Review {
         thread: String,
         review: Review,
+    },
+    Settings {
+        path: PathBuf,
+        desktop: serde_json::Value,
     },
     Error {
         message: String,

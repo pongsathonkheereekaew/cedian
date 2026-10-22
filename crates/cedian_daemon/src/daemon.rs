@@ -16,6 +16,7 @@ use cedian_wire::{Notice, Request, Status, ThreadInfo};
 
 use crate::{
     Cedia,
+    desktop_settings::{read_desktop, set_desktop_key, settings_path},
     follow::{Offsets, follow},
     keep_awake::KeepAwake,
     ledger::{Ledger, RunRecord, still_running},
@@ -356,6 +357,8 @@ impl Daemon {
                 Self::message(shared, client, &cwd, &thread, &text)
             }
             Request::Stop { thread } => lock(shared).stop(client, &thread),
+            Request::Settings => lock(shared).settings(client),
+            Request::SetDesktop { key, value } => lock(shared).set_desktop(client, &key, value),
             Request::Review { cwd, thread } => {
                 lock(shared).review(client, &cwd, &thread, None);
             }
@@ -370,6 +373,31 @@ impl Daemon {
                     Self::message(shared, client, &work_tree, &thread, &text);
                 }
             }
+        }
+    }
+
+    fn settings(&mut self, client: ClientId) {
+        let path = settings_path(&self.home);
+        match read_desktop(&path) {
+            Ok(desktop) => self.send(client, Notice::Settings { path, desktop }),
+            Err(error) => self.error(client, format!("{error:#}")),
+        }
+    }
+
+    fn set_desktop(&mut self, client: ClientId, key: &str, value: serde_json::Value) {
+        let path = settings_path(&self.home);
+        match set_desktop_key(&path, key, value) {
+            Ok(desktop) => {
+                let clients: Vec<ClientId> = self.clients.keys().copied().collect();
+                for id in clients {
+                    let notice = Notice::Settings {
+                        path: path.clone(),
+                        desktop: desktop.clone(),
+                    };
+                    self.send(id, notice);
+                }
+            }
+            Err(error) => self.error(client, format!("{error:#}")),
         }
     }
 
