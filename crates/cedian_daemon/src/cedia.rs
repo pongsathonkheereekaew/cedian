@@ -67,6 +67,7 @@ impl Cedia {
         cwd: &Path,
         text: &str,
         thread: Option<&str>,
+        profile: Option<&str>,
         ask: bool,
         todo: bool,
     ) -> anyhow::Result<Child> {
@@ -81,6 +82,9 @@ impl Cedia {
             .process_group(0);
         if let Some(thread) = thread {
             command.args(["--thread", thread]);
+        }
+        if let Some(profile) = profile {
+            command.args(["--profile", profile]);
         }
         if ask {
             command.args(["--ask", "on"]);

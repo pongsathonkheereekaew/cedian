@@ -145,6 +145,7 @@ fn a_prompt_runs_and_a_second_window_rebuilds_it() {
         text: "make f.txt say good".into(),
         thread: None,
         worktree: false,
+        profile: None,
     });
     let (lines, seen) = window.until(status_is(Status::Done));
     assert!(
@@ -186,6 +187,7 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         text: "make f.txt say good".into(),
         thread: None,
         worktree: false,
+        profile: None,
     });
     window.until(|n| matches!(n, Notice::Line { .. }));
 
@@ -195,6 +197,7 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         text: "also say why".into(),
         thread: Some("t-00000001".into()),
         worktree: false,
+        profile: None,
     });
     window.ask(Request::Stop {
         thread: "t-00000001".into(),
@@ -216,6 +219,7 @@ fn a_rating_reaches_the_thread_and_the_list() {
         text: "make f.txt say good".into(),
         thread: None,
         worktree: false,
+        profile: None,
     });
     window.until(status_is(Status::Done));
     window.ask(Request::Rate {
@@ -244,6 +248,7 @@ fn a_queued_message_can_be_taken_back() {
         text: "make f.txt say good".into(),
         thread: None,
         worktree: false,
+        profile: None,
     });
     window.until(|n| matches!(n, Notice::Line { .. }));
     window.ask(Request::Send {
@@ -446,6 +451,7 @@ fn a_new_thread_can_run_in_its_own_worktree() {
         text: "Make f.txt say good".into(),
         thread: None,
         worktree: true,
+        profile: None,
     });
     let (_, seen) = window.until(status_is(Status::Done));
     assert!(
@@ -504,6 +510,7 @@ fn rejecting_a_hunk_puts_the_file_back_and_tells_the_thread() {
         text: "make f.txt say good".into(),
         thread: None,
         worktree: false,
+        profile: None,
     });
     let (_, seen) = window.until(status_is(Status::Done));
     let thread = seen
@@ -631,6 +638,7 @@ fn a_verified_thread_with_nothing_to_review_archives_itself() {
         text: "publish it".into(),
         thread: None,
         worktree: false,
+        profile: None,
     });
     window.until(|n| {
         matches!(n, Notice::Threads { threads, .. }
@@ -651,6 +659,7 @@ fn an_unverified_thread_stays() {
         text: "publish it".into(),
         thread: None,
         worktree: false,
+        profile: None,
     });
     window.until(status_is(Status::Done));
     // A list after the run ended, which an archive would have come before.

@@ -403,13 +403,22 @@ impl Daemon {
                 text,
                 thread,
                 worktree,
+                profile,
             } => {
                 let running = thread.as_deref().is_some_and(|t| lock(shared).running(t));
                 match thread {
                     // A run is already working on it: the text joins at its next turn.
                     Some(thread) if running => Self::message(shared, client, &cwd, &thread, &text),
                     None if worktree => Self::prompt_in_worktree(shared, client, cwd, &text),
-                    thread => Self::prompt(shared, Some(client), cwd.clone(), cwd, &text, thread),
+                    thread => Self::prompt(
+                        shared,
+                        Some(client),
+                        cwd.clone(),
+                        cwd,
+                        &text,
+                        thread,
+                        profile.as_deref(),
+                    ),
                 }
             }
             Request::Send { cwd, thread, text } => {
@@ -712,7 +721,7 @@ impl Daemon {
             match crate::worktree::create(&cwd, &task) {
                 Ok((dir, branch)) => {
                     log::info!("worktree {} on {branch}", dir.display());
-                    Self::prompt(shared, None, cwd, dir, &task, Some(thread));
+                    Self::prompt(shared, None, cwd, dir, &task, Some(thread), None);
                 }
                 Err(error) => log::warn!("starting {thread}: {error:#}"),
             }
@@ -737,7 +746,7 @@ impl Daemon {
                         step: format!("starting on {branch}"),
                     },
                 );
-                Self::prompt(shared, Some(client), asked_in, dir, text, None);
+                Self::prompt(shared, Some(client), asked_in, dir, text, None, None);
             }
             Err(error) => lock(shared).error(client, format!("{error:#}")),
         }
@@ -752,6 +761,7 @@ impl Daemon {
         cwd: PathBuf,
         text: &str,
         thread: Option<String>,
+        profile: Option<&str>,
     ) {
         let mut daemon = lock(shared);
         let slug = project_key(&cwd);
@@ -778,7 +788,7 @@ impl Daemon {
         );
         let child = match daemon
             .cedia
-            .prompt(&cwd, text, thread.as_deref(), ask, todo)
+            .prompt(&cwd, text, thread.as_deref(), profile, ask, todo)
         {
             Ok(child) => child,
             Err(error) => return daemon.error_to(client, format!("{error:#}")),
