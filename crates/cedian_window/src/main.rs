@@ -5,6 +5,7 @@ mod daemon_client;
 mod density;
 mod desktop;
 mod dock;
+mod file_tree;
 mod layout;
 mod line_breaks;
 mod open_in;
@@ -183,7 +184,8 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         KeyBinding::new(&format!("{TOOL_KEY}-1"), tool_rail::ToggleEditor, None),
         KeyBinding::new(&format!("{TOOL_KEY}-2"), tool_rail::ToggleTerminal, None),
         KeyBinding::new(&format!("{TOOL_KEY}-3"), tool_rail::ToggleReview, None),
-        KeyBinding::new(&format!("{TOOL_KEY}-4"), tool_rail::ToggleDetails, None),
+        KeyBinding::new(&format!("{TOOL_KEY}-4"), tool_rail::ToggleFiles, None),
+        KeyBinding::new(&format!("{TOOL_KEY}-5"), tool_rail::ToggleDetails, None),
         KeyBinding::new(&format!("{TOOL_KEY}-0"), tool_rail::HideTools, None),
     ]);
     // Bound in the composer too, where Zed's keymap would otherwise take some of these keys.

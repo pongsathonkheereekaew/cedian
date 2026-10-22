@@ -1,6 +1,6 @@
 //! The tool panel's rail (Interface, Layout: tool panel and rail): one button per tool down the
 //! right edge, 48 px wide. A click toggles a tool; the open ones stack in the panel in rail
-//! order. `⌘⌥1`–`⌘⌥4` toggle them and `⌘⌥0` closes them all.
+//! order. `⌘⌥1`–`⌘⌥5` toggle them and `⌘⌥0` closes them all.
 
 use gpui::{
     App, ClickEvent, Context, Div, InteractiveElement as _, IntoElement, ParentElement as _,
@@ -18,6 +18,7 @@ actions!(
         ToggleEditor,
         ToggleTerminal,
         ToggleReview,
+        ToggleFiles,
         ToggleDetails,
         HideTools
     ]
@@ -31,13 +32,21 @@ pub enum Tool {
     Editor,
     Terminal,
     Review,
+    /// The open thread's directory as a tree.
+    Files,
     /// Thread details: where it runs, its sessions, cost and context.
     Details,
 }
 
 impl Tool {
     /// Rail order, which is also the order open tools stack in.
-    pub const ALL: [Tool; 4] = [Tool::Editor, Tool::Terminal, Tool::Review, Tool::Details];
+    pub const ALL: [Tool; 5] = [
+        Tool::Editor,
+        Tool::Terminal,
+        Tool::Review,
+        Tool::Files,
+        Tool::Details,
+    ];
 
     /// The name in `desktop.layout.tools`.
     pub fn key(self) -> &'static str {
@@ -45,6 +54,7 @@ impl Tool {
             Tool::Editor => "editor",
             Tool::Terminal => "terminal",
             Tool::Review => "review",
+            Tool::Files => "files",
             Tool::Details => "details",
         }
     }
@@ -58,6 +68,7 @@ impl Tool {
             Tool::Editor => "Editor",
             Tool::Terminal => "Terminal",
             Tool::Review => "Review",
+            Tool::Files => "Files",
             Tool::Details => "รายละเอียด thread",
         }
     }
@@ -67,6 +78,7 @@ impl Tool {
             Tool::Editor => "icons/file_code.svg",
             Tool::Terminal => "icons/terminal.svg",
             Tool::Review => "icons/file_diff.svg",
+            Tool::Files => "icons/file_tree.svg",
             Tool::Details => "icons/info.svg",
         }
     }

@@ -26,6 +26,7 @@ use crate::{
     daemon_client::DaemonClient,
     desktop::Desktop,
     dock,
+    file_tree::{FileTree, FileTreeEvent},
     layout::Layout,
     line_breaks,
     project::{self, Project},
@@ -34,12 +35,14 @@ use crate::{
     settings_window::SettingsWindow,
     shell_pane::{AttachSelection, ShellEvent, ShellPane},
     status_bar::{self, StatusLine},
-    tab_strip::{self, ActivateTab, CloseTab, NewTab, NextTab, PreviousTab, ProjectTab, TabClick},
+    tab_strip::{
+        self, ActivateTab, CloseTab, NewTab, NextTab, PreviousTab, ProjectTab, TabClick, TabDrag,
+    },
     thread_details::{self, Details},
     thread_list::{self, Group},
     tool_rail::{
-        self, DividerDrag, HideTools, ToggleDetails, ToggleEditor, ToggleReview, ToggleTerminal,
-        Tool,
+        self, DividerDrag, HideTools, ToggleDetails, ToggleEditor, ToggleFiles, ToggleReview,
+        ToggleTerminal, Tool,
     },
     toolbar::{FocusOmnibox, Found, Toolbar, ToolbarEvent},
     view_mode::ViewMode,
@@ -50,6 +53,8 @@ gpui::actions!(sidebar, [ToggleSidebar]);
 /// The sidebar's width, open and folded to its rail of dots.
 const SIDEBAR_WIDTH: f32 = 264.;
 const SIDEBAR_FOLDED: f32 = 56.;
+/// Files larger than this are named in the Editor, not shown.
+const MAX_SHOWN: usize = 2 * 1024 * 1024;
 
 enum Connection {
     /// Playing a recorded run; there is no daemon.
@@ -73,6 +78,9 @@ pub struct RootView {
     agent: Entity<AgentPane>,
     composer: Entity<Composer>,
     editor: Entity<Editor>,
+    /// The file the Editor shows, read only, when Files opened one.
+    editor_file: Option<PathBuf>,
+    files: Entity<FileTree>,
     toolbar: Entity<Toolbar>,
     review: Entity<ReviewPane>,
     /// The tools open in the panel, in rail order.
@@ -240,6 +248,11 @@ impl RootView {
             AgentEvent::Review => view.show_review(true, cx),
         })
         .detach();
+        let files = cx.new(|_| FileTree::default());
+        cx.subscribe_in(&files, window, |view, _, event, window, cx| match event {
+            FileTreeEvent::Open(path) => view.show_file(path.clone(), window, cx),
+        })
+        .detach();
         let settings = cx.new(|_| SettingsView::default());
         cx.subscribe(&settings, |view, _, event, _| match event {
             SettingsEvent::Set { key, value } => view.request(Request::SetDesktop {
@@ -282,6 +295,8 @@ impl RootView {
             agent,
             composer,
             editor,
+            editor_file: None,
+            files,
             toolbar,
             review,
             tools: Layout::default().tools,
@@ -431,6 +446,10 @@ impl RootView {
                 if self.project().current.as_ref() == Some(&thread) {
                     self.retitle(cx);
                     self.refresh_review();
+                    // A run that ended may have added or removed files.
+                    if status != Status::Working {
+                        self.files.update(cx, |files, cx| files.refresh(cx));
+                    }
                 }
             }
             Notice::Review { thread, review }
@@ -495,6 +514,8 @@ impl RootView {
             .collect();
         let dir = project.shell_dir();
         let name = project.name();
+        self.files
+            .update(cx, |files, cx| files.set_root(dir.clone(), cx));
         let header = Header {
             title: title.into(),
             status: project.status,
@@ -653,6 +674,18 @@ impl RootView {
         }
     }
 
+    /// A tab dragged from `from` and dropped on the tab at `to`.
+    fn move_tab(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
+        if from == to || from >= self.projects.len() || to >= self.projects.len() {
+            return;
+        }
+        tab_strip::moved(&mut self.projects, from, to);
+        self.active = tab_strip::follow(self.active, from, to);
+        self.remember_tabs();
+        self.save_layout(cx);
+        cx.notify();
+    }
+
     /// Puts the tabs in the layout the next window opens with.
     fn remember_tabs(&mut self) {
         self.layout.projects = self
@@ -761,6 +794,36 @@ impl RootView {
             self.composer
                 .update(cx, |composer, cx| composer.attach(&text, window, cx));
         }
+    }
+
+    /// Shows `path` in the Editor, read only (saving waits for the editor to open files), and
+    /// opens the Editor when it is closed.
+    fn show_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let text = match std::fs::read(&path) {
+            Ok(bytes) if bytes.len() > MAX_SHOWN => {
+                format!(
+                    "{} is {} KB, too big to show here",
+                    path.display(),
+                    bytes.len() / 1024
+                )
+            }
+            Ok(bytes) if bytes.contains(&0) => format!("{} is a binary file", path.display()),
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(error) => format!("reading {}: {error}", path.display()),
+        };
+        self.editor.update(cx, |editor, cx| {
+            editor.set_read_only(true);
+            editor.set_text(text, window, cx);
+        });
+        let shown = path
+            .strip_prefix(self.project().shell_dir())
+            .map(Path::to_path_buf)
+            .unwrap_or(path);
+        self.editor_file = Some(shown);
+        if !self.tools.contains(&Tool::Editor) {
+            self.toggle_tool(Tool::Editor, cx);
+        }
+        cx.notify();
     }
 
     fn hide_tools(&mut self, cx: &mut Context<Self>) {
@@ -912,6 +975,7 @@ impl RootView {
                     None => div().into_any_element(),
                 },
                 Tool::Review => self.review.clone().into_any_element(),
+                Tool::Files => self.files.clone().into_any_element(),
                 Tool::Details => div()
                     .id("details")
                     .size_full()
@@ -938,41 +1002,49 @@ impl RootView {
                         .on_drag(DividerDrag(n - 1), |drag, _, _, cx| cx.new(|_| *drag)),
                 );
             }
-            panel =
-                panel.child(
-                    div()
-                        .flex_basis(px(0.))
-                        .flex_grow(self.layout.tool_size(tool))
-                        .min_h(px(60.))
-                        .flex()
-                        .flex_col()
-                        .overflow_hidden()
-                        .child(
-                            div()
-                                .h(px(28.))
-                                .flex_none()
-                                .px_3()
-                                .flex()
-                                .items_center()
-                                .bg(colors.panel_background)
-                                .text_size(px(11.))
-                                .font_weight(gpui::FontWeight::SEMIBOLD)
-                                .text_color(colors.text_muted)
-                                .child(div().flex_grow(1.).child(tool.label()))
-                                .child(
-                                    div()
-                                        .id(SharedString::from(format!("close-{}", tool.key())))
-                                        .px_1()
-                                        .cursor_pointer()
-                                        .hover(|c| c.text_color(colors.text))
-                                        .on_click(cx.listener(move |view, _, _, cx| {
+            panel = panel.child(
+                div()
+                    .flex_basis(px(0.))
+                    .flex_grow(self.layout.tool_size(tool))
+                    .min_h(px(60.))
+                    .flex()
+                    .flex_col()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .h(px(28.))
+                            .flex_none()
+                            .px_3()
+                            .flex()
+                            .items_center()
+                            .bg(colors.panel_background)
+                            .text_size(px(11.))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(colors.text_muted)
+                            .child(div().flex_grow(1.).min_w_0().truncate().child(
+                                match (tool, &self.editor_file) {
+                                    (Tool::Editor, Some(file)) => {
+                                        SharedString::from(format!("Editor · {}", file.display()))
+                                    }
+                                    _ => tool.label().into(),
+                                },
+                            ))
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("close-{}", tool.key())))
+                                    .px_1()
+                                    .cursor_pointer()
+                                    .hover(|c| c.text_color(colors.text))
+                                    .on_click(
+                                        cx.listener(move |view, _, _, cx| {
                                             view.toggle_tool(tool, cx)
-                                        }))
-                                        .child("×"),
-                                ),
-                        )
-                        .child(div().flex_1().min_h_0().child(body)),
-                );
+                                        }),
+                                    )
+                                    .child("×"),
+                            ),
+                    )
+                    .child(div().flex_1().min_h_0().child(body)),
+            );
         }
         let dragged = shown.clone();
         let panel = panel.on_drag_move(cx.listener(
@@ -1395,30 +1467,39 @@ impl Render for RootView {
             cx,
         );
         let tabs: Vec<ProjectTab> = self.projects.iter().map(Project::tab).collect();
-        let strip = tab_strip::strip(&tabs, self.active, cx, |click| {
-            Box::new(cx.listener(move |view, _, _, cx| view.click_tab(click, cx)))
-        })
-        .id("tab-strip")
-        .window_control_area(WindowControlArea::Drag)
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|view, _, _, _| view.should_move = true),
-        )
-        .on_mouse_up(
-            MouseButton::Left,
-            cx.listener(|view, _, _, _| view.should_move = false),
-        )
-        .on_mouse_down_out(cx.listener(|view, _, _, _| view.should_move = false))
-        .on_mouse_move(cx.listener(|view, _, window, _| {
-            if std::mem::take(&mut view.should_move) {
-                window.start_window_move();
-            }
-        }))
-        .on_click(|event, window, _| {
-            if event.click_count() == 2 {
-                window.titlebar_double_click();
-            }
-        });
+        let strip =
+            tab_strip::strip(
+                &tabs,
+                self.active,
+                cx,
+                |click| Box::new(cx.listener(move |view, _, _, cx| view.click_tab(click, cx))),
+                |to| {
+                    Box::new(cx.listener(move |view, drag: &TabDrag, _, cx| {
+                        view.move_tab(drag.from, to, cx)
+                    }))
+                },
+            )
+            .id("tab-strip")
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|view, _, _, _| view.should_move = true),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|view, _, _, _| view.should_move = false),
+            )
+            .on_mouse_down_out(cx.listener(|view, _, _, _| view.should_move = false))
+            .on_mouse_move(cx.listener(|view, _, window, _| {
+                if std::mem::take(&mut view.should_move) {
+                    window.start_window_move();
+                }
+            }))
+            .on_click(|event, window, _| {
+                if event.click_count() == 2 {
+                    window.titlebar_double_click();
+                }
+            });
         div()
             .size_full()
             .flex()
@@ -1435,6 +1516,9 @@ impl Render for RootView {
             )
             .on_action(
                 cx.listener(|view, _: &ToggleReview, _, cx| view.toggle_tool(Tool::Review, cx)),
+            )
+            .on_action(
+                cx.listener(|view, _: &ToggleFiles, _, cx| view.toggle_tool(Tool::Files, cx)),
             )
             .on_action(
                 cx.listener(|view, _: &ToggleDetails, _, cx| view.toggle_tool(Tool::Details, cx)),

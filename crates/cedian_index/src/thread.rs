@@ -28,6 +28,10 @@ pub struct ThreadSummary {
     /// The person's latest 👍 or 👎 on the thread (`cedia threads rate`).
     #[serde(default)]
     pub rating: Option<Rating>,
+    /// Sessions a rewind dropped (`cedia rewind`): their logs stay, but they are no longer the
+    /// thread's conversation, so they are not in `sessions`.
+    #[serde(default)]
+    pub rewound: Vec<String>,
     /// The latest run that changed files: the shadow-git trees before its first write and
     /// after its last, what `cedia threads diff|undo|redo` call the thread's turn.
     #[serde(default)]
@@ -84,18 +88,29 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
         pending: Vec::new(),
         question: None,
         rating: None,
+        rewound: Vec::new(),
         last_turn: None,
         updated_at: String::new(),
     };
     let mut delivered = std::collections::HashSet::new();
+    let mut unsent = std::collections::HashSet::new();
     let mut opened = false;
-    for event in events {
+    let (live, dropped) = rewound(events);
+    for event in &dropped {
+        if let ThreadEvent::Session { session_id, .. } = event
+            && !thread.rewound.contains(session_id)
+        {
+            thread.rewound.push(session_id.clone());
+        }
+    }
+    for event in live {
         match event {
             ThreadEvent::Open {
                 title,
                 task,
                 parent,
                 at,
+                ..
             } if !opened => {
                 opened = true;
                 thread.title = title.clone();
@@ -118,7 +133,9 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 });
                 thread.updated_at = at.clone();
             }
-            ThreadEvent::Message { id, from, text, at } => {
+            ThreadEvent::Message {
+                id, from, text, at, ..
+            } => {
                 thread.messages.push(ThreadMessage {
                     id: id.clone(),
                     from: from.clone(),
@@ -131,8 +148,8 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 delivered.extend(ids.iter().cloned());
                 thread.updated_at = at.clone();
             }
-            ThreadEvent::Unsend { ids, at } => {
-                thread.messages.retain(|m| !ids.contains(&m.id));
+            ThreadEvent::Unsend { ids, at, .. } => {
+                unsent.extend(ids.iter().cloned());
                 thread.updated_at = at.clone();
             }
             ThreadEvent::Question {
@@ -147,7 +164,9 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 });
                 thread.updated_at = at.clone();
             }
-            ThreadEvent::State { state, result, at } => {
+            ThreadEvent::State {
+                state, result, at, ..
+            } => {
                 thread.state = *state;
                 if *state != ThreadState::Asking {
                     thread.question = None;
@@ -157,7 +176,7 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 }
                 thread.updated_at = at.clone();
             }
-            ThreadEvent::Archived { archived, at } => {
+            ThreadEvent::Archived { archived, at, .. } => {
                 thread.archived = *archived;
                 thread.updated_at = at.clone();
             }
@@ -171,6 +190,7 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 after,
                 sessions,
                 at,
+                ..
             } => {
                 thread.last_turn = Some(ThreadTurn {
                     cwd: cwd.clone(),
@@ -181,9 +201,19 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 });
                 thread.updated_at = at.clone();
             }
-            ThreadEvent::Handoff { at, .. } => thread.updated_at = at.clone(),
+            ThreadEvent::Handoff { at, .. }
+            | ThreadEvent::Run { at, .. }
+            | ThreadEvent::Rewind { at, .. } => thread.updated_at = at.clone(),
         }
     }
+    // The last line's time, as cedia has it, whether or not the fold reads that line.
+    if let Some(at) = events.last().map(at_of) {
+        thread.updated_at = at.to_owned();
+    }
+    // A message taken back stays when a session had already been shown it: the model saw it.
+    thread
+        .messages
+        .retain(|m| !unsent.contains(&m.id) || delivered.contains(&m.id));
     thread.pending = thread
         .messages
         .iter()
@@ -191,6 +221,91 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
         .map(|m| m.id.clone())
         .collect();
     thread
+}
+
+/// The events a fold reads after each rewind, and the ones it dropped, as cedia's `rewound`:
+/// a rewind drops the events from the run it goes back to up to itself, except messages,
+/// unsends, ratings and archiving, which are not the conversation's, and so does anything a
+/// dropped run writes later. A rewind to a run that is not there changes nothing.
+fn rewound(events: &[ThreadEvent]) -> (Vec<&ThreadEvent>, Vec<&ThreadEvent>) {
+    let keep = |e: &ThreadEvent| {
+        matches!(
+            e,
+            ThreadEvent::Message { .. }
+                | ThreadEvent::Unsend { .. }
+                | ThreadEvent::Rate { .. }
+                | ThreadEvent::Archived { .. }
+        )
+    };
+    let mut live: Vec<&ThreadEvent> = Vec::new();
+    let mut dropped = Vec::new();
+    let mut dropped_runs = std::collections::HashSet::new();
+    for event in events {
+        let ThreadEvent::Rewind { run, .. } = event else {
+            if run_of(event).is_some_and(|r| dropped_runs.contains(r)) && !keep(event) {
+                dropped.push(event);
+            } else {
+                live.push(event);
+            }
+            continue;
+        };
+        let Some(from) = live
+            .iter()
+            .position(|e| matches!(e, ThreadEvent::Run { id, .. } if id == run))
+        else {
+            continue;
+        };
+        let tail = live.split_off(from);
+        for e in tail {
+            if let ThreadEvent::Run { id, .. } = e {
+                dropped_runs.insert(id.as_str());
+            }
+            if keep(e) {
+                live.push(e);
+            } else {
+                dropped.push(e);
+            }
+        }
+        live.push(event);
+    }
+    (live, dropped)
+}
+
+/// The run that wrote the event, when cedia tagged it.
+fn run_of(event: &ThreadEvent) -> Option<&str> {
+    match event {
+        ThreadEvent::Open { run, .. }
+        | ThreadEvent::Session { run, .. }
+        | ThreadEvent::Handoff { run, .. }
+        | ThreadEvent::Message { run, .. }
+        | ThreadEvent::Delivered { run, .. }
+        | ThreadEvent::Unsend { run, .. }
+        | ThreadEvent::Rate { run, .. }
+        | ThreadEvent::Question { run, .. }
+        | ThreadEvent::State { run, .. }
+        | ThreadEvent::Turn { run, .. }
+        | ThreadEvent::Run { run, .. }
+        | ThreadEvent::Archived { run, .. } => run.as_deref(),
+        ThreadEvent::Rewind { .. } => None,
+    }
+}
+
+fn at_of(event: &ThreadEvent) -> &str {
+    match event {
+        ThreadEvent::Open { at, .. }
+        | ThreadEvent::Session { at, .. }
+        | ThreadEvent::Handoff { at, .. }
+        | ThreadEvent::Message { at, .. }
+        | ThreadEvent::Delivered { at, .. }
+        | ThreadEvent::Unsend { at, .. }
+        | ThreadEvent::Rate { at, .. }
+        | ThreadEvent::Question { at, .. }
+        | ThreadEvent::State { at, .. }
+        | ThreadEvent::Turn { at, .. }
+        | ThreadEvent::Run { at, .. }
+        | ThreadEvent::Rewind { at, .. }
+        | ThreadEvent::Archived { at, .. } => at,
+    }
 }
 
 /// One thread. A line that does not decode (the last one may be mid-write) is skipped.
@@ -235,4 +350,74 @@ pub fn list_threads(dir: &Path) -> anyhow::Result<Vec<ThreadSummary>> {
     }
     threads.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Ok(threads)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn events(lines: &[&str]) -> Vec<ThreadEvent> {
+        lines
+            .iter()
+            .map(|l| serde_json::from_str(l).expect("event"))
+            .collect()
+    }
+
+    #[test]
+    fn a_rewind_drops_the_runs_it_goes_back_over_but_not_the_messages() {
+        let events = events(&[
+            r#"{"kind":"open","title":"t","task":"t","at":"1"}"#,
+            r#"{"kind":"run","id":"r1","prompt":"a","cwd":"/r","at":"2"}"#,
+            r#"{"kind":"session","sessionId":"s1","model":"m","role":"code","why":"start","at":"3","run":"r1"}"#,
+            r#"{"kind":"state","state":"done","result":"one","at":"4","run":"r1"}"#,
+            r#"{"kind":"run","id":"r2","prompt":"b","cwd":"/r","at":"5"}"#,
+            r#"{"kind":"session","sessionId":"s2","model":"m","role":"code","why":"resume","at":"6","run":"r2"}"#,
+            r#"{"kind":"message","id":"m1","from":"user","text":"hi","at":"7","run":"r2"}"#,
+            r#"{"kind":"rewind","run":"r2","at":"8"}"#,
+            // A dropped run that was still going writes its end after the rewind.
+            r#"{"kind":"state","state":"failed","result":"two","at":"9","run":"r2"}"#,
+        ]);
+        let thread = fold("t-1", &events);
+        assert_eq!(thread.state, ThreadState::Done);
+        assert_eq!(thread.result.as_deref(), Some("one"));
+        assert_eq!(
+            thread
+                .sessions
+                .iter()
+                .map(|s| s.session_id.as_str())
+                .collect::<Vec<_>>(),
+            ["s1"]
+        );
+        assert_eq!(thread.rewound, ["s2"]);
+        assert_eq!(thread.messages.len(), 1);
+        assert_eq!(thread.pending, ["m1"]);
+        assert_eq!(thread.updated_at, "9");
+        // A rewind to a run an earlier rewind dropped changes nothing.
+        let mut again = events.clone();
+        again.push(
+            serde_json::from_str(r#"{"kind":"rewind","run":"r2","at":"10"}"#).expect("event"),
+        );
+        assert_eq!(fold("t-1", &again).sessions, thread.sessions);
+    }
+
+    #[test]
+    fn a_message_taken_back_after_a_session_saw_it_stays() {
+        let events = events(&[
+            r#"{"kind":"open","title":"t","task":"t","at":"1"}"#,
+            r#"{"kind":"message","id":"m1","from":"user","text":"a","at":"2"}"#,
+            r#"{"kind":"message","id":"m2","from":"user","text":"b","at":"3"}"#,
+            r#"{"kind":"delivered","ids":["m1"],"sessionId":"s1","at":"4"}"#,
+            r#"{"kind":"unsend","ids":["m1","m2"],"at":"5"}"#,
+        ]);
+        let thread = fold("t-1", &events);
+        assert_eq!(
+            thread
+                .messages
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["m1"]
+        );
+        assert!(thread.pending.is_empty());
+    }
 }
