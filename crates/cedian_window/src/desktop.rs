@@ -74,3 +74,29 @@ impl Desktop {
         });
     }
 }
+
+/// `desktop` as the file holds it now, read once at launch so the first frame already has the
+/// theme and the layout; afterwards the daemon sends it. A missing or bad file reads as empty.
+pub fn read_at_launch() -> Value {
+    let path = cedian_index::cedia_home().join("settings.json");
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("{}: {error}", path.display());
+            }
+            return Value::Object(Default::default());
+        }
+    };
+    match serde_json::from_str::<Value>(&text) {
+        Ok(mut file) => file
+            .get_mut("desktop")
+            .map(Value::take)
+            .filter(Value::is_object)
+            .unwrap_or_else(|| Value::Object(Default::default())),
+        Err(error) => {
+            log::warn!("{}: {error}", path.display());
+            Value::Object(Default::default())
+        }
+    }
+}

@@ -2,6 +2,7 @@ mod agent_pane;
 mod composer;
 mod daemon_client;
 mod desktop;
+mod layout;
 mod replay;
 mod review_pane;
 mod root_view;
@@ -121,13 +122,22 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     })
     .detach();
 
-    let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
+    let desktop = desktop::read_at_launch();
+    desktop::Desktop::from_value(&desktop).apply(cx);
+    let layout = layout::Layout::from_desktop(&desktop);
+    let saved = match &mode {
+        Mode::Live { .. } => layout.bounds_on_screen(cx),
+        Mode::Replay(_) => None,
+    };
+    let bounds = saved.unwrap_or_else(|| {
+        WindowBounds::Windowed(Bounds::centered(None, size(px(1280.), px(800.)), cx))
+    });
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        window_bounds: Some(bounds),
         ..Default::default()
     };
     cx.open_window(options, |window, cx| match mode {
-        Mode::Live { cwd } => cx.new(|cx| RootView::live(cwd, window, cx)),
+        Mode::Live { cwd } => cx.new(|cx| RootView::live(cwd, layout, window, cx)),
         Mode::Replay(replay) => {
             let title = format!("replay {}", replay.path.display());
             let agent = cx.new(|_| AgentPane::new(title));
