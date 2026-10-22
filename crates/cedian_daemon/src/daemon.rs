@@ -1,0 +1,440 @@
+//! The daemon's state: connected windows, runs, and which window reads which thread. Every
+//! piece can be rebuilt from cedia's files except the lines of a run in progress.
+
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, MutexGuard, mpsc::Sender},
+};
+
+use cedian_index::{
+    list_threads, project_key, read_thread, session_lines, session_path, threads_dir,
+};
+use cedian_protocol::{Line, SessionEvent, VersionInfo};
+use cedian_wire::{Notice, Request, Status, ThreadInfo};
+
+use crate::{
+    Cedia,
+    run::{Run, RunId, watch},
+};
+
+pub type Shared = Arc<Mutex<Daemon>>;
+pub type ClientId = u64;
+
+/// The state stays usable after a panic in another thread; each change to it is one step.
+pub fn lock(shared: &Shared) -> MutexGuard<'_, Daemon> {
+    shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+struct Client {
+    tx: Sender<Notice>,
+    /// Threads whose lines this client reads.
+    open: HashSet<String>,
+    /// Projects whose thread lists this client shows: cwd to project key.
+    watching: HashMap<PathBuf, String>,
+}
+
+pub struct Daemon {
+    cedia: Cedia,
+    home: PathBuf,
+    version: Result<VersionInfo, String>,
+    clients: HashMap<ClientId, Client>,
+    runs: HashMap<RunId, Run>,
+    /// Each thread's latest run.
+    by_thread: HashMap<String, RunId>,
+    next_id: u64,
+}
+
+impl Daemon {
+    pub fn new(cedia: Cedia, home: PathBuf) -> Self {
+        let version = cedia.version();
+        match &version {
+            Ok(version) => log::info!("cedia {} at {}", version.version, cedia.bin.display()),
+            Err(error) => log::warn!("{error}"),
+        }
+        Self {
+            cedia,
+            home,
+            version,
+            clients: HashMap::new(),
+            runs: HashMap::new(),
+            by_thread: HashMap::new(),
+            next_id: 1,
+        }
+    }
+
+    fn id(&mut self) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    pub fn connect(&mut self, tx: Sender<Notice>) -> ClientId {
+        let id = self.id();
+        self.clients.insert(
+            id,
+            Client {
+                tx,
+                open: HashSet::new(),
+                watching: HashMap::new(),
+            },
+        );
+        self.send(
+            id,
+            Notice::Welcome {
+                daemon: env!("CARGO_PKG_VERSION").to_owned(),
+                cedia: self.version.clone(),
+            },
+        );
+        id
+    }
+
+    pub fn disconnect(&mut self, id: ClientId) {
+        self.clients.remove(&id);
+        for run in self.runs.values_mut() {
+            if run.requester == Some(id) {
+                run.requester = None;
+            }
+        }
+    }
+
+    fn send(&mut self, id: ClientId, notice: Notice) {
+        let gone = match self.clients.get(&id) {
+            Some(client) => client.tx.send(notice).is_err(),
+            None => false,
+        };
+        if gone {
+            self.disconnect(id);
+        }
+    }
+
+    fn error(&mut self, id: ClientId, message: String) {
+        log::warn!("client {id}: {message}");
+        self.send(id, Notice::Error { message });
+    }
+
+    /// Sends a notice to every client that has the thread open.
+    fn tell_readers(&mut self, thread: &str, notice: &Notice) {
+        let readers: Vec<ClientId> = self
+            .clients
+            .iter()
+            .filter(|(_, client)| client.open.contains(thread))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in readers {
+            self.send(id, notice.clone());
+        }
+    }
+
+    fn running(&self, thread: &str) -> bool {
+        self.by_thread
+            .get(thread)
+            .and_then(|id| self.runs.get(id))
+            .is_some_and(|run| run.alive)
+    }
+
+    fn threads(&self, slug: &str) -> anyhow::Result<Vec<ThreadInfo>> {
+        Ok(list_threads(&threads_dir(&self.home, slug))?
+            .into_iter()
+            .map(|thread| ThreadInfo {
+                status: Status::of(thread.state, self.running(&thread.id)),
+                thread,
+            })
+            .collect())
+    }
+
+    fn status(&self, slug: &str, thread: &str) -> Status {
+        match read_thread(&threads_dir(&self.home, slug), thread) {
+            Ok(summary) => Status::of(summary.state, self.running(thread)),
+            Err(_) if self.running(thread) => Status::Working,
+            Err(error) => {
+                log::warn!("{error:#}");
+                Status::Failed
+            }
+        }
+    }
+
+    /// Sends the project's thread list to every client showing it.
+    fn refresh(&mut self, slug: &str) {
+        let watchers: Vec<(ClientId, PathBuf)> = self
+            .clients
+            .iter()
+            .flat_map(|(id, client)| {
+                client
+                    .watching
+                    .iter()
+                    .filter(|(_, key)| key.as_str() == slug)
+                    .map(|(cwd, _)| (*id, cwd.clone()))
+            })
+            .collect();
+        if watchers.is_empty() {
+            return;
+        }
+        match self.threads(slug) {
+            Ok(threads) => {
+                for (id, cwd) in watchers {
+                    self.send(
+                        id,
+                        Notice::Threads {
+                            cwd,
+                            threads: threads.clone(),
+                        },
+                    );
+                }
+            }
+            Err(error) => log::warn!("{error:#}"),
+        }
+    }
+
+    pub fn handle(shared: &Shared, client: ClientId, request: Request) {
+        match request {
+            Request::Threads { cwd } => {
+                let mut daemon = lock(shared);
+                let slug = project_key(&cwd);
+                match daemon.threads(&slug) {
+                    Ok(threads) => {
+                        if let Some(c) = daemon.clients.get_mut(&client) {
+                            c.watching.insert(cwd.clone(), slug);
+                        }
+                        daemon.send(client, Notice::Threads { cwd, threads });
+                    }
+                    Err(error) => daemon.error(client, format!("{error:#}")),
+                }
+            }
+            Request::Open { cwd, thread } => lock(shared).open(client, &cwd, &thread),
+            Request::Close { thread } => {
+                if let Some(c) = lock(shared).clients.get_mut(&client) {
+                    c.open.remove(&thread);
+                }
+            }
+            Request::Prompt { cwd, text, thread } => {
+                let running = thread.as_deref().is_some_and(|t| lock(shared).running(t));
+                match thread {
+                    // A run is already working on it: the text joins at its next turn.
+                    Some(thread) if running => Self::message(shared, client, &cwd, &thread, &text),
+                    thread => Self::prompt(shared, client, cwd, &text, thread),
+                }
+            }
+            Request::Send { cwd, thread, text } => {
+                Self::message(shared, client, &cwd, &thread, &text)
+            }
+            Request::Stop { thread } => lock(shared).stop(client, &thread),
+        }
+    }
+
+    fn open(&mut self, client: ClientId, cwd: &Path, thread: &str) {
+        let slug = project_key(cwd);
+        let summary = match read_thread(&threads_dir(&self.home, &slug), thread) {
+            Ok(summary) => summary,
+            Err(error) => return self.error(client, format!("{error:#}")),
+        };
+        let run = self.by_thread.get(thread).and_then(|id| self.runs.get(id));
+        let mut lines = Vec::new();
+        for session in &summary.sessions {
+            if run.is_some_and(|run| !run.before.contains(&session.session_id)) {
+                continue;
+            }
+            let path = session_path(
+                &self.home,
+                &slug,
+                &session.session_id,
+                session.path.as_deref(),
+            );
+            match session_lines(&path) {
+                Ok(more) => lines.extend(more),
+                Err(error) => log::warn!("{error:#}"),
+            }
+        }
+        if let Some(run) = run {
+            lines.extend(run.lines.iter().cloned());
+        }
+        for line in lines {
+            self.send(
+                client,
+                Notice::Line {
+                    thread: thread.to_owned(),
+                    line,
+                },
+            );
+        }
+        let status = Status::of(summary.state, self.running(thread));
+        self.send(
+            client,
+            Notice::Caught {
+                thread: thread.to_owned(),
+            },
+        );
+        self.send(
+            client,
+            Notice::Status {
+                thread: thread.to_owned(),
+                status,
+            },
+        );
+        if let Some(c) = self.clients.get_mut(&client) {
+            c.open.insert(thread.to_owned());
+        }
+    }
+
+    fn prompt(shared: &Shared, client: ClientId, cwd: PathBuf, text: &str, thread: Option<String>) {
+        let mut daemon = lock(shared);
+        let slug = project_key(&cwd);
+        let before = match &thread {
+            Some(thread) => match read_thread(&threads_dir(&daemon.home, &slug), thread) {
+                Ok(summary) => summary.sessions.into_iter().map(|s| s.session_id).collect(),
+                Err(error) => return daemon.error(client, format!("{error:#}")),
+            },
+            None => HashSet::new(),
+        };
+        let child = match daemon.cedia.prompt(&cwd, text, thread.as_deref()) {
+            Ok(child) => child,
+            Err(error) => return daemon.error(client, format!("{error:#}")),
+        };
+        let id = daemon.id();
+        log::info!("run {id}: pid {} in {}", child.id(), cwd.display());
+        daemon.runs.insert(
+            id,
+            Run {
+                cwd,
+                slug,
+                thread: None,
+                pid: child.id(),
+                alive: true,
+                lines: Vec::new(),
+                before,
+                requester: Some(client),
+                stderr: Default::default(),
+            },
+        );
+        if let Some(thread) = thread {
+            daemon.claim(id, thread);
+        }
+        drop(daemon);
+        watch(shared.clone(), id, child);
+    }
+
+    /// Makes the run its thread's latest, dropping the thread's finished run before it.
+    fn claim(&mut self, id: RunId, thread: String) {
+        if let Some(old) = self.by_thread.insert(thread.clone(), id)
+            && old != id
+            && self.runs.get(&old).is_some_and(|run| !run.alive)
+        {
+            self.runs.remove(&old);
+        }
+        let Some(run) = self.runs.get_mut(&id) else {
+            return;
+        };
+        run.thread = Some(thread.clone());
+        let requester = run.requester;
+        let cwd = run.cwd.clone();
+        let slug = run.slug.clone();
+        if let Some(requester) = requester
+            && let Some(client) = self.clients.get_mut(&requester)
+            && client.open.insert(thread.clone())
+        {
+            self.send(
+                requester,
+                Notice::Started {
+                    cwd,
+                    thread: thread.clone(),
+                },
+            );
+        }
+        self.tell_readers(
+            &thread,
+            &Notice::Status {
+                thread: thread.clone(),
+                status: Status::Working,
+            },
+        );
+        self.refresh(&slug);
+    }
+
+    fn message(shared: &Shared, client: ClientId, cwd: &Path, thread: &str, text: &str) {
+        let cedia = lock(shared).cedia.clone();
+        if let Err(error) = cedia.send(cwd, thread, text) {
+            lock(shared).error(client, format!("{error:#}"));
+        }
+    }
+
+    fn stop(&mut self, client: ClientId, thread: &str) {
+        let Some(run) = self.by_thread.get(thread).and_then(|id| self.runs.get(id)) else {
+            return self.error(client, format!("{thread} has no run"));
+        };
+        if !run.alive {
+            return;
+        }
+        let Ok(pid) = libc::pid_t::try_from(run.pid) else {
+            return;
+        };
+        // SAFETY: kill only sends a signal; the run is alive, so the pid is still its child.
+        if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
+            let error = std::io::Error::last_os_error();
+            self.error(client, format!("stopping {thread}: {error}"));
+        }
+    }
+
+    pub fn on_line(&mut self, id: RunId, line: String) {
+        let Some(run) = self.runs.get_mut(&id) else {
+            return;
+        };
+        run.lines.push(line.clone());
+        let thread = match &run.thread {
+            Some(thread) => thread.clone(),
+            None => match Line::parse(&line) {
+                Ok(Line::Event(SessionEvent::Session {
+                    thread: Some(thread),
+                    ..
+                })) => {
+                    self.claim(id, thread.clone());
+                    thread
+                }
+                Ok(_) => return,
+                Err(error) => {
+                    log::warn!("run {id}: {error}");
+                    return;
+                }
+            },
+        };
+        self.tell_readers(&thread.clone(), &Notice::Line { thread, line });
+    }
+
+    pub fn on_stderr(&mut self, id: RunId, line: String) {
+        log::debug!("run {id}: {line}");
+        if let Some(run) = self.runs.get_mut(&id) {
+            run.push_stderr(line);
+        }
+    }
+
+    pub fn on_exit(&mut self, id: RunId, status: std::io::Result<std::process::ExitStatus>) {
+        let Some(run) = self.runs.get_mut(&id) else {
+            return;
+        };
+        run.alive = false;
+        log::info!("run {id}: exited {status:?}");
+        let (thread, slug, requester) = (run.thread.clone(), run.slug.clone(), run.requester);
+        let stderr = run.stderr.iter().cloned().collect::<Vec<_>>().join("\n");
+        match thread {
+            Some(thread) => {
+                let status = self.status(&slug, &thread);
+                self.tell_readers(&thread.clone(), &Notice::Status { thread, status });
+                self.refresh(&slug);
+            }
+            None => {
+                self.runs.remove(&id);
+                if let Some(requester) = requester {
+                    let how = match status {
+                        Ok(status) => status.to_string(),
+                        Err(error) => error.to_string(),
+                    };
+                    self.error(
+                        requester,
+                        format!("cedia {how} before it started a thread:\n{stderr}"),
+                    );
+                }
+            }
+        }
+    }
+}
