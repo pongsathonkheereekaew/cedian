@@ -1,0 +1,16 @@
+cedian uses third-party work under its own licenses. These portions are not
+covered by the all-rights-reserved terms in LICENSE.
+
+- Zed's crates (zed-industries/zed at the rev pinned in Cargo.toml): editor,
+  terminal, theme, theme_settings, settings, task, assets and release_channel
+  are GPL-3.0-or-later; gpui, gpui_platform, collections and util are
+  Apache-2.0. They are pinned git dependencies, not copied into this
+  repository. The [patch.crates-io] section of Cargo.toml is copied from Zed's.
+
+  Because these GPL crates link into the cedian binary, a cedian build may not
+  be distributed under any license other than the GPL. cedian is built for its
+  owner's own use and is not distributed.
+
+- Fonts in crates/cedian_window/assets/fonts (Inter, Noto Sans Thai, Noto
+  Serif Thai, Source Serif 4): SIL Open Font License 1.1, each with its
+  OFL.txt.

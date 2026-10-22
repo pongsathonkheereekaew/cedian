@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 edition = "2024"
 publish = false
-license = "GPL-3.0-or-later"
+license-file = "LICENSE"
 
 # Zed v1.25.2. Bump all of these together, and copy Zed's [patch] section at the same rev.
 [workspace.dependencies]
