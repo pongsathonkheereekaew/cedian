@@ -6,7 +6,8 @@
 set -euo pipefail
 
 if [[ "${1:-}" == "--version" ]]; then
-  echo '{"name":"cedia","version":"0.0.0-fake","protocol":"fake","capabilities":["threads","threads.send"]}'
+  # FAKE_CAPS: more capabilities, as JSON strings separated by commas.
+  echo "{\"name\":\"cedia\",\"version\":\"0.0.0-fake\",\"protocol\":\"fake\",\"capabilities\":[\"threads\",\"threads.send\"${FAKE_CAPS:+,$FAKE_CAPS}]}"
   exit 0
 fi
 
@@ -46,8 +47,9 @@ if [[ "${1:-}" == "threads" ]]; then
 fi
 
 mkdir -p "$FAKE_THREADS" "$FAKE_SESSIONS"
-# Where the daemon ran it, for the worktree test.
+# Where the daemon ran it and how, for the worktree tests.
 pwd >"$FAKE_THREADS/../cwd"
+printf '%s\n' "$@" >"$FAKE_THREADS/../args"
 for f in "$FAKE_FIXTURE"/threads/*.jsonl; do
   # The last line is the final state, written when the run ends. (`sed '$d'`, not
   # `head -n -1`, which macOS's head refuses.)

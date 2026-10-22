@@ -1,6 +1,7 @@
 //! Notices threads that change outside a run of this daemon (`cedia threads send` in a
 //! terminal, another cedia, an archive) by polling the threads directory of each project a
-//! window shows, and sends the new list when it moved.
+//! window shows, and sends the new list when it moved. Each poll also starts the threads the
+//! project's coordinator opened and that wait `queued`.
 
 use std::{
     collections::HashMap,
@@ -9,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use crate::daemon::{Shared, lock};
+use crate::daemon::{Daemon, Shared, lock};
 
 const POLL: Duration = Duration::from_secs(1);
 
@@ -61,6 +62,7 @@ pub fn watch_threads(shared: Shared) {
                 })
                 .collect();
             lock(&shared).threads_seen(prints);
+            Daemon::start_queued(&shared);
         }
     });
 }

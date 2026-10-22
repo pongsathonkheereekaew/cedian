@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
+    /// The project's coordinator opened it and its first run has not started yet.
+    Queued,
     /// A run of this thread is in progress.
     Working,
     Done,
@@ -23,6 +25,7 @@ impl Status {
     pub fn of(state: ThreadState, running: bool) -> Self {
         match (running, state) {
             (true, _) => Self::Working,
+            (false, ThreadState::Queued) => Self::Queued,
             (false, ThreadState::Working) => Self::Interrupted,
             (false, ThreadState::Done) => Self::Done,
             (false, ThreadState::Failed) => Self::Failed,

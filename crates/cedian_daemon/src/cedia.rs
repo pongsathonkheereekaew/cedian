@@ -68,6 +68,7 @@ impl Cedia {
         text: &str,
         thread: Option<&str>,
         ask: bool,
+        todo: bool,
     ) -> anyhow::Result<Child> {
         let mut command = self.command(cwd);
         command
@@ -83,6 +84,10 @@ impl Cedia {
         }
         if ask {
             command.args(["--ask", "on"]);
+        }
+        // The writer's todo list is the thread's progress in the window.
+        if todo {
+            command.args(["--todo", "on"]);
         }
         command
             .spawn()
