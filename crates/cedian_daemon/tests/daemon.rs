@@ -223,6 +223,46 @@ fn a_rating_reaches_the_thread_and_the_list() {
 }
 
 #[test]
+fn a_queued_message_can_be_taken_back() {
+    let harness = start("edit-and-check");
+    std::fs::create_dir_all(&harness.threads).expect("threads dir");
+    std::fs::write(harness.threads.join("../hold"), "").expect("hold");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    window.ask(Request::Prompt {
+        cwd: harness.cwd.clone(),
+        text: "make f.txt say good".into(),
+        thread: None,
+        worktree: false,
+    });
+    window.until(|n| matches!(n, Notice::Line { .. }));
+    window.ask(Request::Send {
+        cwd: harness.cwd.clone(),
+        thread: "t-00000001".into(),
+        text: "also say why".into(),
+    });
+    let queued = |want: bool| {
+        move |n: &Notice| {
+            matches!(n, Notice::Threads { threads, .. }
+                if threads.first().is_some_and(|t| t.thread.pending.is_empty() != want))
+        }
+    };
+    window.until(queued(true));
+    window.ask(Request::Unsend {
+        cwd: harness.cwd.clone(),
+        thread: "t-00000001".into(),
+        ids: vec!["m-1".into()],
+    });
+    window.until(queued(false));
+    window.ask(Request::Stop {
+        thread: "t-00000001".into(),
+    });
+    window.until(status_is(Status::Stopped));
+}
+
+#[test]
 fn a_thread_left_working_reads_as_interrupted() {
     let harness = start("edit-and-check");
     std::fs::create_dir_all(&harness.threads).expect("threads dir");

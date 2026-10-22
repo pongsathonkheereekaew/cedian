@@ -404,6 +404,12 @@ impl Daemon {
                 Self::message(shared, client, &cwd, &thread, &text)
             }
             Request::Stop { thread } => lock(shared).stop(client, &thread),
+            Request::Unsend { cwd, thread, ids } => {
+                let cedia = lock(shared).cedia.clone();
+                if let Err(error) = cedia.unsend(&cwd, &thread, &ids) {
+                    lock(shared).error(client, format!("{error:#}"));
+                }
+            }
             Request::Rate {
                 cwd,
                 thread,

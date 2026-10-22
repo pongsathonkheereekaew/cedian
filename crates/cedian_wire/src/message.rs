@@ -37,6 +37,12 @@ pub enum Request {
     },
     /// Ends the thread's run.
     Stop { thread: String },
+    /// Takes back messages the thread has not seen yet, through `cedia threads unsend`.
+    Unsend {
+        cwd: PathBuf,
+        thread: String,
+        ids: Vec<String>,
+    },
     /// The person's 👍 or 👎 on the thread, through `cedia threads rate`.
     Rate {
         cwd: PathBuf,
