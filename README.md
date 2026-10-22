@@ -8,10 +8,11 @@ The design decisions are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The 
 
 ## Status
 
-Phase A. The spike window builds and runs: Zed's editor above a shell from Zed's terminal crate. There is no daemon or agent pane yet.
+Phase A. The window builds and runs: an agent pane beside Zed's editor and a shell from Zed's terminal crate. The agent pane plays recorded cedia runs; there is no daemon or live run yet.
 
 ```sh
-cargo run -p cedian_window
+cargo run -p cedian_window -- --replay crates/cedian_protocol/cedia/sessions/edit-and-check/stream.jsonl
+cargo test --workspace
 ```
 
 On Linux, install the packages from Zed's `script/linux` first.

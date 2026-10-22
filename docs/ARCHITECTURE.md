@@ -47,7 +47,7 @@ cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon adds `idle
 | Stack | Rust + GPUI as a library; Zed's `editor`, `language`, `lsp`, `terminal` crates as pinned git dependencies where they save work |
 | Zed pin | Zed v1.25.2 (`d25fa01`) with toolchain 1.98.1, the same as Zed's. Zed's `[patch.crates-io]` and its `Cargo.lock` are copied at the pin, and `util`'s `debug-embed` feature is on so dev builds embed Zed's assets. A bump moves every Zed rev, the patch section and the lock together |
 | Process model | The daemon runs one cedia per prompt (above) and supervises it; the daemon itself restarts with backoff |
-| Contract | cedia's `src/protocol/protocol.schema.json` is the source of cedian's Rust types (generated with `typify`), and cedia's `test/fixtures/sessions/` are what cedian's replay tests read, both at the pinned cedia revision |
+| Contract | cedia's `src/protocol/protocol.schema.json` is the source of cedian's Rust types (generated with `typify` in `cedian_protocol`'s build script, strict about unknown fields), and cedia's `test/fixtures/sessions/` are what cedian's replay tests read. `script/pin-cedia <checkout> <rev>` copies both into `crates/cedian_protocol/cedia` with the rev, so a pin bump is one reviewed diff |
 | Tools | Agent tools live in cedia. cedian offers host tools only for desktop-owned things (open buffers, the shared terminal's output), never a second tool with a cedia tool's name. The browser tool is cedia's; cedian only hands it the shared Chromium's CDP endpoint |
 | Media | Images and video go to a model that reads images: when a thread has media and the code model is text-only, cedia starts a new session of the thread on Haiku 5.5 |
 | Bundling | cedian ships a pinned cedia build (`bun build --compile`) and `rg`, never the copies on PATH |
@@ -112,7 +112,9 @@ Done on Linux (2026-10-22): `cedian_window` opens a GPUI window with Zed's `edit
 - `terminal` stands alone (26 direct dependencies). `terminal_view` needs `workspace`, so cedian draws the terminal's cells itself.
 - Zed's crates read their assets from the Zed checkout at run time in debug builds. `util/debug-embed` turns that off, so no dev build depends on a checkout path.
 
-Still to do on a Mac: the same window on macOS, and the compiled cedia passing its sandbox tests.
+The agent pane followed on the same day. `cedian_agent` folds cedia's stream-json lines into blocks (user, text, thinking, tool call with its permission and result, session, receipt). Streamed text shows until the turn's assistant event replaces it, and a sub-thread's events, which arrive in the parent's stream, go to a transcript of their own, keyed by thread. `cargo test -p cedian_agent` replays every pinned fixture against an outline in `tests/replay/`, and `cedian --replay <stream.jsonl>` plays one into the window a line at a time.
+
+Still to do on a Mac: the same window on macOS (it needs Xcode for Metal shaders, or GPUI's `runtime_shaders` until then), the compiled cedia passing its sandbox tests, and the performance budgets.
 
 ## Learned from the Claude desktop app
 
