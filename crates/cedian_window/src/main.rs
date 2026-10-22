@@ -113,6 +113,11 @@ const OMNIBOX_KEY: &str = "ctrl-k";
 const ATTACH_KEY: &str = "cmd-l";
 #[cfg(not(target_os = "macos"))]
 const ATTACH_KEY: &str = "ctrl-shift-l";
+/// Folds the sidebar to its rail; `ctrl-b` belongs to the shell on Linux.
+#[cfg(target_os = "macos")]
+const SIDEBAR_KEY: &str = "cmd-b";
+#[cfg(not(target_os = "macos"))]
+const SIDEBAR_KEY: &str = "ctrl-shift-b";
 #[cfg(target_os = "macos")]
 const TOOL_KEY: &str = "cmd-alt";
 #[cfg(not(target_os = "macos"))]
@@ -156,6 +161,12 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         KeyBinding::new("down", toolbar::SelectNext, Some("Omnibox > Editor")),
         KeyBinding::new("enter", toolbar::Confirm, Some("Omnibox > Editor")),
         KeyBinding::new("escape", toolbar::Dismiss, Some("Omnibox > Editor")),
+        KeyBinding::new(SIDEBAR_KEY, root_view::ToggleSidebar, None),
+        KeyBinding::new(
+            SIDEBAR_KEY,
+            root_view::ToggleSidebar,
+            Some("Composer > Editor"),
+        ),
         KeyBinding::new(ATTACH_KEY, shell_pane::AttachSelection, Some("Shell")),
         KeyBinding::new(
             ATTACH_KEY,

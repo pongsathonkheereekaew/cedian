@@ -9,8 +9,8 @@ use cedian_wire::{HunkState, Notice, Request, Status, ThreadInfo};
 use editor::Editor;
 use futures::StreamExt as _;
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, EntityInputHandler as _, InteractiveElement as _,
-    IntoElement, MouseButton, ParentElement as _, Render, SharedString,
+    AnyElement, AppContext as _, Context, DragMoveEvent, Entity, EntityInputHandler as _,
+    InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Task, Window, WindowControlArea, WindowHandle,
     div, prelude::FluentBuilder as _, px,
 };
@@ -33,10 +33,19 @@ use crate::{
     tab_strip::{self, ProjectTab},
     thread_details::{self, Details},
     thread_list::{self, Group},
-    tool_rail::{self, HideTools, ToggleDetails, ToggleEditor, ToggleReview, ToggleTerminal, Tool},
+    tool_rail::{
+        self, DividerDrag, HideTools, ToggleDetails, ToggleEditor, ToggleReview, ToggleTerminal,
+        Tool,
+    },
     toolbar::{FocusOmnibox, Found, Toolbar, ToolbarEvent},
     view_mode::ViewMode,
 };
+
+gpui::actions!(sidebar, [ToggleSidebar]);
+
+/// The sidebar's width, open and folded to its rail of dots.
+const SIDEBAR_WIDTH: f32 = 264.;
+const SIDEBAR_FOLDED: f32 = 56.;
 
 enum Connection {
     /// Playing a recorded run; there is no daemon.
@@ -749,16 +758,29 @@ impl RootView {
                     .into_any_element(),
             };
             let tool = *tool;
+            if n > 0 {
+                // A 5 px strip over the line between two tools drags their shares.
+                panel = panel.child(
+                    div()
+                        .id(("divider", n))
+                        .h(px(5.))
+                        .flex_none()
+                        .cursor_row_resize()
+                        .border_t_1()
+                        .border_color(colors.border)
+                        .hover(|d| d.bg(colors.element_hover))
+                        .on_drag(DividerDrag(n - 1), |drag, _, _, cx| cx.new(|_| *drag)),
+                );
+            }
             panel =
                 panel.child(
                     div()
-                        .flex_1()
-                        .min_h_0()
+                        .flex_basis(px(0.))
+                        .flex_grow(self.layout.tool_size(tool))
+                        .min_h(px(60.))
                         .flex()
                         .flex_col()
-                        .when(n > 0, |section| {
-                            section.border_t_1().border_color(colors.border)
-                        })
+                        .overflow_hidden()
                         .child(
                             div()
                                 .h(px(28.))
@@ -786,6 +808,17 @@ impl RootView {
                         .child(div().flex_1().min_h_0().child(body)),
                 );
         }
+        let dragged = shown.clone();
+        let panel = panel.on_drag_move(cx.listener(
+            move |view, event: &DragMoveEvent<DividerDrag>, _, cx| {
+                let height = f32::from(event.bounds.size.height);
+                if height > 0. {
+                    let at = f32::from(event.event.position.y - event.bounds.top()) / height;
+                    let divider = event.drag(cx).0;
+                    view.resize_tools(&dragged, divider, at, cx);
+                }
+            },
+        ));
         let rail = tool_rail::rail(&self.tools, self.waiting_hunks, cx, |tool| {
             Box::new(cx.listener(move |view, _, _, cx| view.toggle_tool(tool, cx)))
         });
@@ -796,6 +829,89 @@ impl RootView {
             .when(!shown.is_empty(), |row| row.child(panel))
             .child(rail)
             .into_any_element()
+    }
+
+    /// The sidebar folded (`⌘B`): each thread as its first letter over its state dot, in the
+    /// same order, the one open marked and the ones that need you ringed.
+    fn render_folded_threads(&self, cx: &mut Context<Self>) -> AnyElement {
+        let colors = cx.theme().colors();
+        let status_colors = cx.theme().status();
+        let mut rail = div()
+            .id("threads")
+            .w(px(SIDEBAR_FOLDED))
+            .flex_none()
+            .h_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_1()
+            .py_2()
+            .border_r_1()
+            .border_color(colors.border)
+            .bg(colors.panel_background)
+            .text_color(colors.text)
+            .overflow_y_scroll();
+        for group in Group::ALL {
+            for info in self.threads.iter().filter(|t| Group::of(t) == group) {
+                let id = info.thread.id.clone();
+                let selected = self.current.as_ref() == Some(&id);
+                let initial: String = info
+                    .thread
+                    .title
+                    .chars()
+                    .find(|c| c.is_alphanumeric())
+                    .map_or_else(|| "·".to_owned(), |c| c.to_uppercase().collect());
+                rail = rail.child(
+                    div()
+                        .id(SharedString::from(format!("folded-{id}")))
+                        .relative()
+                        .size(px(36.))
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap(px(2.))
+                        .rounded(px(8.))
+                        .cursor_pointer()
+                        .when(selected, |row| row.bg(colors.element_selected))
+                        .hover(|row| row.bg(colors.element_hover))
+                        .when(info.needs_you, |row| {
+                            row.border_1()
+                                .border_color(if info.status == Status::Failed {
+                                    status_colors.error
+                                } else {
+                                    colors.text_accent
+                                })
+                        })
+                        .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .child(initial),
+                        )
+                        .child(thread_list::dot(info.status, cx)),
+                );
+            }
+        }
+        rail.into_any_element()
+    }
+
+    fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        self.layout.sidebar_folded = !self.layout.sidebar_folded;
+        self.save_layout(cx);
+        cx.notify();
+    }
+
+    /// A divider dragged to `at` (a fraction of the panel's height) between two of `shown`.
+    fn resize_tools(&mut self, shown: &[Tool], divider: usize, at: f32, cx: &mut Context<Self>) {
+        let mut weights: Vec<f32> = shown.iter().map(|t| self.layout.tool_size(*t)).collect();
+        tool_rail::resize(&mut weights, divider, at);
+        for (tool, weight) in shown.iter().zip(weights) {
+            self.layout.tool_sizes.insert(tool.key().to_owned(), weight);
+        }
+        self.save_layout(cx);
+        cx.notify();
     }
 
     fn submit(&mut self, text: String, cx: &mut Context<Self>) {
@@ -831,6 +947,9 @@ impl RootView {
     }
 
     fn render_threads(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.layout.sidebar_folded {
+            return self.render_folded_threads(cx);
+        }
         let colors = cx.theme().colors();
         let status_colors = cx.theme().status();
         let now = chrono::Utc::now();
@@ -939,7 +1058,7 @@ impl RootView {
             }
         }
         div()
-            .w(px(264.))
+            .w(px(SIDEBAR_WIDTH))
             .flex_none()
             .h_full()
             .flex()
@@ -1161,6 +1280,7 @@ impl Render for RootView {
                 cx.listener(|view, _: &ToggleDetails, _, cx| view.toggle_tool(Tool::Details, cx)),
             )
             .on_action(cx.listener(|view, _: &HideTools, _, cx| view.hide_tools(cx)))
+            .on_action(cx.listener(|view, _: &ToggleSidebar, _, cx| view.toggle_sidebar(cx)))
             .on_action(cx.listener(|view, _: &FocusOmnibox, window, cx| {
                 view.toolbar
                     .update(cx, |toolbar, cx| toolbar.focus(window, cx))

@@ -3,8 +3,8 @@
 //! order. `⌘⌥1`–`⌘⌥4` toggle them and `⌘⌥0` closes them all.
 
 use gpui::{
-    App, ClickEvent, Div, InteractiveElement as _, ParentElement as _, Stateful,
-    StatefulInteractiveElement as _, Styled as _, Window, actions, div,
+    App, ClickEvent, Context, Div, InteractiveElement as _, IntoElement, ParentElement as _,
+    Render, Stateful, StatefulInteractiveElement as _, Styled as _, Window, actions, div,
     prelude::FluentBuilder as _, px, svg,
 };
 
@@ -70,6 +70,38 @@ impl Tool {
             Tool::Details => "icons/info.svg",
         }
     }
+}
+
+/// A divider between two open tools being dragged: the one under the `n`th tool.
+#[derive(Clone, Copy, Debug)]
+pub struct DividerDrag(pub usize);
+
+impl Render for DividerDrag {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        // The divider itself moves; nothing follows the pointer.
+        div()
+    }
+}
+
+/// The smallest share of a pair a drag leaves either tool.
+const MIN_SHARE: f32 = 0.15;
+
+/// Moves the divider under tool `divider` to `at`, a fraction of the panel's height, taking
+/// the space from the tool on its other side; the rest keep theirs.
+pub fn resize(weights: &mut [f32], divider: usize, at: f32) {
+    if divider + 1 >= weights.len() {
+        return;
+    }
+    let total: f32 = weights.iter().sum();
+    if total <= 0. {
+        return;
+    }
+    let before: f32 = weights[..divider].iter().sum::<f32>() / total;
+    let pair = weights[divider] + weights[divider + 1];
+    let span = pair / total;
+    let share = ((at - before) / span).clamp(MIN_SHARE, 1. - MIN_SHARE);
+    weights[divider] = pair * share;
+    weights[divider + 1] = pair * (1. - share);
 }
 
 /// Opens `tool` if it is closed and closes it if open, keeping rail order.
@@ -145,6 +177,19 @@ fn button(tool: Tool, on: bool, badge: Option<usize>, cx: &App) -> Stateful<Div>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_divider_moves_between_its_two_tools() {
+        let mut weights = [1., 1., 1.];
+        resize(&mut weights, 0, 0.5);
+        assert!((weights[0] - 1.5).abs() < 1e-4 && (weights[1] - 0.5).abs() < 1e-4);
+        assert_eq!(weights[2], 1.);
+        // Never past the other tool's floor.
+        resize(&mut weights, 1, 1.);
+        assert!((weights[2] - 1.5 * MIN_SHARE).abs() < 1e-4);
+        resize(&mut weights, 2, 0.5);
+        assert!((weights.iter().sum::<f32>() - 3.).abs() < 1e-4);
+    }
 
     #[test]
     fn toggling_keeps_rail_order() {
