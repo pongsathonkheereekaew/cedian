@@ -22,6 +22,7 @@ use crate::{
     desktop::Desktop,
     dock,
     layout::Layout,
+    line_breaks,
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
     settings_window::SettingsWindow,
@@ -386,26 +387,38 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let colors = cx.theme().colors();
-        let status = cx.theme().status();
         let mut options = div().flex().flex_wrap().gap_2();
         for (n, option) in question.options.into_iter().enumerate() {
             let answer = option.clone();
+            let recommended = n == 0;
             options = options.child(
                 div()
                     .id(("answer", n))
-                    .px_2()
-                    .py_1()
+                    .h(px(28.))
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .rounded(px(7.))
                     .border_1()
-                    .border_color(if n == 0 {
-                        colors.text_accent
-                    } else {
-                        colors.border
-                    })
                     .cursor_pointer()
-                    .text_sm()
+                    .text_size(px(13.))
+                    .map(|button| {
+                        if recommended {
+                            button
+                                .bg(colors.text_accent)
+                                .border_color(colors.text_accent)
+                                .text_color(colors.background)
+                        } else {
+                            button
+                                .bg(colors.element_background)
+                                .border_color(colors.border)
+                                .text_color(colors.text)
+                                .hover(|b| b.bg(colors.element_hover))
+                        }
+                    })
                     .on_click(cx.listener(move |view, _, _, cx| view.submit(answer.clone(), cx)))
-                    .child(if n == 0 {
-                        format!("{option} (recommended)")
+                    .child(if recommended {
+                        format!("{option} · แนะนำ")
                     } else {
                         option
                     }),
@@ -417,22 +430,31 @@ impl RootView {
             .gap_2()
             .mx_3()
             .my_2()
-            .p_2()
+            .p_3()
+            .rounded(px(12.))
             .border_1()
-            .border_color(status.warning)
+            .border_color(colors.text_accent)
+            .bg(colors.element_background)
+            .text_color(colors.text)
             .child(
                 div()
-                    .text_xs()
-                    .text_color(status.warning)
-                    .child("The thread is waiting for your answer"),
+                    .text_size(px(11.))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(colors.text_accent)
+                    .child("ถามคุณ"),
             )
-            .child(div().text_sm().child(question.question))
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .line_height(px(24.))
+                    .child(line_breaks::wrapped(&question.question)),
+            )
             .child(options)
             .child(
                 div()
-                    .text_xs()
+                    .text_size(px(12.))
                     .text_color(colors.text_muted)
-                    .child("Or type another answer below."),
+                    .child("หรือพิมพ์คำตอบอื่นด้านล่าง"),
             )
             .into_any_element()
     }
@@ -769,6 +791,7 @@ impl Render for RootView {
         let notice = failure.or_else(|| self.error.clone());
         let working = self.status == Some(Status::Working);
         let background = colors.background;
+        let text = colors.text;
         let body = div()
             .flex_grow(1.)
             .min_h_0()
@@ -881,6 +904,7 @@ impl Render for RootView {
                     .clone(),
             )
             .bg(background)
+            .text_color(text)
             .child(strip)
             .child(body)
     }
