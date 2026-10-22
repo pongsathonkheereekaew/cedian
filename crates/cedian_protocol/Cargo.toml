@@ -14,5 +14,6 @@ anyhow.workspace = true
 prettyplease = "0.2"
 schemars = "0.8"
 serde_json.workspace = true
+sha2 = "0.10"
 syn = "2"
 typify = "0"

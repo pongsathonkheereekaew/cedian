@@ -309,6 +309,15 @@ impl RootView {
         match notice {
             Notice::Welcome { cedia, .. } => {
                 let cedia = match cedia {
+                    // A cedia whose schema is not the pinned one may send shapes cedian skips.
+                    Ok(version) if version.protocol != cedian_protocol::PROTOCOL_HASH => {
+                        log::warn!(
+                            "cedia speaks protocol {}, cedian was built on {}",
+                            version.protocol,
+                            cedian_protocol::PROTOCOL_HASH
+                        );
+                        format!("cedia {} · protocol ไม่ตรงกับที่ pin", version.version)
+                    }
                     Ok(version) => format!("cedia {}", version.version),
                     Err(error) => {
                         self.error = Some(error.into());
