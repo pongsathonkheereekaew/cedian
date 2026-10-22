@@ -77,16 +77,14 @@ cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon adds `idle
 
 ## What cedia needs to add
 
-Done in cedia PR #19: project identity across worktrees, the `desktop` key with unknown keys failing loudly, the protocol schema and session fixtures, `permission_reply` removed. Still to add, in the order cedian needs them:
+Done in cedia PR #19: project identity across worktrees, the `desktop` key with unknown keys failing loudly, the protocol schema and session fixtures, `permission_reply` removed. Done in cedia PR #28 (pinned at `4716402`): `cedia --version --json` with version, protocol hash and capabilities; `threads rate` and `threads unsend` as thread events; a Keychain fallback for API keys (service `cedia`, the env var name as account); each check in a receipt names the thread that ran it; fixture thread ids are stable across re-records. Still to add, in the order cedian needs them:
 
-1. `cedia --version --json` with version and capabilities (phase B).
-2. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
-3. `threads rate`, `threads unsend` for queued messages, `threads delete`, and a `title` event for rename (phases B and C).
-4. Keychain fallback for API keys (phase B).
-5. `profiles` and `--profile` (phase C).
-6. `open_thread` for a coordinator, and per-project memory and files (phase C).
-7. Media references (video frames, original file) in tool results (phase D).
-8. `cedia serve` with `host_tools`, `host_call` and `host_result`, once a host tool is needed (phase C).
+1. `threads delete`, and a `title` event for rename (phase C).
+2. `profiles` and `--profile` (phase C).
+3. `open_thread` for a coordinator, and per-project memory and files (phase C).
+4. `cedia serve` with `host_tools`, `host_call` and `host_result`, once a host tool is needed (phase C).
+5. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
+6. Media references (video frames, original file) in tool results (phase D).
 
 ## Projects
 
@@ -98,7 +96,7 @@ cedia's threads already follow Claude Projects: a thread is one line of work mad
 | --- | --- | --- | --- |
 | 0 Clean | Repo cleared | Contract (PR #19) | Both repos clean; schema and fixtures merged (done) |
 | A Window | Spike first: GPUI window plus Zed `editor` and `terminal` compiling at one pinned rev, with Zed's `[patch]` entries copied and the toolchain matched; compiled cedia passing its sandbox tests on a Mac. Then the agent pane over the fixtures | Stage 2 | A fixture renders; replay test green; performance budgets measured |
-| B One live thread | Daemon as a LaunchAgent, runs per prompt, reconcile and keep-awake; terminal (attach selection), review, settings UI; message queue with Send now; receipt card with next steps and the verified badge; reactions; view modes, context meter, thread details; window and layout restored after quit; worktree setup with progress and branch names from the first message; open in other apps | `--version --json`, rate, unsend, Keychain, which thread ran each check | Delegate a task into a worktree, quit and reopen with the thread intact, review and accept |
+| B One live thread | Daemon as a LaunchAgent, runs per prompt, reconcile and keep-awake; terminal (attach selection), review, settings UI; message queue with Send now; receipt card with next steps and the verified badge; reactions; view modes, context meter, thread details; window and layout restored after quit; worktree setup with progress and branch names from the first message; open in other apps | `--version --json`, rate, unsend, Keychain, which thread ran each check (done in cedia PR #28) | Delegate a task into a worktree, quit and reopen with the thread intact, review and accept |
 | C Parallel | Many threads, tabs by state, notifications, search, pin and group; shared Chromium with capture and annotate; project pane with coordinator; bot profiles and @mention; side chat, background tasks pane, task chips, app preview with per-site approval, safe archive; file tree; usage page by day, model and project; storage view; export; scheduled runs; Open With from Finder; MCP card | Stage 5: sub-agents, MCP, web, host tools, profiles, `open_thread` | Three threads at once, memory measured |
 | D Media, depth | Video and image panes, editor with LSP and line comments, git pane, surface protocol, pop-out panes | Stage 6, prompt images and the media route, video read | The agent fixes a bug shown in a screen recording |
 | Later | Remote over QUIC, computer use via `cua-driver`, voice mode | Classifier, goal mode | |

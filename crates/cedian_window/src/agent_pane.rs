@@ -116,8 +116,10 @@ impl AgentPane {
                                 .text_xs()
                                 .text_color(if passed { status.success } else { status.error })
                                 .child(format!(
-                                    "check `{}` exit {}",
-                                    check.command, check.exit_code
+                                    "check `{}` exit {}{}",
+                                    check.command,
+                                    check.exit_code,
+                                    self.check_origin(check.thread.as_deref())
                                 )),
                         );
                     }
@@ -134,6 +136,18 @@ impl AgentPane {
             }
         };
         div().px_3().py_1().child(body).into_any_element()
+    }
+}
+
+impl AgentPane {
+    /// Names the sub-thread a check ran in; a check of this thread needs no label.
+    fn check_origin(&self, thread: Option<&str>) -> String {
+        match thread {
+            Some(thread) if Some(thread) != self.transcript.thread() => {
+                format!(" in sub-thread {thread}")
+            }
+            _ => String::new(),
+        }
     }
 }
 
