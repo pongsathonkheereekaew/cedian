@@ -79,9 +79,9 @@ impl RootView {
         let mut view = Self::new(cwd, agent, window, cx);
         view.showing_review = layout.showing_review;
         view.layout = layout;
-        view.layout.bounds = Some(window.window_bounds());
+        view.layout.bounds = Some(saved_bounds(window));
         cx.observe_window_bounds(window, |view, window, cx| {
-            view.layout.bounds = Some(window.window_bounds());
+            view.layout.bounds = Some(saved_bounds(window));
             view.save_layout(cx);
         })
         .detach();
@@ -573,6 +573,20 @@ impl RootView {
                     ),
             )
             .into_any_element()
+    }
+}
+
+/// The window's bounds as the next window should be opened with them. A window opens with its
+/// content at the size it is given, while the bounds a window reports include the title bar,
+/// so the size saved is the content's: saving the reported one would grow the window by its
+/// title bar at every relaunch.
+fn saved_bounds(window: &Window) -> gpui::WindowBounds {
+    let content = window.viewport_size();
+    match window.window_bounds() {
+        gpui::WindowBounds::Windowed(b) => {
+            gpui::WindowBounds::Windowed(gpui::Bounds::new(b.origin, content))
+        }
+        other => other,
     }
 }
 

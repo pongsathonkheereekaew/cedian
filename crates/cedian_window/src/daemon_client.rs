@@ -117,7 +117,12 @@ fn wait_for(socket: &std::path::Path, mut daemon: Child) -> anyhow::Result<UnixS
     let start = Instant::now();
     loop {
         match UnixStream::connect(socket) {
-            Ok(stream) => return Ok(stream),
+            Ok(stream) => {
+                // The daemon outlives the window, but while the window lives it is the parent:
+                // reap it when it exits, or it stays a zombie that still answers `kill -0`.
+                std::thread::spawn(move || daemon.wait());
+                return Ok(stream);
+            }
             // Exit 0 means another daemon won the race to bind; keep connecting.
             Err(_) if daemon.try_wait()?.is_some_and(|status| !status.success()) => {
                 anyhow::bail!("the daemon exited at start:\n{}", log_tail());
