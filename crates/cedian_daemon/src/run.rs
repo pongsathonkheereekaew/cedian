@@ -8,7 +8,10 @@ use std::{
     process::Child,
 };
 
-use crate::daemon::{ClientId, Shared, lock};
+use crate::{
+    daemon::{ClientId, Shared, lock},
+    follow::Offsets,
+};
 
 pub type RunId = u64;
 
@@ -29,6 +32,8 @@ pub struct Run {
     /// The client that asked for the run, told when its new thread gets an id.
     pub requester: Option<ClientId>,
     pub stderr: VecDeque<String>,
+    /// Set for a run a previous daemon started, which is read from its session logs.
+    pub followed: Option<Offsets>,
 }
 
 impl Run {
@@ -72,7 +77,10 @@ pub fn watch(shared: Shared, id: RunId, mut child: Child) {
                 }
             }
         }
-        let status = child.wait();
-        lock(&shared).on_exit(id, status);
+        let how = match child.wait() {
+            Ok(status) => status.to_string(),
+            Err(error) => error.to_string(),
+        };
+        lock(&shared).on_exit(id, how);
     });
 }

@@ -31,7 +31,17 @@ pub fn serve(config: Config) -> anyhow::Result<()> {
         return Ok(());
     };
     log::info!("serving {}", config.socket.display());
-    let shared: Shared = Arc::new(Mutex::new(Daemon::new(config.cedia, config.home)));
+    let state_dir = config
+        .socket
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    let shared: Shared = Arc::new(Mutex::new(Daemon::new(
+        config.cedia,
+        config.home,
+        &state_dir,
+    )));
+    Daemon::adopt(&shared);
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
