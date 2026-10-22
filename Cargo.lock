@@ -1163,6 +1163,7 @@ name = "cedian_index"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cedian_agent",
  "cedian_protocol",
  "log",
  "serde",
