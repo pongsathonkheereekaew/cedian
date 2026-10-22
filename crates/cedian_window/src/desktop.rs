@@ -35,8 +35,9 @@ impl Desktop {
     pub fn from_value(desktop: &Value) -> Self {
         let theme = match desktop.get("theme").and_then(Value::as_str) {
             Some("light") => ThemeMode::Light,
-            Some("dark") => ThemeMode::Dark,
-            _ => ThemeMode::System,
+            Some("system") => ThemeMode::System,
+            // Dark until the person picks another: the owner's default.
+            _ => ThemeMode::Dark,
         };
         let size = |key: &str, default: f32| {
             desktop
