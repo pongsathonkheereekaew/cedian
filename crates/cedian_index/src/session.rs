@@ -36,3 +36,14 @@ pub fn session_lines(path: &Path) -> anyhow::Result<Vec<String>> {
     }
     Ok(lines)
 }
+
+/// The directory a session ran in, from its first event. A thread's latest session's is where
+/// its next run goes: the thread's worktree.
+pub fn session_cwd(path: &Path) -> Option<PathBuf> {
+    use std::io::BufRead as _;
+    let file = std::fs::File::open(path).ok()?;
+    let mut first = String::new();
+    std::io::BufReader::new(file).read_line(&mut first).ok()?;
+    let event: serde_json::Value = serde_json::from_str(&first).ok()?;
+    Some(PathBuf::from(event.get("cwd")?.as_str()?))
+}

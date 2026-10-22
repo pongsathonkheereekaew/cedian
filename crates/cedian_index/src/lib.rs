@@ -8,7 +8,7 @@ mod thread;
 
 pub use home::cedia_home;
 pub use project::{project_key, project_root, project_slug};
-pub use session::{session_lines, session_path};
+pub use session::{session_cwd, session_lines, session_path};
 pub use thread::{
     SessionRef, ThreadMessage, ThreadSummary, fold, list_threads, read_thread, threads_dir,
 };

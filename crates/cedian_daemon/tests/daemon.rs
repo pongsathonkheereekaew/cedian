@@ -134,6 +134,7 @@ fn a_prompt_runs_and_a_second_window_rebuilds_it() {
         cwd: harness.cwd.clone(),
         text: "make f.txt say good".into(),
         thread: None,
+        worktree: false,
     });
     let (lines, seen) = window.until(status_is(Status::Done));
     assert!(
@@ -174,6 +175,7 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         cwd: harness.cwd.clone(),
         text: "make f.txt say good".into(),
         thread: None,
+        worktree: false,
     });
     window.until(|n| matches!(n, Notice::Line { .. }));
 
@@ -182,6 +184,7 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         cwd: harness.cwd.clone(),
         text: "also say why".into(),
         thread: Some("t-00000001".into()),
+        worktree: false,
     });
     window.ask(Request::Stop {
         thread: "t-00000001".into(),
@@ -224,5 +227,57 @@ fn a_socket_path_too_long_fails_with_the_reason() {
     assert!(
         format!("{error:#}").contains("CEDIAN_STATE_DIR"),
         "{error:#}"
+    );
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "init.defaultBranch=main",
+        ])
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .expect("git");
+    assert!(status.success(), "git {args:?}");
+}
+
+#[test]
+fn a_new_thread_can_run_in_its_own_worktree() {
+    let harness = start("edit-and-check");
+    git(&harness.cwd, &["init", "-q"]);
+    git(
+        &harness.cwd,
+        &["commit", "-q", "--allow-empty", "-m", "start"],
+    );
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Prompt {
+        cwd: harness.cwd.clone(),
+        text: "Make f.txt say good".into(),
+        thread: None,
+        worktree: true,
+    });
+    let (_, seen) = window.until(status_is(Status::Done));
+    assert!(
+        seen.iter().any(|n| matches!(n, Notice::Preparing { step, .. } if step == "starting on cedian/make-f-txt-say-good")),
+        "{seen:?}"
+    );
+    let ran_in = std::fs::read_to_string(harness.threads.join("../cwd")).expect("cwd");
+    let worktree = harness
+        .cwd
+        .canonicalize()
+        .expect("repo")
+        .join(".cedian/worktrees/make-f-txt-say-good");
+    assert_eq!(Path::new(ran_in.trim()), worktree);
+    let exclude = std::fs::read_to_string(harness.cwd.join(".git/info/exclude")).expect("exclude");
+    assert!(exclude.contains("/.cedian/"));
+    git(
+        &harness.cwd,
+        &["rev-parse", "-q", "--verify", "cedian/make-f-txt-say-good"],
     );
 }
