@@ -34,7 +34,9 @@ use crate::{
     settings_window::SettingsWindow,
     shell_pane::{AttachSelection, ShellEvent, ShellPane},
     status_bar::{self, StatusLine},
-    tab_strip::{self, ActivateTab, CloseTab, NewTab, NextTab, PreviousTab, ProjectTab, TabClick},
+    tab_strip::{
+        self, ActivateTab, CloseTab, NewTab, NextTab, PreviousTab, ProjectTab, TabClick, TabDrag,
+    },
     thread_details::{self, Details},
     thread_list::{self, Group},
     tool_rail::{
@@ -651,6 +653,18 @@ impl RootView {
             TabClick::Close(n) => self.close_tab(n, cx),
             TabClick::New => self.pick_project(cx),
         }
+    }
+
+    /// A tab dragged from `from` and dropped on the tab at `to`.
+    fn move_tab(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
+        if from == to || from >= self.projects.len() || to >= self.projects.len() {
+            return;
+        }
+        tab_strip::moved(&mut self.projects, from, to);
+        self.active = tab_strip::follow(self.active, from, to);
+        self.remember_tabs();
+        self.save_layout(cx);
+        cx.notify();
     }
 
     /// Puts the tabs in the layout the next window opens with.
@@ -1395,30 +1409,39 @@ impl Render for RootView {
             cx,
         );
         let tabs: Vec<ProjectTab> = self.projects.iter().map(Project::tab).collect();
-        let strip = tab_strip::strip(&tabs, self.active, cx, |click| {
-            Box::new(cx.listener(move |view, _, _, cx| view.click_tab(click, cx)))
-        })
-        .id("tab-strip")
-        .window_control_area(WindowControlArea::Drag)
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|view, _, _, _| view.should_move = true),
-        )
-        .on_mouse_up(
-            MouseButton::Left,
-            cx.listener(|view, _, _, _| view.should_move = false),
-        )
-        .on_mouse_down_out(cx.listener(|view, _, _, _| view.should_move = false))
-        .on_mouse_move(cx.listener(|view, _, window, _| {
-            if std::mem::take(&mut view.should_move) {
-                window.start_window_move();
-            }
-        }))
-        .on_click(|event, window, _| {
-            if event.click_count() == 2 {
-                window.titlebar_double_click();
-            }
-        });
+        let strip =
+            tab_strip::strip(
+                &tabs,
+                self.active,
+                cx,
+                |click| Box::new(cx.listener(move |view, _, _, cx| view.click_tab(click, cx))),
+                |to| {
+                    Box::new(cx.listener(move |view, drag: &TabDrag, _, cx| {
+                        view.move_tab(drag.from, to, cx)
+                    }))
+                },
+            )
+            .id("tab-strip")
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|view, _, _, _| view.should_move = true),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|view, _, _, _| view.should_move = false),
+            )
+            .on_mouse_down_out(cx.listener(|view, _, _, _| view.should_move = false))
+            .on_mouse_move(cx.listener(|view, _, window, _| {
+                if std::mem::take(&mut view.should_move) {
+                    window.start_window_move();
+                }
+            }))
+            .on_click(|event, window, _| {
+                if event.click_count() == 2 {
+                    window.titlebar_double_click();
+                }
+            });
         div()
             .size_full()
             .flex()
