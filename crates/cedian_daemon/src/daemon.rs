@@ -15,7 +15,9 @@ use cedian_wire::{Notice, Request, Status, ThreadInfo};
 
 use crate::{
     Cedia,
+    follow::{Offsets, follow},
     keep_awake::KeepAwake,
+    ledger::{Ledger, RunRecord, still_running},
     run::{Run, RunId, watch},
 };
 
@@ -46,11 +48,12 @@ pub struct Daemon {
     /// Each thread's latest run.
     by_thread: HashMap<String, RunId>,
     keep_awake: KeepAwake,
+    ledger: Ledger,
     next_id: u64,
 }
 
 impl Daemon {
-    pub fn new(cedia: Cedia, home: PathBuf) -> Self {
+    pub fn new(cedia: Cedia, home: PathBuf, state_dir: &Path) -> Self {
         let version = cedia.version();
         match &version {
             Ok(version) => log::info!("cedia {} at {}", version.version, cedia.bin.display()),
@@ -64,8 +67,113 @@ impl Daemon {
             runs: HashMap::new(),
             by_thread: HashMap::new(),
             keep_awake: KeepAwake::default(),
+            ledger: Ledger::new(state_dir),
             next_id: 1,
         }
+    }
+
+    /// Takes over the runs a previous daemon left going, following each through its session
+    /// logs until its process ends.
+    pub fn adopt(shared: &Shared) {
+        let mut daemon = lock(shared);
+        let mut adopted = Vec::new();
+        for record in daemon.ledger.load() {
+            if !still_running(record.pid) {
+                continue;
+            }
+            let id = daemon.id();
+            log::info!(
+                "run {id}: following pid {} of {}",
+                record.pid,
+                record.thread
+            );
+            daemon.runs.insert(
+                id,
+                Run {
+                    cwd: record.cwd,
+                    slug: record.slug,
+                    thread: Some(record.thread.clone()),
+                    pid: record.pid,
+                    alive: true,
+                    lines: Vec::new(),
+                    before: record.before.into_iter().collect(),
+                    requester: None,
+                    stderr: Default::default(),
+                    followed: Some(Offsets::default()),
+                },
+            );
+            daemon.by_thread.insert(record.thread, id);
+            adopted.push(id);
+        }
+        daemon.save_ledger();
+        let working = !adopted.is_empty();
+        daemon.keep_awake.set(working);
+        drop(daemon);
+        for id in adopted {
+            follow(shared.clone(), id);
+        }
+    }
+
+    /// Writes the live runs with known threads, for the next daemon to adopt.
+    fn save_ledger(&self) {
+        let records: Vec<RunRecord> = self
+            .runs
+            .values()
+            .filter(|run| run.alive)
+            .filter_map(|run| {
+                Some(RunRecord {
+                    pid: run.pid,
+                    thread: run.thread.clone()?,
+                    cwd: run.cwd.clone(),
+                    slug: run.slug.clone(),
+                    before: run.before.iter().cloned().collect(),
+                })
+            })
+            .collect();
+        if let Err(error) = self.ledger.save(&records) {
+            log::warn!("{error:#}");
+        }
+    }
+
+    /// One poll of a followed run: new session log lines go to its readers, and a process that
+    /// is gone ends the run. Returns whether to poll again.
+    pub fn poll_followed(&mut self, id: RunId) -> bool {
+        let Some(run) = self.runs.get(&id) else {
+            return false;
+        };
+        let (Some(thread), pid) = (run.thread.clone(), run.pid) else {
+            return false;
+        };
+        let running = still_running(pid);
+        let sessions = match read_thread(&threads_dir(&self.home, &run.slug), &thread) {
+            Ok(summary) => summary.sessions,
+            Err(error) => {
+                log::warn!("{error:#}");
+                Vec::new()
+            }
+        };
+        let paths: Vec<PathBuf> = sessions
+            .iter()
+            .filter(|s| !run.before.contains(&s.session_id))
+            .map(|s| session_path(&self.home, &run.slug, &s.session_id, s.path.as_deref()))
+            .collect();
+        let mut lines = Vec::new();
+        if let Some(Run {
+            followed: Some(offsets),
+            ..
+        }) = self.runs.get_mut(&id)
+        {
+            for path in &paths {
+                lines.extend(offsets.read_new(path));
+            }
+        }
+        for line in lines {
+            self.on_line(id, line);
+        }
+        if !running {
+            self.on_exit(id, "ended while another daemon had it".to_owned());
+        }
+        running
     }
 
     fn id(&mut self) -> u64 {
@@ -309,6 +417,7 @@ impl Daemon {
                 before,
                 requester: Some(client),
                 stderr: Default::default(),
+                followed: None,
             },
         );
         if let Some(thread) = thread {
@@ -334,6 +443,7 @@ impl Daemon {
         let requester = run.requester;
         let cwd = run.cwd.clone();
         let slug = run.slug.clone();
+        self.save_ledger();
         if let Some(requester) = requester
             && let Some(client) = self.clients.get_mut(&requester)
             && client.open.insert(thread.clone())
@@ -412,12 +522,13 @@ impl Daemon {
         }
     }
 
-    pub fn on_exit(&mut self, id: RunId, status: std::io::Result<std::process::ExitStatus>) {
+    pub fn on_exit(&mut self, id: RunId, how: String) {
         let Some(run) = self.runs.get_mut(&id) else {
             return;
         };
         run.alive = false;
-        log::info!("run {id}: exited {status:?}");
+        log::info!("run {id}: {how}");
+        self.save_ledger();
         let working = self.runs.values().any(|run| run.alive);
         self.keep_awake.set(working);
         let Some(run) = self.runs.get(&id) else {
@@ -434,10 +545,6 @@ impl Daemon {
             None => {
                 self.runs.remove(&id);
                 if let Some(requester) = requester {
-                    let how = match status {
-                        Ok(status) => status.to_string(),
-                        Err(error) => error.to_string(),
-                    };
                     self.error(
                         requester,
                         format!("cedia {how} before it started a thread:\n{stderr}"),
