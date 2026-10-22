@@ -158,7 +158,10 @@ mod tests {
         git(&["commit", "-q", "-m", "init"]);
         let mut found = ignored(root);
         found.sort();
-        assert_eq!(found, [PathBuf::from(".env"), PathBuf::from("node_modules")]);
+        assert_eq!(
+            found,
+            [PathBuf::from(".env"), PathBuf::from("node_modules")]
+        );
 
         // Into an empty directory: each path is either cloned whole or not there at all.
         let into = tempfile::tempdir().expect("tempdir");
@@ -169,8 +172,7 @@ mod tests {
         }
         if cloned.contains(&PathBuf::from("node_modules")) {
             assert_eq!(
-                std::fs::read_to_string(into.path().join("node_modules/a/index.js"))
-                    .expect("read"),
+                std::fs::read_to_string(into.path().join("node_modules/a/index.js")).expect("read"),
                 "x"
             );
         }
