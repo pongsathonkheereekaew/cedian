@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# A stand-in for cedia in the daemon's tests. It plays a recorded fixture: writes the
+# fixture's thread and session files where cedia would, then prints its stream.
+# FAKE_FIXTURE: the fixture directory. FAKE_THREADS, FAKE_SESSIONS: where cedia would write.
+# With $FAKE_THREADS/../hold present, a run waits after its first line until SIGTERM.
+set -euo pipefail
+
+if [[ "${1:-}" == "--version" ]]; then
+  echo '{"name":"cedia","version":"0.0.0-fake","protocol":"fake","capabilities":["threads","threads.send"]}'
+  exit 0
+fi
+
+if [[ "${1:-}" == "threads" ]]; then
+  # threads --cwd <dir> send <id> -- <text>
+  id="$5" text="$7"
+  printf '{"at":"2026-10-22T03:00:00.000Z","kind":"message","id":"m-1","from":"user","text":"%s"}\n' "$text" \
+    >>"$FAKE_THREADS/$id.jsonl"
+  echo "sent to $id"
+  exit 0
+fi
+
+mkdir -p "$FAKE_THREADS" "$FAKE_SESSIONS"
+for f in "$FAKE_FIXTURE"/threads/*.jsonl; do
+  # The last line is the final state, written when the run ends.
+  head -n -1 "$f" >"$FAKE_THREADS/$(basename "$f")"
+done
+cp "$FAKE_FIXTURE"/sessions/*.jsonl "$FAKE_SESSIONS/"
+
+finish() {
+  for f in "$FAKE_FIXTURE"/threads/*.jsonl; do
+    printf '{"at":"2026-10-22T03:00:01.000Z","kind":"state","state":"%s"}\n' "$1" >>"$FAKE_THREADS/$(basename "$f")"
+  done
+}
+
+first=1
+while IFS= read -r line; do
+  printf '%s\n' "$line"
+  if [[ $first == 1 && -e "$FAKE_THREADS/../hold" ]]; then
+    sleep 30 &
+    sleeper=$!
+    # The sleep holds stdout open too; it goes first so the daemon sees the stream end.
+    trap 'kill $sleeper; finish stopped; exit 143' TERM
+    wait $sleeper || true
+  fi
+  first=0
+done <"$FAKE_FIXTURE/stream.jsonl"
+finish done

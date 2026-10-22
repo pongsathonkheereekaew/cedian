@@ -19,8 +19,10 @@ anyhow.workspace = true
 assets.workspace = true
 cedian_agent = { path = "../cedian_agent" }
 cedian_protocol = { path = "../cedian_protocol" }
+cedian_wire = { path = "../cedian_wire" }
 collections.workspace = true
 editor.workspace = true
+futures.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
 log.workspace = true
