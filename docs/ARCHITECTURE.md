@@ -289,6 +289,7 @@ Done in cedia PR #19: project identity across worktrees, the `desktop` key with 
 5. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
 6. Media references (video frames, original file) in tool results (phase D).
 7. For the composer: the commands a thread offers as a list a client can show (`/`), a permission mode per run, and forking a thread at one of the person's messages, which edit and resend need. Attachments need `prompt.images` (item 5) to move ahead of phase D.
+8. For projects: extra read-only roots on a run (a linked repository), and a write to the project's files for knowledge dropped in.
 
 ## Projects
 
