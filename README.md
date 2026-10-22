@@ -8,4 +8,10 @@ The design decisions are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The 
 
 ## Status
 
-Planning. No code yet.
+Phase A. The spike window builds and runs: Zed's editor above a shell from Zed's terminal crate. There is no daemon or agent pane yet.
+
+```sh
+cargo run -p cedian_window
+```
+
+On Linux, install the packages from Zed's `script/linux` first.

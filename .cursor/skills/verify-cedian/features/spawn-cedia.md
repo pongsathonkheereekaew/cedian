@@ -1,10 +1,10 @@
 # Spawn cedia
 
-Starting a thread asks the daemon to spawn one cedia process on stdio JSONL. The child is the bundled cedia, or the checkout at `/home/ubuntu/cedia` when you are proving the spawn against a local build. The thread file is cedia's to write. cedian only reads it.
+Sending a prompt asks the daemon to run one cedia process (`cedia -p <text> --thread <id> --output-format stream-json`) that exits when the prompt is done. The child is the bundled cedia, or the checkout at `/home/ubuntu/cedia` when you are proving the spawn against a local build. The thread file is cedia's to write. cedian only reads it.
 
 ## Sub-features
 
-- `spawn-one` starts one cedia process for one new thread.
+- `spawn-one` runs one cedia process for one prompt in a new thread.
 - `spawn-isolated` writes that thread outside `~/.cedia`.
 - `spawn-faux` uses cedia's faux provider so the proof does not call a paid model API.
 
