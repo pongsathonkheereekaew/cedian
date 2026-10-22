@@ -190,6 +190,60 @@ fn the_window_gets_the_projects_commands() {
 }
 
 #[test]
+fn the_window_gets_the_projects_memory_and_outputs() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    let memory = harness.threads.with_file_name("memory.jsonl");
+    std::fs::create_dir_all(&harness.threads).expect("project dir");
+    std::fs::write(
+        &memory,
+        concat!(
+            r#"{"kind":"note","id":"a1","text":"f.txt is the fixture","from":"user","at":"2026-10-22T09:00:00Z"}"#,
+            "\n",
+            r#"{"kind":"note","id":"b2","text":"stale","from":"s-1","at":"2026-10-22T09:01:00Z"}"#,
+            "\n",
+            r#"{"kind":"forget","id":"b2","at":"2026-10-22T09:02:00Z"}"#,
+            "\n",
+        ),
+    )
+    .expect("memory");
+    window.ask(Request::Memory {
+        cwd: harness.cwd.clone(),
+    });
+    match window.next() {
+        Notice::Memory { cwd, notes } => {
+            assert_eq!(cwd, harness.cwd);
+            let ids: Vec<&str> = notes.iter().map(|n| n.id.as_str()).collect();
+            assert_eq!(ids, ["a1"]);
+        }
+        other => panic!("{other:?}"),
+    }
+    window.ask(Request::Prompt {
+        cwd: harness.cwd.clone(),
+        text: "make f.txt say good".into(),
+        thread: None,
+        worktree: false,
+        profile: None,
+        model: None,
+        permission: None,
+    });
+    window.until(status_is(Status::Done));
+    window.ask(Request::Outputs {
+        cwd: harness.cwd.clone(),
+    });
+    let (_, seen) = window.until(|n| matches!(n, Notice::Outputs { .. }));
+    let Some(Notice::Outputs { outputs, .. }) = seen.last() else {
+        panic!("{seen:?}")
+    };
+    // The fixture ran in /fixture/repo, which is not here.
+    let files: Vec<(&str, &str, bool)> = outputs
+        .iter()
+        .map(|o| (o.path.as_str(), o.thread.as_str(), o.exists))
+        .collect();
+    assert_eq!(files, [("f.txt", "t-00000001", false)]);
+}
+
+#[test]
 fn an_edited_message_forks_the_thread_and_runs_there() {
     let harness = start_with("edit-and-check", "\"threads.fork\"");
     let mut window = Window::connect(&harness);

@@ -1,12 +1,17 @@
 //! Reads cedia's files under `~/.cedia`: which project a directory belongs to, the project's
-//! threads, and a thread's session logs. cedia writes these files; cedian only reads them.
+//! threads and memory, a thread's session logs, and the files the threads changed. cedia
+//! writes these files; cedian only reads them.
 
 mod home;
+mod memory;
+mod outputs;
 mod project;
 mod session;
 mod thread;
 
 pub use home::cedia_home;
+pub use memory::{MemoryNote, memory_path, read_memory};
+pub use outputs::{Output, project_outputs, session_changes};
 pub use project::{project_key, project_root, project_slug};
 pub use session::{session_cwd, session_lines, session_path, session_trees};
 pub use thread::{
