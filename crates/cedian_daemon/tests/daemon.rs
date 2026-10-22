@@ -78,6 +78,8 @@ fn start_with(fixture: &str, caps: &str) -> Harness {
 struct Window {
     writer: UnixStream,
     reader: BufReader<UnixStream>,
+    /// The models and modes the daemon sent after its welcome.
+    choices: Notice,
 }
 
 impl Window {
@@ -86,17 +88,20 @@ impl Window {
         stream
             .set_read_timeout(Some(Duration::from_secs(20)))
             .expect("timeout");
-        let mut window = Self {
-            writer: stream.try_clone().expect("clone"),
-            reader: BufReader::new(stream),
-        };
-        match window.next() {
+        let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+        let mut next = || read_message(&mut reader).expect("read").expect("a notice");
+        match next() {
             Notice::Welcome { cedia, .. } => {
                 assert_eq!(cedia.expect("fake version").version, "0.0.0-fake")
             }
             other => panic!("expected welcome, got {other:?}"),
         }
-        window
+        let choices = next();
+        Self {
+            writer: stream,
+            reader,
+            choices,
+        }
     }
 
     fn ask(&mut self, request: Request) {
@@ -132,6 +137,41 @@ fn status_is(want: Status) -> impl Fn(&Notice) -> bool {
 }
 
 #[test]
+fn a_cedia_without_the_lists_sends_no_choices() {
+    let harness = start("edit-and-check");
+    let window = Window::connect(&harness);
+    assert!(
+        matches!(
+            window.choices,
+            Notice::Choices {
+                models: None,
+                permissions: None
+            }
+        ),
+        "{:?}",
+        window.choices
+    );
+}
+
+#[test]
+fn the_window_gets_cedias_models_and_modes() {
+    let harness = start_with("edit-and-check", "\"models\",\"permissions\"");
+    let window = Window::connect(&harness);
+    let Notice::Choices {
+        models: Some(models),
+        permissions: Some(permissions),
+    } = &window.choices
+    else {
+        panic!("{:?}", window.choices)
+    };
+    assert_eq!(models.default, "faux/a");
+    assert_eq!(models.models.len(), 2);
+    assert_eq!(models.models[1].reason.as_deref(), Some("no key"));
+    assert_eq!(permissions.modes.len(), 2);
+    assert_eq!(permissions.default.to_string(), "read-only");
+}
+
+#[test]
 fn a_prompt_runs_and_a_second_window_rebuilds_it() {
     let harness = start("edit-and-check");
     let mut window = Window::connect(&harness);
@@ -147,6 +187,7 @@ fn a_prompt_runs_and_a_second_window_rebuilds_it() {
         worktree: false,
         profile: None,
         model: None,
+        permission: None,
     });
     let (lines, seen) = window.until(status_is(Status::Done));
     assert!(
@@ -190,6 +231,7 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         worktree: false,
         profile: None,
         model: None,
+        permission: None,
     });
     window.until(|n| matches!(n, Notice::Line { .. }));
 
@@ -201,6 +243,7 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         worktree: false,
         profile: None,
         model: None,
+        permission: None,
     });
     window.ask(Request::Stop {
         thread: "t-00000001".into(),
@@ -224,6 +267,7 @@ fn a_rating_reaches_the_thread_and_the_list() {
         worktree: false,
         profile: None,
         model: None,
+        permission: None,
     });
     window.until(status_is(Status::Done));
     window.ask(Request::Rate {
@@ -254,6 +298,7 @@ fn a_queued_message_can_be_taken_back() {
         worktree: false,
         profile: None,
         model: None,
+        permission: None,
     });
     window.until(|n| matches!(n, Notice::Line { .. }));
     window.ask(Request::Send {
@@ -458,6 +503,7 @@ fn a_new_thread_can_run_in_its_own_worktree() {
         worktree: true,
         profile: None,
         model: None,
+        permission: None,
     });
     let (_, seen) = window.until(status_is(Status::Done));
     assert!(
@@ -518,6 +564,7 @@ fn rejecting_a_hunk_puts_the_file_back_and_tells_the_thread() {
         worktree: false,
         profile: None,
         model: None,
+        permission: None,
     });
     let (_, seen) = window.until(status_is(Status::Done));
     let thread = seen
@@ -647,6 +694,7 @@ fn a_verified_thread_with_nothing_to_review_archives_itself() {
         worktree: false,
         profile: None,
         model: None,
+        permission: None,
     });
     window.until(|n| {
         matches!(n, Notice::Threads { threads, .. }
@@ -669,6 +717,7 @@ fn an_unverified_thread_stays() {
         worktree: false,
         profile: None,
         model: None,
+        permission: None,
     });
     window.until(status_is(Status::Done));
     // A list after the run ended, which an archive would have come before.
@@ -733,7 +782,7 @@ fn a_thread_the_coordinator_opened_starts_in_its_own_worktree() {
 }
 
 #[test]
-fn a_prompt_that_names_a_model_runs_on_it() {
+fn a_prompt_that_names_a_model_and_a_mode_runs_on_them() {
     let harness = start("edit-and-check");
     let mut window = Window::connect(&harness);
     window.ask(Request::Prompt {
@@ -743,9 +792,17 @@ fn a_prompt_that_names_a_model_runs_on_it() {
         worktree: false,
         profile: None,
         model: Some("sonnet".into()),
+        permission: Some("plan".into()),
     });
     window.until(status_is(Status::Done));
     let args = std::fs::read_to_string(harness.threads.join("../args")).expect("args");
     let args: Vec<&str> = args.lines().collect();
-    assert!(args.windows(2).any(|w| w == ["--model", "sonnet"]), "{args:?}");
+    assert!(
+        args.windows(2).any(|w| w == ["--model", "sonnet"]),
+        "{args:?}"
+    );
+    assert!(
+        args.windows(2).any(|w| w == ["--permission", "plan"]),
+        "{args:?}"
+    );
 }

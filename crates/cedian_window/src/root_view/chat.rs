@@ -220,6 +220,7 @@ impl RootView {
             worktree: false,
             profile: Some(CHAT_PROFILE.to_owned()),
             model: None,
+            permission: None,
         });
         if !self.showing(Kind::Chat) {
             self.open_kind(Kind::Chat, ToolTarget { against: None }, cx);

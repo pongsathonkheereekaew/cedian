@@ -11,6 +11,27 @@ if [[ "${1:-}" == "--version" ]]; then
   exit 0
 fi
 
+# FAKE_MODELS, FAKE_PERMISSIONS: files with other lists, for screenshots.
+if [[ "${1:-}" == "models" && -n "${FAKE_MODELS:-}" ]]; then
+  cat "$FAKE_MODELS"
+  exit 0
+fi
+
+if [[ "${1:-}" == "permissions" && -n "${FAKE_PERMISSIONS:-}" ]]; then
+  cat "$FAKE_PERMISSIONS"
+  exit 0
+fi
+
+if [[ "${1:-}" == "models" ]]; then
+  echo '{"default":"faux/a","models":[{"ref":"faux/a","label":"Faux A","provider":"faux","available":true,"contextWindow":200000,"effort":false},{"ref":"faux/b","label":"Faux B","provider":"faux","available":false,"reason":"no key","contextWindow":100000,"effort":true}]}'
+  exit 0
+fi
+
+if [[ "${1:-}" == "permissions" ]]; then
+  echo '{"default":"read-only","modes":[{"mode":"read-only","label":"Read only","description":"Reads"},{"mode":"plan","label":"Plan","description":"Plans first"}]}'
+  exit 0
+fi
+
 if [[ "${1:-}" == "threads" && "${4:-}" == "unsend" ]]; then
   # threads --cwd <dir> unsend <id> <message>...
   id="$5"

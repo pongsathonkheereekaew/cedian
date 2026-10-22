@@ -3,6 +3,7 @@
 
 mod blocks;
 mod chat;
+mod run_choices;
 
 use std::{
     path::{Path, PathBuf},
@@ -89,6 +90,8 @@ pub struct RootView {
     files: Entity<FileTree>,
     git: Entity<GitPane>,
     workplace: Entity<Workplace>,
+    /// The models and permission modes cedia lists, and the picks for the next runs.
+    choices: run_choices::RunChoices,
     search: Entity<ThreadSearch>,
     review: Entity<ReviewPane>,
     /// Hunks of the open thread's review still waiting, for the Review block's meta.
@@ -351,6 +354,7 @@ impl RootView {
             files,
             git,
             workplace,
+            choices: run_choices::RunChoices::default(),
             search,
             review,
             waiting_hunks: 0,
@@ -419,6 +423,13 @@ impl RootView {
                     });
                 }
                 self.request(Request::Settings);
+            }
+            Notice::Choices {
+                models,
+                permissions,
+            } => {
+                self.choices.set(models, permissions);
+                cx.notify();
             }
             Notice::Settings { path, desktop } => {
                 let settings = Desktop::from_value(&desktop);
@@ -505,6 +516,7 @@ impl RootView {
                 project.preparing = None;
                 project.current = Some(thread.clone());
                 project.status = Some(Status::Working);
+                self.choices.started(&thread);
                 if n == self.active {
                     self.retitle(cx);
                     self.review_current(cx);
@@ -1145,6 +1157,9 @@ impl RootView {
             }
             self.project_mut().awaiting_thread = true;
         }
+        let writer = self.writer_model(cx);
+        let current = self.project().current.clone();
+        let (model, permission) = self.choices.for_run(current.as_deref(), writer.as_deref());
         let project = self.project();
         self.request(Request::Prompt {
             cwd: project.cwd.clone(),
@@ -1152,7 +1167,8 @@ impl RootView {
             thread: project.current.clone(),
             worktree: project.current.is_none() && self.use_worktree,
             profile: None,
-            model: None,
+            model,
+            permission,
         });
         self.retitle(cx);
         cx.notify();
@@ -1652,7 +1668,8 @@ impl RootView {
                     };
                     div()
                         .id("worktree")
-                        .flex_none()
+                        .min_w_0()
+                        .truncate()
                         .cursor_pointer()
                         .text_meta()
                         .text_color(colors.text_muted)
@@ -1711,6 +1728,7 @@ impl RootView {
                                     .overflow_hidden()
                                     .child(self.workplace.clone())
                                     .children(worktree)
+                                    .child(self.render_run_choices(cx))
                                     .child(
                                         div()
                                             .flex_grow(1.)

@@ -19,6 +19,15 @@
     "Schedule": {
       "$ref": "#/definitions/Schedule"
     },
+    "ModelList": {
+      "$ref": "#/definitions/ModelList"
+    },
+    "PermissionList": {
+      "$ref": "#/definitions/PermissionList"
+    },
+    "CommandList": {
+      "$ref": "#/definitions/CommandList"
+    },
     "VersionInfo": {
       "$ref": "#/definitions/VersionInfo"
     }
@@ -193,7 +202,11 @@
         "todo",
         "profiles",
         "open_thread",
-        "schedules"
+        "schedules",
+        "models",
+        "permissions",
+        "commands",
+        "threads.fork"
       ]
     },
     "Check": {
@@ -286,6 +299,53 @@
           "additionalProperties": false
         }
       ]
+    },
+    "CommandEntry": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "const": "skill"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "user",
+            "repository"
+          ]
+        },
+        "argumentHint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "kind",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "CommandList": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CommandEntry"
+          }
+        }
+      },
+      "required": [
+        "commands"
+      ],
+      "additionalProperties": false
     },
     "CompactionBlock": {
       "type": "object",
@@ -405,6 +465,22 @@
         "changed",
         "checks",
         "unverified"
+      ],
+      "additionalProperties": false
+    },
+    "ForkOf": {
+      "type": "object",
+      "properties": {
+        "thread": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread",
+        "run"
       ],
       "additionalProperties": false
     },
@@ -593,6 +669,41 @@
             "via"
           ]
         },
+        "classified": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "calls": {
+              "type": "number"
+            },
+            "blocked": {
+              "type": "number"
+            },
+            "model": {
+              "type": "string"
+            },
+            "via": {
+              "type": "string",
+              "enum": [
+                "cedia",
+                "claude-code"
+              ]
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "costUsd": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "blocked",
+            "calls",
+            "model",
+            "sessionId",
+            "via"
+          ]
+        },
         "thread": {
           "type": "string"
         },
@@ -643,6 +754,124 @@
     "JsonObject": {
       "type": "object",
       "additionalProperties": {}
+    },
+    "ModelEntry": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "alias": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "contextWindow": {
+          "type": "number"
+        },
+        "effort": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ref",
+        "label",
+        "provider",
+        "available",
+        "contextWindow",
+        "effort"
+      ],
+      "additionalProperties": false
+    },
+    "ModelList": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ModelEntry"
+          }
+        }
+      },
+      "required": [
+        "default",
+        "models"
+      ],
+      "additionalProperties": false
+    },
+    "PermissionEntry": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "$ref": "#/definitions/PermissionSetting"
+        },
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "label",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "PermissionList": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "$ref": "#/definitions/PermissionSetting"
+        },
+        "modes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PermissionEntry"
+          }
+        }
+      },
+      "required": [
+        "default",
+        "modes"
+      ],
+      "additionalProperties": false
+    },
+    "PermissionMode": {
+      "type": "string",
+      "enum": [
+        "read-only",
+        "workspace"
+      ]
+    },
+    "PermissionSetting": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/PermissionMode"
+        },
+        {
+          "type": "string",
+          "const": "auto"
+        },
+        {
+          "type": "string",
+          "const": "plan"
+        }
+      ]
     },
     "Question": {
       "type": "object",
@@ -705,6 +934,17 @@
         "model"
       ],
       "additionalProperties": false
+    },
+    "RunPermission": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/PermissionMode"
+        },
+        {
+          "type": "string",
+          "const": "plan"
+        }
+      ]
     },
     "Schedule": {
       "type": "object",
@@ -1793,7 +2033,8 @@
         "handoff",
         "quota",
         "rejected",
-        "rewind"
+        "rewind",
+        "fork"
       ]
     },
     "Spawned": {
@@ -2118,6 +2359,9 @@
             },
             "profile": {
               "type": "string"
+            },
+            "forkOf": {
+              "$ref": "#/definitions/ForkOf"
             },
             "at": {
               "type": "string"
@@ -2469,6 +2713,9 @@
             },
             "from": {
               "$ref": "#/definitions/RunFrom"
+            },
+            "permission": {
+              "$ref": "#/definitions/RunPermission"
             },
             "at": {
               "type": "string"

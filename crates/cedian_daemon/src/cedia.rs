@@ -6,13 +6,15 @@ use std::{
 };
 
 use anyhow::Context as _;
-use cedian_protocol::{Capability, Rating, VersionInfo};
+use cedian_protocol::{Capability, ModelList, PermissionList, Rating, VersionInfo};
 
-/// A run's flags beyond its text: cedia's `--profile`, `--model`, `--ask on` and `--todo on`.
+/// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--ask on`
+/// and `--todo on`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Flags<'a> {
     pub profile: Option<&'a str>,
     pub model: Option<&'a str>,
+    pub permission: Option<&'a str>,
     /// The run may end on a question for the person, when this cedia can.
     pub ask: bool,
     /// The writer keeps a todo list, when this cedia can.
@@ -70,8 +72,37 @@ impl Cedia {
         known_capabilities(&output.stdout).map_err(|e| format!("cedia's version: {e}"))
     }
 
+    /// `cedia models --json`: the models a run can take, and which one it takes by default.
+    pub fn models(&self) -> Result<ModelList, String> {
+        self.list("models")
+    }
+
+    /// `cedia permissions --json`: the modes a run can be given.
+    pub fn permissions(&self) -> Result<PermissionList, String> {
+        self.list("permissions")
+    }
+
+    /// `cedia <command> --json`, read as `T`.
+    fn list<T: serde::de::DeserializeOwned>(&self, command: &str) -> Result<T, String> {
+        let output = self
+            .command(Path::new("/"))
+            .args([command, "--json"])
+            .output()
+            .map_err(|e| format!("running {}: {e}", self.bin.display()))?;
+        if !output.status.success() {
+            return Err(format!(
+                "{} {command} --json exited with {}: {}",
+                self.bin.display(),
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        serde_json::from_slice(&output.stdout).map_err(|e| format!("cedia {command}: {e}"))
+    }
+
     /// One run: `cedia --print=<text> --output-format stream-json --cwd <cwd> [--thread <id>]
-    /// [--profile <name>] [--model <ref>] [--ask on] [--todo on]`. `--print=` keeps a prompt that starts with `-` from reading as a flag.
+    /// [--profile <name>] [--model <ref>] [--permission <mode>] [--ask on] [--todo on]`. `--print=`
+    /// keeps a prompt that starts with `-` from reading as a flag.
     /// `ask` lets the run end on a question for the person, when this cedia can.
     pub fn prompt(
         &self,
@@ -97,6 +128,9 @@ impl Cedia {
         }
         if let Some(model) = flags.model {
             command.args(["--model", model]);
+        }
+        if let Some(permission) = flags.permission {
+            command.args(["--permission", permission]);
         }
         if flags.ask {
             command.args(["--ask", "on"]);
