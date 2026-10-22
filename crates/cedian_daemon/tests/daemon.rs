@@ -216,6 +216,41 @@ fn a_thread_left_working_reads_as_interrupted() {
 }
 
 #[test]
+fn a_thread_made_outside_the_daemon_reaches_the_list() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    assert!(matches!(window.next(), Notice::Threads { threads, .. } if threads.is_empty()));
+
+    // As `cedia -p` in a terminal would.
+    std::fs::create_dir_all(&harness.threads).expect("threads dir");
+    let path = harness.threads.join("t-0000000b.jsonl");
+    std::fs::write(
+        &path,
+        "{\"at\":\"2026-10-22T03:00:00.000Z\",\"kind\":\"open\",\"title\":\"from a terminal\",\"task\":\"x\"}\n",
+    )
+    .expect("thread");
+    let (_, seen) =
+        window.until(|n| matches!(n, Notice::Threads { threads, .. } if !threads.is_empty()));
+    match seen.last() {
+        Some(Notice::Threads { threads, .. }) => {
+            assert_eq!(threads[0].thread.title, "from a terminal")
+        }
+        other => panic!("{other:?}"),
+    }
+
+    // And it is archived from the terminal too.
+    let mut text = std::fs::read_to_string(&path).expect("read");
+    text.push_str(
+        "{\"at\":\"2026-10-22T03:01:00.000Z\",\"kind\":\"archived\",\"archived\":true}\n",
+    );
+    std::fs::write(&path, text).expect("append");
+    window.until(|n| matches!(n, Notice::Threads { threads, .. } if threads[0].thread.archived));
+}
+
+#[test]
 fn a_socket_path_too_long_fails_with_the_reason() {
     let config = Config {
         socket: PathBuf::from(format!("/tmp/{}/daemon.sock", "x".repeat(120))),

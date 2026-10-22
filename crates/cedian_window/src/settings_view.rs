@@ -11,7 +11,10 @@ use gpui::{
 use serde_json::Value;
 use theme::ActiveTheme as _;
 
-use crate::desktop::{Desktop, ThemeMode, UI_FONT_SIZES};
+use crate::{
+    desktop::{Desktop, ThemeMode, UI_FONT_SIZES},
+    tokens,
+};
 
 pub enum SettingsEvent {
     Set { key: &'static str, value: Value },
@@ -174,7 +177,7 @@ impl Render for SettingsView {
                                     .p_2()
                                     .border_1()
                                     .border_color(border)
-                                    .font_family("Lilex")
+                                    .font(tokens::code_font())
                                     .text_xs()
                                     .child(file),
                             ),
