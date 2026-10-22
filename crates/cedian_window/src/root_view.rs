@@ -367,6 +367,64 @@ impl RootView {
         cx.notify();
     }
 
+    /// The thread's question, with a button per option; any other answer goes in the composer.
+    fn render_question(
+        &self,
+        question: cedian_index::ThreadQuestion,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let colors = cx.theme().colors();
+        let status = cx.theme().status();
+        let mut options = div().flex().flex_wrap().gap_2();
+        for (n, option) in question.options.into_iter().enumerate() {
+            let answer = option.clone();
+            options = options.child(
+                div()
+                    .id(("answer", n))
+                    .px_2()
+                    .py_1()
+                    .border_1()
+                    .border_color(if n == 0 {
+                        colors.text_accent
+                    } else {
+                        colors.border
+                    })
+                    .cursor_pointer()
+                    .text_sm()
+                    .on_click(cx.listener(move |view, _, _, cx| view.submit(answer.clone(), cx)))
+                    .child(if n == 0 {
+                        format!("{option} (recommended)")
+                    } else {
+                        option
+                    }),
+            );
+        }
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .mx_3()
+            .my_2()
+            .p_2()
+            .border_1()
+            .border_color(status.warning)
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(status.warning)
+                    .child("The thread is waiting for your answer"),
+            )
+            .child(div().text_sm().child(question.question))
+            .child(options)
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(colors.text_muted)
+                    .child("Or type another answer below."),
+            )
+            .into_any_element()
+    }
+
     /// Points the review at the open thread.
     fn review_current(&mut self, cx: &mut Context<Self>) {
         let cwd = self.cwd.display().to_string();
@@ -597,6 +655,7 @@ fn status_word(status: Status) -> &'static str {
         Status::Failed => "failed",
         Status::Stopped => "stopped",
         Status::Interrupted => "interrupted",
+        Status::Asking => "● asking you",
     }
 }
 
@@ -605,7 +664,7 @@ fn status_color(status: Status, colors: &theme::StatusColors, idle: Hsla) -> Hsl
         Status::Working => colors.info,
         Status::Done => colors.success,
         Status::Failed => colors.error,
-        Status::Interrupted => colors.warning,
+        Status::Interrupted | Status::Asking => colors.warning,
         Status::Stopped => idle,
     }
 }
@@ -616,6 +675,13 @@ impl Render for RootView {
         window.set_rem_size(theme_settings::ThemeSettings::get_global(cx).ui_font_size(cx));
         let live = !matches!(self.connection, Connection::Replay);
         let threads = live.then(|| self.render_threads(cx));
+        let question = self
+            .current
+            .as_ref()
+            .and_then(|id| self.threads.iter().find(|t| &t.thread.id == id))
+            .filter(|t| t.status == Status::Asking && !self.showing_settings)
+            .and_then(|t| t.thread.question.clone())
+            .map(|question| self.render_question(question, cx));
         let colors = cx.theme().colors();
         let status_colors = cx.theme().status();
         let failure = match &self.connection {
@@ -669,6 +735,7 @@ impl Render for RootView {
                                 .child("Stop the run"),
                         )
                     })
+                    .children(question)
                     .when(live && self.current.is_none(), |column| {
                         let word = if self.use_worktree {
                             "In a new worktree: on"

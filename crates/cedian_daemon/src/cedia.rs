@@ -59,9 +59,16 @@ impl Cedia {
         serde_json::from_slice(&output.stdout).map_err(|e| format!("cedia's version: {e}"))
     }
 
-    /// One run: `cedia --print=<text> --output-format stream-json --cwd <cwd> [--thread <id>]`.
-    /// `--print=` keeps a prompt that starts with `-` from reading as a flag.
-    pub fn prompt(&self, cwd: &Path, text: &str, thread: Option<&str>) -> anyhow::Result<Child> {
+    /// One run: `cedia --print=<text> --output-format stream-json --cwd <cwd> [--thread <id>]
+    /// [--ask on]`. `--print=` keeps a prompt that starts with `-` from reading as a flag.
+    /// `ask` lets the run end on a question for the person, when this cedia can.
+    pub fn prompt(
+        &self,
+        cwd: &Path,
+        text: &str,
+        thread: Option<&str>,
+        ask: bool,
+    ) -> anyhow::Result<Child> {
         let mut command = self.command(cwd);
         command
             .arg(format!("--print={text}"))
@@ -73,6 +80,9 @@ impl Cedia {
             .process_group(0);
         if let Some(thread) = thread {
             command.args(["--thread", thread]);
+        }
+        if ask {
+            command.args(["--ask", "on"]);
         }
         command
             .spawn()

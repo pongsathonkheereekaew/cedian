@@ -99,3 +99,17 @@ fn a_session_names_its_snapshot_trees_in_order() {
         ]
     );
 }
+
+#[test]
+fn a_thread_that_asked_holds_its_question() {
+    let dir = fixtures_dir().join("ask").join("threads");
+    let thread = list_threads(&dir).expect("threads").remove(0);
+    assert_eq!(thread.state, ThreadState::Asking);
+    let question = thread.question.expect("question");
+    assert!(
+        question
+            .question
+            .starts_with("Should f.txt say good or great?")
+    );
+    assert_eq!(question.options, ["good", "great"]);
+}

@@ -27,6 +27,9 @@ impl SessionEvent {
             | SessionEvent::Reminder { id, parent_id, .. }
             | SessionEvent::Effort { id, parent_id, .. }
             | SessionEvent::TurnEnd { id, parent_id, .. }
+            | SessionEvent::CompactRequest { id, parent_id, .. }
+            | SessionEvent::Compaction { id, parent_id, .. }
+            | SessionEvent::Summary { id, parent_id, .. }
             | SessionEvent::Result { id, parent_id, .. } => (id, parent_id.as_ref()),
         }
     }
