@@ -77,16 +77,14 @@ cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon adds `idle
 
 ## What cedia needs to add
 
-Done in cedia PR #19: project identity across worktrees, the `desktop` key with unknown keys failing loudly, the protocol schema and session fixtures, `permission_reply` removed. Still to add, in the order cedian needs them:
+Done in cedia PR #19: project identity across worktrees, the `desktop` key with unknown keys failing loudly, the protocol schema and session fixtures, `permission_reply` removed. Done in cedia PR #28 (pinned at `4716402`): `cedia --version --json` with version, protocol hash and capabilities; `threads rate` and `threads unsend` as thread events; a Keychain fallback for API keys (service `cedia`, the env var name as account); each check in a receipt names the thread that ran it; fixture thread ids are stable across re-records. Still to add, in the order cedian needs them:
 
-1. `cedia --version --json` with version and capabilities (phase B).
-2. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
-3. `threads rate`, `threads unsend` for queued messages, `threads delete`, and a `title` event for rename (phases B and C).
-4. Keychain fallback for API keys (phase B).
-5. `profiles` and `--profile` (phase C).
-6. `open_thread` for a coordinator, and per-project memory and files (phase C).
-7. Media references (video frames, original file) in tool results (phase D).
-8. `cedia serve` with `host_tools`, `host_call` and `host_result`, once a host tool is needed (phase C).
+1. `threads delete`, and a `title` event for rename (phase C).
+2. `profiles` and `--profile` (phase C).
+3. `open_thread` for a coordinator, and per-project memory and files (phase C).
+4. `cedia serve` with `host_tools`, `host_call` and `host_result`, once a host tool is needed (phase C).
+5. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
+6. Media references (video frames, original file) in tool results (phase D).
 
 ## Projects
 
@@ -98,7 +96,7 @@ cedia's threads already follow Claude Projects: a thread is one line of work mad
 | --- | --- | --- | --- |
 | 0 Clean | Repo cleared | Contract (PR #19) | Both repos clean; schema and fixtures merged (done) |
 | A Window | Spike first: GPUI window plus Zed `editor` and `terminal` compiling at one pinned rev, with Zed's `[patch]` entries copied and the toolchain matched; compiled cedia passing its sandbox tests on a Mac. Then the agent pane over the fixtures | Stage 2 | A fixture renders; replay test green; performance budgets measured |
-| B One live thread | Daemon as a LaunchAgent, runs per prompt, reconcile and keep-awake; terminal (attach selection), review, settings UI; message queue with Send now; receipt card with next steps and the verified badge; reactions; view modes, context meter, thread details; window and layout restored after quit; worktree setup with progress and branch names from the first message; open in other apps | `--version --json`, rate, unsend, Keychain, which thread ran each check | Delegate a task into a worktree, quit and reopen with the thread intact, review and accept |
+| B One live thread | Daemon as a LaunchAgent, runs per prompt, reconcile and keep-awake; terminal (attach selection), review, settings UI; message queue with Send now; receipt card with next steps and the verified badge; reactions; view modes, context meter, thread details; window and layout restored after quit; worktree setup with progress and branch names from the first message; open in other apps | `--version --json`, rate, unsend, Keychain, which thread ran each check (done in cedia PR #28) | Delegate a task into a worktree, quit and reopen with the thread intact, review and accept |
 | C Parallel | Many threads, tabs by state, notifications, search, pin and group; shared Chromium with capture and annotate; project pane with coordinator; bot profiles and @mention; side chat, background tasks pane, task chips, app preview with per-site approval, safe archive; file tree; usage page by day, model and project; storage view; export; scheduled runs; Open With from Finder; MCP card | Stage 5: sub-agents, MCP, web, host tools, profiles, `open_thread` | Three threads at once, memory measured |
 | D Media, depth | Video and image panes, editor with LSP and line comments, git pane, surface protocol, pop-out panes | Stage 6, prompt images and the media route, video read | The agent fixes a bug shown in a screen recording |
 | Later | Remote over QUIC, computer use via `cua-driver`, voice mode | Classifier, goal mode | |
@@ -121,7 +119,16 @@ On the owner's Mac (Apple silicon, same day):
 - A sub-thread's receipt lists the same check twice, because cedia's evidence counts the sub-thread's run of it and the parent's. The fix is in cedia: say which thread ran each check.
 - cedia at the pin compiles with `bun build --compile` in under a second to a 72 MB binary. Its sandbox tests pass (13 of 13), and the compiled binary runs sandboxed bash under `--sandbox on` while a write outside the working directory fails with `Operation not permitted`.
 
-Still to do: keystroke latency (it needs Accessibility permission to send keys), scrolling a 10k-block thread, and the same measurements on the Claude desktop app.
+Performance budgets, first measurement (2026-10-22, release build with `runtime_shaders`, Apple silicon). Each number is taken from outside the app: keys and scroll events are posted as HID events, and the window's pixels are polled with `CGWindowListCreateImage`. That polling caps the resolution at about 14 ms a frame, so these are upper bounds that cannot tell 60 Hz from 120 Hz. ScreenCaptureKit is the next step.
+
+| Budget | cedian | Claude desktop |
+| --- | --- | --- |
+| Cold start, launch to window on screen | median 194 ms; 268 ms with a 10k-block thread loaded | not measured: quitting it would end the session doing the measuring |
+| Keystroke to pixels, editor | median 36 ms, p95 43 ms (30 keys) | not measured: it was in use |
+| Scrolling a 10k-block thread | changed on 87% of captures at about 67 captures/s; longest gap 33 ms | not measured |
+| Idle memory, 10k-block thread open | about 127 MB, under 1% CPU | about 1,020 MB across 14 processes |
+
+The release binary is 117 MB and a clean release build takes about 10 minutes on the Mac. Typing works in the editor and the shell, including Thai: the shell takes text from the platform input handler, as Zed's terminal does, and draws combining marks with their base character.
 
 ## Learned from the Claude desktop app
 

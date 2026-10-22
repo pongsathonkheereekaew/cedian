@@ -1,6 +1,7 @@
 mod agent_pane;
 mod replay;
 mod root_view;
+mod shell_pane;
 mod spike_view;
 
 use std::path::PathBuf;
@@ -30,23 +31,31 @@ fn main() {
         });
 }
 
+const USAGE: &str = "usage: cedian [--replay <stream.jsonl> [--instant]]";
+
 /// `--replay <stream.jsonl>`, read before the window opens so a bad file fails fast.
-fn replay_arg() -> anyhow::Result<Option<(PathBuf, Vec<cedian_protocol::Line>)>> {
+/// `--instant` applies every line before the first frame, for budgets on long threads.
+fn replay_arg() -> anyhow::Result<Option<replay::Replay>> {
     let mut args = std::env::args_os().skip(1);
-    match args.next() {
-        None => Ok(None),
-        Some(flag) if flag == "--replay" => {
-            let path = PathBuf::from(args.next().context("--replay needs a stream.jsonl path")?);
-            let lines = replay::read(&path)?;
-            Ok(Some((path, lines)))
-        }
-        Some(other) => {
-            anyhow::bail!("unknown argument {other:?}; usage: cedian [--replay <stream.jsonl>]")
-        }
-    }
+    let Some(flag) = args.next() else {
+        return Ok(None);
+    };
+    anyhow::ensure!(flag == "--replay", "unknown argument {flag:?}; {USAGE}");
+    let path = PathBuf::from(args.next().context("--replay needs a stream.jsonl path")?);
+    let instant = match args.next() {
+        None => false,
+        Some(flag) if flag == "--instant" => true,
+        Some(other) => anyhow::bail!("unknown argument {other:?}; {USAGE}"),
+    };
+    let lines = replay::read(&path)?;
+    Ok(Some(replay::Replay {
+        path,
+        lines,
+        instant,
+    }))
 }
 
-fn open(replay: Option<(PathBuf, Vec<cedian_protocol::Line>)>, cx: &mut App) -> anyhow::Result<()> {
+fn open(replay: Option<replay::Replay>, cx: &mut App) -> anyhow::Result<()> {
     assets::Assets.load_fonts(cx).context("loading fonts")?;
     settings::init(cx);
     theme_settings::init(theme::LoadThemes::JustBase, cx);
@@ -65,11 +74,11 @@ fn open(replay: Option<(PathBuf, Vec<cedian_protocol::Line>)>, cx: &mut App) -> 
         let tools = cx.new(|cx| SpikeView::new(window, cx));
         let title = replay
             .as_ref()
-            .map(|(path, _)| format!("replay {}", path.display()))
+            .map(|replay| format!("replay {}", replay.path.display()))
             .unwrap_or_else(|| "no thread".to_owned());
         let agent = cx.new(|_| AgentPane::new(title));
-        if let Some((_, lines)) = replay {
-            replay::play(lines, agent.clone(), cx);
+        if let Some(replay) = replay {
+            replay::play(replay, agent.clone(), cx);
         }
         cx.new(|_| RootView::new(agent, tools))
     })
