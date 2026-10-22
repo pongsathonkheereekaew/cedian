@@ -15,7 +15,7 @@ use cedian_protocol::{Line, SessionEvent, VersionInfo};
 use cedian_wire::{Notice, Request, Status, ThreadInfo};
 
 use crate::{
-    Cedia,
+    Cedia, auto_archive,
     desktop_settings::{read_desktop, set_desktop_key, settings_path},
     follow::{Offsets, follow},
     keep_awake::KeepAwake,
@@ -449,8 +449,12 @@ impl Daemon {
                 decision,
             } => {
                 let told = lock(shared).review(client, &cwd, &thread, Some((&hunk, &decision)));
-                if let Some((work_tree, text)) = told {
-                    Self::message(shared, client, &work_tree, &thread, &text);
+                match told {
+                    Some((work_tree, text)) => {
+                        Self::message(shared, client, &work_tree, &thread, &text)
+                    }
+                    // The last hunk decided may leave nothing owed.
+                    None => Self::archive_if_done(shared, &cwd, &thread),
                 }
             }
         }
@@ -520,6 +524,49 @@ impl Daemon {
                 self.error(client, format!("{error:#}"));
                 None
             }
+        }
+    }
+
+    /// Whether nothing is owed on the thread, so it archives itself (`auto_archive`). The cheap
+    /// checks go first: the review walks cedia's shadow git.
+    fn nothing_owed(&self, cwd: &Path, thread: &str) -> bool {
+        let slug = project_key(cwd);
+        let Ok(summary) = read_thread(&threads_dir(&self.home, &slug), thread) else {
+            return false;
+        };
+        let status = Status::of(summary.state, self.running(thread));
+        if !auto_archive::nothing_owed(&summary, status, true, 0)
+            || !auto_archive::verified(&self.home, &slug, &summary)
+        {
+            return false;
+        }
+        let review = Changes::of(&self.home, &slug, &summary)
+            .and_then(|changes| changes.review(&self.home, &self.decisions.load(thread)));
+        match review {
+            Ok(review) => auto_archive::waiting(&review) == 0,
+            Err(error) => {
+                log::info!("not archiving {thread}: {error:#}");
+                false
+            }
+        }
+    }
+
+    /// Archives the thread when nothing is owed on it, and marks the change seen. cedia runs
+    /// outside the lock.
+    pub fn archive_if_done(shared: &Shared, cwd: &Path, thread: &str) {
+        let cedia = {
+            let daemon = lock(shared);
+            if !daemon.nothing_owed(cwd, thread) {
+                return;
+            }
+            daemon.cedia.clone()
+        };
+        match cedia.archive(cwd, thread, true) {
+            Ok(()) => {
+                log::info!("archived {thread}: nothing owed");
+                lock(shared).mark_seen(cwd, thread);
+            }
+            Err(error) => log::warn!("archiving {thread}: {error:#}"),
         }
     }
 
@@ -777,25 +824,30 @@ impl Daemon {
         }
     }
 
-    pub fn on_exit(&mut self, id: RunId, how: String) {
-        let Some(run) = self.runs.get_mut(&id) else {
-            return;
-        };
+    /// Marks the run ended, and returns its project and thread to check for auto-archive.
+    pub fn on_exit(&mut self, id: RunId, how: String) -> Option<(PathBuf, String)> {
+        let run = self.runs.get_mut(&id)?;
         run.alive = false;
         log::info!("run {id}: {how}");
         self.save_ledger();
         let working = self.runs.values().any(|run| run.alive);
         self.keep_awake.set(working);
-        let Some(run) = self.runs.get(&id) else {
-            return;
-        };
+        let run = self.runs.get(&id)?;
         let (thread, slug, requester) = (run.thread.clone(), run.slug.clone(), run.requester);
+        let asked_in = run.asked_in.clone();
         let stderr = run.stderr.iter().cloned().collect::<Vec<_>>().join("\n");
         match thread {
             Some(thread) => {
                 let status = self.status(&slug, &thread);
-                self.tell_readers(&thread.clone(), &Notice::Status { thread, status });
+                self.tell_readers(
+                    &thread.clone(),
+                    &Notice::Status {
+                        thread: thread.clone(),
+                        status,
+                    },
+                );
                 self.refresh(&slug);
+                Some((asked_in, thread))
             }
             None => {
                 self.runs.remove(&id);
@@ -805,6 +857,7 @@ impl Daemon {
                         format!("cedia {how} before it started a thread:\n{stderr}"),
                     );
                 }
+                None
             }
         }
     }

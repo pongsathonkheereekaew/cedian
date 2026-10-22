@@ -533,13 +533,14 @@ impl RootView {
         let branch = info
             .and_then(|t| t.cwd.as_deref())
             .and_then(crate::agent_pane::branch_of);
-        // The search finds threads of every tab, this one's first.
+        // The search finds threads of every tab, this one's first, archived ones too.
         let found = std::iter::once(project)
             .chain(self.projects.iter().filter(|p| p.cwd != project.cwd))
             .flat_map(|p| {
                 let elsewhere = (p.cwd != project.cwd).then(|| p.name());
                 p.threads
                     .iter()
+                    .chain(&p.archived)
                     .map(move |t| Found::of(t, &p.cwd, elsewhere.clone()))
             })
             .collect();
@@ -1704,7 +1705,7 @@ impl RootView {
                         .child(
                             div()
                                 .flex_grow(1.)
-                                .child(format!("เก็บแล้ว {}", archived.len())),
+                                .child(format!("เก็บอัตโนมัติแล้ว {}", archived.len())),
                         )
                         .child(if open { "ซ่อน" } else { "ดู" }),
                 )

@@ -589,3 +589,72 @@ fn rejecting_a_hunk_puts_the_file_back_and_tells_the_thread() {
         "{seen:?}"
     );
 }
+
+#[test]
+fn a_verified_thread_with_nothing_to_review_archives_itself() {
+    // The denied-call run changes no file; given a verified receipt, nothing is owed on it.
+    let fixture = tempfile::tempdir().expect("tempdir");
+    let from = fixtures_dir().join("denied-call");
+    for sub in ["threads", "sessions"] {
+        std::fs::create_dir_all(fixture.path().join(sub)).expect("mkdir");
+        for entry in std::fs::read_dir(from.join(sub)).expect("read dir") {
+            let path = entry.expect("entry").path();
+            let mut text = std::fs::read_to_string(&path).expect("read");
+            if sub == "sessions" {
+                text = text.replace(
+                    "\"subtype\":\"success\",",
+                    "\"subtype\":\"success\",\"evidence\":{\"changed\":[],\"checks\":[],\"flags\":[],\"unverified\":[]},",
+                );
+            }
+            let name = path.file_name().expect("name");
+            std::fs::write(fixture.path().join(sub).join(name), text).expect("write");
+        }
+    }
+    std::fs::copy(
+        from.join("stream.jsonl"),
+        fixture.path().join("stream.jsonl"),
+    )
+    .expect("copy");
+    let harness = start(fixture.path().to_str().expect("utf-8"));
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    window.ask(Request::Prompt {
+        cwd: harness.cwd.clone(),
+        text: "publish it".into(),
+        thread: None,
+        worktree: false,
+    });
+    window.until(|n| {
+        matches!(n, Notice::Threads { threads, .. }
+            if threads.first().is_some_and(|t| t.thread.archived && !t.needs_you))
+    });
+}
+
+#[test]
+fn an_unverified_thread_stays() {
+    // As recorded, denied-call's receipt has no evidence, so it is not verified.
+    let harness = start("denied-call");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    window.ask(Request::Prompt {
+        cwd: harness.cwd.clone(),
+        text: "publish it".into(),
+        thread: None,
+        worktree: false,
+    });
+    window.until(status_is(Status::Done));
+    // A list after the run ended, which an archive would have come before.
+    window.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    let (_, seen) =
+        window.until(|n| matches!(n, Notice::Threads { threads, .. } if !threads.is_empty()));
+    match seen.last() {
+        Some(Notice::Threads { threads, .. }) => assert!(!threads[0].thread.archived),
+        other => panic!("{other:?}"),
+    }
+}

@@ -52,9 +52,14 @@ impl Project {
     }
 
     /// The thread the tab shows, as the last list had it.
+    /// The open thread, which may be archived: a thread that archives itself once nothing is
+    /// owed on it stays open where the person reads it.
     pub fn info(&self) -> Option<&ThreadInfo> {
         let id = self.current.as_ref()?;
-        self.threads.iter().find(|t| &t.thread.id == id)
+        self.threads
+            .iter()
+            .chain(&self.archived)
+            .find(|t| &t.thread.id == id)
     }
 
     /// The top-level threads still in use, and apart from them the archived ones; sub-threads
@@ -153,5 +158,8 @@ mod tests {
             |list: &[ThreadInfo]| list.iter().map(|t| t.thread.id.clone()).collect::<Vec<_>>();
         assert_eq!(ids(&project.threads), ["a"]);
         assert_eq!(ids(&project.archived), ["c", "b"]);
+        // An open thread that archived itself is still the one shown.
+        project.current = Some("c".into());
+        assert_eq!(project.info().map(|t| t.thread.id.as_str()), Some("c"));
     }
 }
