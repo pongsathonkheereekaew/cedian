@@ -4,6 +4,7 @@ use std::{
 };
 
 use cedian_protocol::VersionInfo;
+use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{Status, ThreadInfo};
@@ -36,6 +37,28 @@ pub enum Request {
     },
     /// Ends the thread's run.
     Stop { thread: String },
+    /// The thread's changes since its first snapshot, answered with `Notice::Review`.
+    Review { cwd: PathBuf, thread: String },
+    /// A decision on one hunk of the thread's review, answered with the review again.
+    Decide {
+        cwd: PathBuf,
+        thread: String,
+        hunk: String,
+        decision: Decision,
+    },
+}
+
+/// What the person decided about a hunk.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "decision", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Decision {
+    Accept,
+    /// Takes back an accept.
+    Undo,
+    /// Puts the old lines back in the thread's worktree and tells the thread why.
+    Reject {
+        reason: String,
+    },
 }
 
 /// From the daemon to the window.
@@ -75,6 +98,10 @@ pub enum Notice {
     Status {
         thread: String,
         status: Status,
+    },
+    Review {
+        thread: String,
+        review: Review,
     },
     Error {
         message: String,

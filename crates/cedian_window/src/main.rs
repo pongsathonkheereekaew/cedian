@@ -2,6 +2,7 @@ mod agent_pane;
 mod composer;
 mod daemon_client;
 mod replay;
+mod review_pane;
 mod root_view;
 mod shell_pane;
 mod spike_view;
@@ -88,11 +89,19 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     let bindings = KeymapFile::load_asset_allow_partial_failure(settings::DEFAULT_KEYMAP_PATH, cx)
         .context("loading the default keymap")?;
     cx.bind_keys(bindings);
-    cx.bind_keys([KeyBinding::new(
-        "enter",
-        composer::Submit,
-        Some("Composer > Editor"),
-    )]);
+    cx.bind_keys([
+        KeyBinding::new("enter", composer::Submit, Some("Composer > Editor")),
+        KeyBinding::new("j", review_pane::Next, Some("ReviewList")),
+        KeyBinding::new("k", review_pane::Previous, Some("ReviewList")),
+        KeyBinding::new("y", review_pane::Accept, Some("ReviewList")),
+        KeyBinding::new("n", review_pane::Reject, Some("ReviewList")),
+        KeyBinding::new(
+            "enter",
+            review_pane::ConfirmReject,
+            Some("RejectReason > Editor"),
+        ),
+        KeyBinding::new("escape", review_pane::Cancel, Some("RejectReason > Editor")),
+    ]);
     // Zed's keymap binds cmd-q (ctrl-q on Linux) to zed::Quit; the app menu gives macOS its
     // Quit item. Quitting the window never stops a thread: the daemon runs on.
     cx.on_action(|_: &zed_actions::Quit, cx| cx.quit());

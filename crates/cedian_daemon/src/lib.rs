@@ -9,6 +9,7 @@ mod follow;
 mod keep_awake;
 pub mod launch_agent;
 mod ledger;
+mod review;
 mod run;
 mod server;
 mod worktree;
