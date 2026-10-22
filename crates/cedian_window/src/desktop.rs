@@ -6,6 +6,8 @@ use gpui::{App, BorrowAppContext as _};
 use serde_json::Value;
 use settings::SettingsStore;
 
+use crate::tokens;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThemeMode {
     System,
@@ -62,8 +64,12 @@ impl Desktop {
             ThemeMode::Dark => "dark",
         };
         let content = serde_json::json!({
-            "theme": {"mode": mode, "light": "One Light", "dark": "One Dark"},
+            "theme": {"mode": mode, "light": "cedian Light", "dark": "cedian Dark"},
+            "ui_font_family": tokens::UI_FAMILY,
+            "ui_font_fallbacks": [tokens::THAI_SANS],
             "ui_font_size": self.ui_font_size,
+            "buffer_font_family": tokens::CODE_FAMILY,
+            "buffer_font_fallbacks": [tokens::THAI_SANS],
             "buffer_font_size": self.code_font_size,
         })
         .to_string();
@@ -73,6 +79,9 @@ impl Desktop {
                 log::warn!("desktop settings: {:?}", result.parse_status);
             }
         });
+        // theme_settings reloads the theme when the store changes, but its observer only
+        // starts on the next cycle, which the settings applied at launch come before.
+        theme_settings::reload_theme(cx);
     }
 }
 

@@ -14,6 +14,7 @@ use cedian_wire::{Notice, Request, read_message, write_message};
 use crate::{
     Cedia,
     daemon::{Daemon, Shared, lock},
+    thread_watch::watch_threads,
 };
 
 pub struct Config {
@@ -42,6 +43,7 @@ pub fn serve(config: Config) -> anyhow::Result<()> {
         &state_dir,
     )));
     Daemon::adopt(&shared);
+    watch_threads(shared.clone());
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {

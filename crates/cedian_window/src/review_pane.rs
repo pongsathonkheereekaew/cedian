@@ -11,6 +11,8 @@ use gpui::{
 };
 use theme::ActiveTheme as _;
 
+use crate::tokens;
+
 actions!(
     review,
     [Next, Previous, Accept, Reject, ConfirmReject, Cancel]
@@ -210,7 +212,7 @@ impl ReviewPane {
             HunkState::Stale | HunkState::Rejected => {}
         }
         let collapsed = matches!(hunk.state, HunkState::Accepted | HunkState::Rejected);
-        let mut body = div().font_family("Lilex").text_xs().flex().flex_col();
+        let mut body = div().font(tokens::code_font()).text_xs().flex().flex_col();
         if !collapsed {
             for line in &hunk.lines {
                 let color = match line.chars().next() {

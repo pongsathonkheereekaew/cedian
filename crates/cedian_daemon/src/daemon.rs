@@ -22,6 +22,7 @@ use crate::{
     ledger::{Ledger, RunRecord, still_running},
     review::{Changes, DecisionStore, decide},
     run::{Run, RunId, watch},
+    thread_watch::{Seen, fingerprint},
 };
 
 pub type Shared = Arc<Mutex<Daemon>>;
@@ -53,6 +54,8 @@ pub struct Daemon {
     keep_awake: KeepAwake,
     ledger: Ledger,
     decisions: DecisionStore,
+    /// The threads directories windows show, as last listed.
+    seen: Seen,
     next_id: u64,
 }
 
@@ -73,6 +76,7 @@ impl Daemon {
             keep_awake: KeepAwake::default(),
             ledger: Ledger::new(state_dir),
             decisions: DecisionStore::new(state_dir),
+            seen: Seen::default(),
             next_id: 1,
         }
     }
@@ -286,6 +290,35 @@ impl Daemon {
         }
     }
 
+    /// The threads directory of each project some window shows.
+    pub fn shown_thread_dirs(&self) -> Vec<(String, PathBuf)> {
+        let mut slugs: Vec<String> = self
+            .clients
+            .values()
+            .flat_map(|client| client.watching.values().cloned())
+            .collect();
+        slugs.sort();
+        slugs.dedup();
+        slugs
+            .into_iter()
+            .map(|slug| {
+                let dir = threads_dir(&self.home, &slug);
+                (slug, dir)
+            })
+            .collect()
+    }
+
+    /// Refreshes each project whose threads directory changed since it was last listed.
+    pub fn threads_seen(&mut self, prints: Vec<(String, u64)>) {
+        let shown: Vec<String> = prints.iter().map(|(slug, _)| slug.clone()).collect();
+        self.seen.retain(&shown);
+        for (slug, print) in prints {
+            if self.seen.changed(&slug, print) {
+                self.refresh(&slug);
+            }
+        }
+    }
+
     /// Sends the project's thread list to every client showing it.
     fn refresh(&mut self, slug: &str) {
         let watchers: Vec<(ClientId, PathBuf)> = self
@@ -323,6 +356,8 @@ impl Daemon {
             Request::Threads { cwd } => {
                 let mut daemon = lock(shared);
                 let slug = project_key(&cwd);
+                let print = fingerprint(&threads_dir(&daemon.home, &slug));
+                daemon.seen.changed(&slug, print);
                 match daemon.threads(&slug) {
                     Ok(threads) => {
                         if let Some(c) = daemon.clients.get_mut(&client) {
