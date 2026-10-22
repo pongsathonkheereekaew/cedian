@@ -36,3 +36,28 @@ pub fn session_lines(path: &Path) -> anyhow::Result<Vec<String>> {
     }
     Ok(lines)
 }
+
+/// The directory a session ran in, from its first event. A thread's latest session's is where
+/// its next run goes: the thread's worktree.
+pub fn session_cwd(path: &Path) -> Option<PathBuf> {
+    use std::io::BufRead as _;
+    let file = std::fs::File::open(path).ok()?;
+    let mut first = String::new();
+    std::io::BufReader::new(file).read_line(&mut first).ok()?;
+    let event: serde_json::Value = serde_json::from_str(&first).ok()?;
+    Some(PathBuf::from(event.get("cwd")?.as_str()?))
+}
+
+/// The shadow-git trees of the session's `snapshot` events, in order: the first is the tree
+/// before the session's first write.
+pub fn session_trees(path: &Path) -> anyhow::Result<Vec<String>> {
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    Ok(text
+        .lines()
+        .filter(|line| line.contains("\"snapshot\""))
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|event| event.get("kind").and_then(|k| k.as_str()) == Some("snapshot"))
+        .filter_map(|event| Some(event.get("tree")?.as_str()?.to_owned()))
+        .collect())
+}

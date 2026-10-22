@@ -4,13 +4,16 @@
 
 mod cedia;
 mod daemon;
+mod desktop_settings;
 mod environment;
 mod follow;
 mod keep_awake;
 pub mod launch_agent;
 mod ledger;
+mod review;
 mod run;
 mod server;
+mod worktree;
 
 pub use cedia::Cedia;
 pub use environment::login_environment;

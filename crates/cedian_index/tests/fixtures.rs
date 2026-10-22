@@ -80,3 +80,22 @@ fn a_thread_rebuilt_from_its_logs_ends_with_its_receipt() {
         transcript.blocks().last()
     );
 }
+
+#[test]
+fn a_session_names_its_snapshot_trees_in_order() {
+    let dir = fixtures_dir().join("edit-and-check").join("sessions");
+    let log = std::fs::read_dir(&dir)
+        .expect("sessions")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|e| e == "jsonl"))
+        .expect("a session");
+    assert_eq!(
+        cedian_index::session_trees(&log).expect("trees"),
+        [
+            "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+            "5f443e10ae5374c7c54f6caa2d73aa39e2872d6f",
+            "99f8c32e405deb9aaa1ecb9d26171f9c8936cfcf"
+        ]
+    );
+}
