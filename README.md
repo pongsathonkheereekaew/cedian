@@ -13,6 +13,10 @@ Phase A. The window builds and runs: an agent pane beside Zed's editor and a she
 ```sh
 cargo run -p cedian_window -- --replay crates/cedian_protocol/cedia/sessions/edit-and-check/stream.jsonl
 cargo test --workspace
+
+# a 10k-block thread for the scroll and memory budgets
+cargo run -p cedian_agent --example long_thread -- 10000 > /tmp/long.jsonl
+cargo run -p cedian_window -- --replay /tmp/long.jsonl --instant
 ```
 
 On Linux, install the packages from Zed's `script/linux` first. On a Mac without full Xcode, add `--features runtime_shaders`.
