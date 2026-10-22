@@ -336,7 +336,7 @@ impl Render for GitPane {
                             .text_color(code_color)
                             .child(SharedString::from(change.code.clone())),
                     )
-                    .child(div().min_w_0().truncate().child(change.path.clone())),
+                    .child(crate::tooltip::cut("path", change.path.clone())),
             );
         }
         if !state.commits.is_empty() {
@@ -359,13 +359,7 @@ impl Render for GitPane {
                             .text_color(colors.text_muted)
                             .child(commit.sha.clone()),
                     )
-                    .child(
-                        div()
-                            .flex_grow(1.)
-                            .min_w_0()
-                            .truncate()
-                            .child(commit.subject.clone()),
-                    )
+                    .child(crate::tooltip::cut("subject", commit.subject.clone()).flex_grow(1.))
                     .child(
                         div()
                             .flex_none()

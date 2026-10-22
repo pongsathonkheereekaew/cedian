@@ -126,7 +126,7 @@ pub fn header(spec: HeaderSpec, actions: HeaderActions, cx: &App) -> Stateful<Di
                             .bg(tokens::Tokens::of(cx).primary),
                     )
                 })
-                .child(div().min_w_0().truncate().child(tab.label.clone()))
+                .child(crate::tooltip::cut("label", tab.label.clone()))
                 .when(!on, |t| t.on_click((actions.tab)(tab.id))),
         );
     }

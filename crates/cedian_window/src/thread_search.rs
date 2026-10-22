@@ -286,7 +286,7 @@ impl ThreadSearch {
                             .min_w_0()
                             .flex()
                             .flex_col()
-                            .child(div().text_ui().truncate().child(title))
+                            .child(crate::tooltip::cut("title", title).text_ui())
                             .child(div().text_meta().text_color(colors.text_muted).child(meta)),
                     )
                     .children(note.map(|note| {

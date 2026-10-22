@@ -189,3 +189,29 @@ fn search_adds_a_block_and_switches_layouts_by_name() {
     pick(cx, "layout เขียน");
     assert_eq!(view.read_with(cx, |view, _| view.ws().current), 1);
 }
+
+#[test]
+fn a_cut_label_shows_its_whole_text_on_hover_and_one_that_fits_does_not() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    let hover_model = |cx: &mut VisualTestContext| {
+        cx.run_until_parked();
+        let chip = bounds(cx, "run-model");
+        cx.simulate_mouse_move(chip.center(), None, gpui::Modifiers::none());
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(1));
+        cx.run_until_parked();
+        let shown = cx.debug_bounds("tooltip").is_some();
+        cx.simulate_mouse_move(gpui::Point::default(), None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        shown
+    };
+    assert!(!hover_model(cx), "Faux (scripted) fits");
+    view.update(cx, |view, cx| {
+        view.choices.pick_mut(Some("t-00000001")).model =
+            Some("anthropic/claude-opus-5-5-fast".into());
+        cx.notify();
+    });
+    assert!(hover_model(cx), "the long model name is cut");
+}

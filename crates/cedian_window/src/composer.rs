@@ -247,13 +247,10 @@ impl Composer {
                         )
                     })
                     .child(
-                        div()
+                        crate::tooltip::cut("description", command.description.clone())
                             .flex_grow(1.)
-                            .min_w_0()
-                            .truncate()
                             .text_meta()
-                            .text_color(colors.text_muted)
-                            .child(command.description.clone()),
+                            .text_color(colors.text_muted),
                     )
                     .child(
                         div()

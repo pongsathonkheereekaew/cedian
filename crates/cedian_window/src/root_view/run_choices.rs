@@ -65,7 +65,7 @@ impl RunChoices {
             .unwrap_or(&self.new_thread)
     }
 
-    fn pick_mut(&mut self, thread: Option<&str>) -> &mut Pick {
+    pub(super) fn pick_mut(&mut self, thread: Option<&str>) -> &mut Pick {
         match thread {
             Some(t) => self.picks.entry(t.to_owned()).or_default(),
             None => &mut self.new_thread,
@@ -230,7 +230,7 @@ impl RootView {
                         choices.menu = (choices.menu.is_none() && !just_closed).then_some(menu);
                         cx.notify();
                     }))
-                    .child(div().min_w_0().truncate().child(label))
+                    .child(crate::tooltip::cut("label", label))
                     .child(
                         svg()
                             .path("icons/chevron_down.svg")

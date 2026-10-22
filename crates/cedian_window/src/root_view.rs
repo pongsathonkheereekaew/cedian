@@ -1391,15 +1391,12 @@ impl RootView {
                         .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
                         .child(thread_list::dot(info.status, cx))
                         .child(
-                            div()
+                            crate::tooltip::cut("title", info.thread.title.clone())
                                 .flex_grow(1.)
-                                .min_w_0()
                                 .text_ui()
-                                .truncate()
                                 .when(info.needs_you, |title| {
                                     title.font_weight(gpui::FontWeight::SEMIBOLD)
-                                })
-                                .child(info.thread.title.clone()),
+                                }),
                         )
                         .when(!meta.is_empty() && !narrow, |row| {
                             row.child(
@@ -1608,11 +1605,9 @@ impl RootView {
                                         .flex()
                                         .flex_col()
                                         .child(
-                                            div()
+                                            crate::tooltip::cut("title", info.thread.title.clone())
                                                 .text_ui()
-                                                .truncate()
-                                                .text_color(colors.text_muted)
-                                                .child(info.thread.title.clone()),
+                                                .text_color(colors.text_muted),
                                         )
                                         .child(
                                             div()

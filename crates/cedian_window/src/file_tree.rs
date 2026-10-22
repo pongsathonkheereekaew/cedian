@@ -275,7 +275,7 @@ impl Render for FileTree {
                             .flex_none()
                             .text_color(colors.text_muted),
                     )
-                    .child(div().min_w_0().truncate().child(name)),
+                    .child(crate::tooltip::cut("name", name)),
             );
         }
         list
