@@ -14,6 +14,7 @@ assets = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d8
 collections = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 editor = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 futures = "0.3"
+icu_segmenter = "2"
 gpui = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38", features = ["font-kit", "wayland", "x11"] }
 libc = "0.2"

@@ -8,7 +8,7 @@ use gpui::{
 };
 use theme::ActiveTheme as _;
 
-use crate::tokens;
+use crate::{line_breaks::wrapped, tokens};
 
 /// Lines of tool output shown under a call before it is cut.
 const OUTPUT_LINES: usize = 6;
@@ -71,12 +71,12 @@ impl AgentPane {
                 .p_2()
                 .rounded_md()
                 .bg(tokens.user_bubble)
-                .child(text.clone()),
-            Block::Text { text, .. } => div().font(tokens::answer_font()).child(text.clone()),
+                .child(wrapped(text)),
+            Block::Text { text, .. } => div().font(tokens::answer_font()).child(wrapped(text)),
             Block::Thinking { text, .. } => div()
                 .italic()
                 .text_color(colors.text_muted)
-                .child(text.clone()),
+                .child(wrapped(text)),
             Block::Tool(call) => {
                 let color = tool_color(call, status.success, status.error, colors.text_muted);
                 tool_block(
@@ -121,7 +121,7 @@ impl AgentPane {
                                     .child(format!("{turns} turns, ${cost_usd:.4}")),
                             ),
                     )
-                    .child(text.clone());
+                    .child(wrapped(text));
                 if let Some(evidence) = evidence {
                     for path in &evidence.changed {
                         card = card.child(

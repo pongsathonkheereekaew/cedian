@@ -4,6 +4,7 @@ mod composer;
 mod daemon_client;
 mod desktop;
 mod layout;
+mod line_breaks;
 mod replay;
 mod review_pane;
 mod root_view;
