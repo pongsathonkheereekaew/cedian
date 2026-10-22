@@ -1,0 +1,10 @@
+[package]
+name = "cedian_agent"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+cedian_protocol = { path = "../cedian_protocol" }
+serde_json.workspace = true

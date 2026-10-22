@@ -1,0 +1,5 @@
+session code on faux/scripted
+user: publish the package
+tool bash [c1] denied by deny-list:deploy: denied: denied (deny-list:deploy): npm publish publishes or deploys; ask the user to run it. Do not retry it another way; go on with the rest of the task and tell the user what you needed.
+text: Publishing is on the deny list, so I left it for you.
+result success after 2 turns: Publishing is on the deny list, so I left it for you.

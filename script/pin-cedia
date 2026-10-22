@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Copy cedia's protocol schema and recorded session fixtures at one revision into
+# crates/cedian_protocol/cedia, so cedian's types and replay tests follow that pin.
+# Usage: script/pin-cedia <cedia checkout> <rev>
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+  echo "usage: script/pin-cedia <cedia checkout> <rev>" >&2
+  exit 2
+fi
+src="$1"
+rev="$(git -C "$src" rev-parse --verify "$2^{commit}")"
+dest="$(cd "$(dirname "$0")/.." && pwd)/crates/cedian_protocol/cedia"
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+git -C "$src" archive "$rev" src/protocol/protocol.schema.json test/fixtures/sessions | tar -x -C "$tmp"
+
+rm -rf "$dest"
+mkdir -p "$dest"
+cp "$tmp/src/protocol/protocol.schema.json" "$dest/protocol.schema.json"
+cp -R "$tmp/test/fixtures/sessions" "$dest/sessions"
+echo "$rev" > "$dest/REV"
+echo "pinned cedia $rev"
