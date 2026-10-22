@@ -18,10 +18,18 @@ fn main() {
     }
     // A parent that ignored SIGTERM passes that on through exec; launchd, logout and Stop
     // (which cedia inherits from here) all rely on the default.
-    // SAFETY: setting a signal's disposition to the default before any thread starts.
+    // SAFETY: setting signal dispositions and this thread's mask before any thread starts.
     unsafe {
         libc::signal(libc::SIGTERM, libc::SIG_DFL);
         libc::signal(libc::SIGINT, libc::SIG_DFL);
+        // A blocked signal is inherited through exec too: GPUI's threads block these, so a
+        // daemon the window started never saw SIGTERM. cedia's runs inherit the mask from here.
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+            libc::sigaddset(&mut set, signal);
+        }
+        libc::pthread_sigmask(libc::SIG_UNBLOCK, &set, std::ptr::null_mut());
     }
     log::set_logger(&LOGGER).ok();
     log::set_max_level(log::LevelFilter::Info);
@@ -73,7 +81,10 @@ fn log_signals(when: &str) {
             libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), &mut mask);
             libc::sigismember(&mask, signal) == 1
         };
-        words.push(format!("{name} {how}{}", if blocked { " blocked" } else { "" }));
+        words.push(format!(
+            "{name} {how}{}",
+            if blocked { " blocked" } else { "" }
+        ));
     }
     log::info!("signals {when}: {}", words.join(", "));
 }

@@ -546,7 +546,11 @@ impl Daemon {
             },
             None => (HashSet::new(), cwd),
         };
-        let child = match daemon.cedia.prompt(&cwd, text, thread.as_deref()) {
+        let ask = daemon
+            .version
+            .as_ref()
+            .is_ok_and(|v| v.capabilities.contains(&cedian_protocol::Capability::Ask));
+        let child = match daemon.cedia.prompt(&cwd, text, thread.as_deref(), ask) {
             Ok(child) => child,
             Err(error) => return daemon.error(client, format!("{error:#}")),
         };
