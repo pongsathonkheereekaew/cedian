@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Context as _;
-use cedian_protocol::{Rating, VersionInfo};
+use cedian_protocol::{Capability, Rating, VersionInfo};
 
 /// A run's flags beyond its text: cedia's `--profile`, `--model`, `--ask on` and `--todo on`.
 #[derive(Clone, Copy, Debug, Default)]
@@ -67,7 +67,7 @@ impl Cedia {
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
         }
-        serde_json::from_slice(&output.stdout).map_err(|e| format!("cedia's version: {e}"))
+        known_capabilities(&output.stdout).map_err(|e| format!("cedia's version: {e}"))
     }
 
     /// One run: `cedia --print=<text> --output-format stream-json --cwd <cwd> [--thread <id>]
@@ -154,5 +154,38 @@ impl Cedia {
             String::from_utf8_lossy(&output.stderr).trim()
         );
         Ok(())
+    }
+}
+
+/// cedia's version, without the capabilities this pin does not know: a cedia newer than the pin
+/// still runs, with only what cedian can use.
+fn known_capabilities(json: &[u8]) -> serde_json::Result<VersionInfo> {
+    let mut version: serde_json::Value = serde_json::from_slice(json)?;
+    if let Some(capabilities) = version
+        .get_mut("capabilities")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        capabilities.retain(|capability| {
+            let known = serde_json::from_value::<Capability>(capability.clone()).is_ok();
+            if !known {
+                log::info!("cedia offers {capability}, which this pin does not know");
+            }
+            known
+        });
+    }
+    serde_json::from_value(version)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_capability_newer_than_the_pin_is_left_out() {
+        let version = known_capabilities(
+            br#"{"name":"cedia","version":"0.1.0","protocol":"x","capabilities":["ask","from-the-future"]}"#,
+        )
+        .expect("version");
+        assert_eq!(version.capabilities, vec![Capability::Ask]);
     }
 }
