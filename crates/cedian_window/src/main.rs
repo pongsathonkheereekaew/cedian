@@ -147,6 +147,10 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     cx.bind_keys(bindings);
     cx.bind_keys([
         KeyBinding::new("enter", composer::Submit, Some("Composer > Editor")),
+        KeyBinding::new("up", composer::CommandUp, Some("CommandList > Editor")),
+        KeyBinding::new("down", composer::CommandDown, Some("CommandList > Editor")),
+        KeyBinding::new("tab", composer::CommandPick, Some("CommandList > Editor")),
+        KeyBinding::new("enter", composer::CommandPick, Some("CommandList > Editor")),
         KeyBinding::new("j", review_pane::Next, Some("ReviewList")),
         KeyBinding::new("k", review_pane::Previous, Some("ReviewList")),
         KeyBinding::new("y", review_pane::Accept, Some("ReviewList")),
@@ -195,6 +199,12 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         ),
     ]);
     cx.bind_keys(block_keys::bindings());
+    // After the block keys' window-wide Escape, which would otherwise take it first.
+    cx.bind_keys([KeyBinding::new(
+        "escape",
+        composer::CommandDismiss,
+        Some("CommandList > Editor"),
+    )]);
     // Bound in the composer too, where Zed's keymap would otherwise take some of these keys.
     let (new_tab, close_tab, pick) = TAB_KEYS;
     for context in [None, Some("Composer > Editor")] {

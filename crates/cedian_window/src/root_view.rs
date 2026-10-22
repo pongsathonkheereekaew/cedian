@@ -133,6 +133,10 @@ pub struct RootView {
     sound: Sound,
     /// The count last put on the Dock icon.
     dock_badge: Option<usize>,
+    /// cedia can fork a thread at a run (`threads.fork`), which edit and resend take.
+    can_fork: bool,
+    /// The sent message the composer holds to send again: its thread and the run it started.
+    editing: Option<(String, String)>,
 }
 
 impl RootView {
@@ -248,6 +252,10 @@ impl RootView {
         let composer = cx.new(|cx| Composer::new(window, cx));
         cx.subscribe(&composer, |view, _, event, cx| match event {
             ComposerEvent::Submit(text) => view.submit(text.clone(), cx),
+            ComposerEvent::CancelEdit => view.editing = None,
+            ComposerEvent::WantCommands => view.request(Request::Commands {
+                cwd: view.project().cwd.clone(),
+            }),
             ComposerEvent::Unsend(id) => {
                 if let Some(thread) = view.project().current.clone() {
                     view.request(Request::Unsend {
@@ -259,33 +267,42 @@ impl RootView {
             }
         })
         .detach();
-        cx.subscribe(&agent, |view, agent, event, cx| match event {
-            AgentEvent::Rate(rating) => {
-                if let Some(thread) = view.project().current.clone() {
-                    view.request(Request::Rate {
-                        cwd: view.project().cwd.clone(),
-                        thread,
-                        rating: *rating,
+        cx.subscribe_in(
+            &agent,
+            window,
+            |view, agent, event, window, cx| match event {
+                AgentEvent::Edit(text) => view.edit_sent(text, window, cx),
+                AgentEvent::Rate(rating) => {
+                    if let Some(thread) = view.project().current.clone() {
+                        view.request(Request::Rate {
+                            cwd: view.project().cwd.clone(),
+                            thread,
+                            rating: *rating,
+                        });
+                    }
+                }
+                AgentEvent::ViewMode(mode) => {
+                    let mode = *mode;
+                    agent.update(cx, |agent, cx| agent.set_view_mode(mode, cx));
+                    view.request(Request::SetDesktop {
+                        key: "view_mode".into(),
+                        value: mode.key().into(),
                     });
                 }
-            }
-            AgentEvent::ViewMode(mode) => {
-                let mode = *mode;
-                agent.update(cx, |agent, cx| agent.set_view_mode(mode, cx));
-                view.request(Request::SetDesktop {
-                    key: "view_mode".into(),
-                    value: mode.key().into(),
-                });
-            }
-            AgentEvent::Review => {
-                view.open_kind(Kind::Review, blocks::ToolTarget { against: None }, cx)
-            }
-        })
+                AgentEvent::Review => {
+                    view.open_kind(Kind::Review, blocks::ToolTarget { against: None }, cx)
+                }
+            },
+        )
         .detach();
         let chat = cx.new(|_| AgentPane::new("แชทโปรเจกต์"));
         let chat_composer = cx.new(|cx| Composer::new(window, cx));
         cx.subscribe(&chat_composer, |view, _, event, cx| match event {
             ComposerEvent::Submit(text) => view.submit_chat(text.clone(), cx),
+            ComposerEvent::CancelEdit => {}
+            ComposerEvent::WantCommands => view.request(Request::Commands {
+                cwd: view.project().cwd.clone(),
+            }),
             ComposerEvent::Unsend(id) => {
                 if let Some(thread) = view.project().chat_open.clone() {
                     view.request(Request::Unsend {
@@ -380,6 +397,8 @@ impl RootView {
             show_archived: false,
             sound: Sound::Off,
             dock_badge: None,
+            can_fork: false,
+            editing: None,
         }
     }
 
@@ -398,6 +417,10 @@ impl RootView {
     fn on_notice(&mut self, notice: Notice, cx: &mut Context<Self>) {
         match notice {
             Notice::Welcome { cedia, .. } => {
+                self.can_fork = cedia.as_ref().is_ok_and(|v| {
+                    v.capabilities
+                        .contains(&cedian_protocol::Capability::ThreadsFork)
+                });
                 let cedia = match cedia {
                     // A cedia whose schema is not the pinned one may send shapes cedian skips.
                     Ok(version) if version.protocol != cedian_protocol::PROTOCOL_HASH => {
@@ -431,6 +454,20 @@ impl RootView {
                 self.choices.set(models, permissions);
                 cx.notify();
             }
+            Notice::Forked { cwd, from, thread } => {
+                self.choices.forked(&from, &thread);
+                if cwd == self.project().cwd && self.project().current.as_ref() == Some(&from) {
+                    self.select(thread, cx);
+                }
+            }
+            Notice::Commands { cwd, commands } if cwd == self.project().cwd => {
+                self.composer.update(cx, |composer, cx| {
+                    composer.set_commands(commands.clone(), cx)
+                });
+                self.chat_composer
+                    .update(cx, |composer, cx| composer.set_commands(commands, cx));
+            }
+            Notice::Commands { .. } => {}
             Notice::Settings { path, desktop } => {
                 let settings = Desktop::from_value(&desktop);
                 settings.apply(cx);
@@ -641,8 +678,36 @@ impl RootView {
         self.search.update(cx, |search, cx| search.set(found, cx));
         self.workplace
             .update(cx, |workplace, cx| workplace.set(branch, dir, cx));
+        // A fork goes back to a run's start; a run still going would race it.
+        let editable = info
+            .filter(|t| self.can_fork && t.status != Status::Working)
+            .map(|t| t.thread.runs.iter().map(|r| r.prompt.clone()).collect())
+            .unwrap_or_default();
+        self.agent
+            .update(cx, |agent, cx| agent.set_editable(editable, cx));
         self.composer
             .update(cx, |composer, cx| composer.set_queue(queue, cx));
+    }
+
+    /// The person's message `text` goes in the composer to edit; sending it forks the thread
+    /// at the run it started (the latest whose prompt it is).
+    fn edit_sent(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(info) = self.project().info() else {
+            return;
+        };
+        let Some(run) = info
+            .thread
+            .runs
+            .iter()
+            .rev()
+            .find(|r| !r.prompt.is_empty() && text.starts_with(r.prompt.as_str()))
+        else {
+            return;
+        };
+        let (editing, prompt) = ((info.thread.id.clone(), run.id.clone()), run.prompt.clone());
+        self.editing = Some(editing);
+        self.composer
+            .update(cx, |composer, cx| composer.edit_sent(&prompt, window, cx));
     }
 
     fn select(&mut self, thread: String, cx: &mut Context<Self>) {
@@ -651,6 +716,10 @@ impl RootView {
         }
         if let Some(old) = self.project_mut().current.take() {
             self.request(Request::Close { thread: old });
+        }
+        if self.editing.take().is_some() {
+            self.composer
+                .update(cx, |composer, cx| composer.forget_edit(cx));
         }
         let project = self.project_mut();
         project.awaiting_thread = false;
@@ -1149,6 +1218,22 @@ impl RootView {
             return;
         }
         self.error = None;
+        if let Some((thread, run)) = self.editing.take()
+            && self.project().current.as_ref() == Some(&thread)
+        {
+            let writer = self.writer_model(cx);
+            let (model, permission) = self.choices.for_run(Some(&thread), writer.as_deref());
+            self.request(Request::Fork {
+                cwd: self.project().cwd.clone(),
+                thread,
+                run,
+                text,
+                model,
+                permission,
+            });
+            cx.notify();
+            return;
+        }
         if self.project().current.is_none() {
             if self.project().awaiting_thread {
                 self.error = Some("the new thread has not started yet".into());

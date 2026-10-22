@@ -32,6 +32,21 @@ if [[ "${1:-}" == "permissions" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "commands" ]]; then
+  # commands --json --cwd <dir>: FAKE_COMMANDS, else one skill named after the project.
+  if [[ -n "${FAKE_COMMANDS:-}" ]]; then cat "$FAKE_COMMANDS"; exit 0; fi
+  echo "{\"commands\":[{\"name\":\"$(basename "$4")-review\",\"description\":\"Review a diff\",\"kind\":\"skill\",\"source\":\"repository\",\"argumentHint\":\"<pr>\"}]}"
+  exit 0
+fi
+
+if [[ "${1:-}" == "threads" && "${4:-}" == "fork" ]]; then
+  # threads --cwd <dir> fork <id> <run> --json
+  printf '{"at":"2026-10-22T03:00:05.000Z","kind":"open","title":"forked","task":"forked","forkOf":{"thread":"%s","run":"%s"}}\n' "$5" "$6" \
+    >"$FAKE_THREADS/t-0000fork.jsonl"
+  printf '{"thread":"t-0000fork","run":"%s"}\n' "$6"
+  exit 0
+fi
+
 if [[ "${1:-}" == "threads" && "${4:-}" == "unsend" ]]; then
   # threads --cwd <dir> unsend <id> <message>...
   id="$5"

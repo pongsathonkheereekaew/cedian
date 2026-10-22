@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Context as _;
-use cedian_protocol::{Capability, ModelList, PermissionList, Rating, VersionInfo};
+use cedian_protocol::{Capability, CommandList, ModelList, PermissionList, Rating, VersionInfo};
 
 /// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--ask on`
 /// and `--todo on`.
@@ -74,19 +74,31 @@ impl Cedia {
 
     /// `cedia models --json`: the models a run can take, and which one it takes by default.
     pub fn models(&self) -> Result<ModelList, String> {
-        self.list("models")
+        self.list(None, "models")
     }
 
     /// `cedia permissions --json`: the modes a run can be given.
     pub fn permissions(&self) -> Result<PermissionList, String> {
-        self.list("permissions")
+        self.list(None, "permissions")
     }
 
-    /// `cedia <command> --json`, read as `T`.
-    fn list<T: serde::de::DeserializeOwned>(&self, command: &str) -> Result<T, String> {
-        let output = self
-            .command(Path::new("/"))
-            .args([command, "--json"])
+    /// `cedia commands --json --cwd <cwd>`: the project's `/` commands.
+    pub fn commands(&self, cwd: &Path) -> Result<CommandList, String> {
+        self.list(Some(cwd), "commands")
+    }
+
+    /// `cedia <command> --json [--cwd <cwd>]`, read as `T`.
+    fn list<T: serde::de::DeserializeOwned>(
+        &self,
+        cwd: Option<&Path>,
+        command: &str,
+    ) -> Result<T, String> {
+        let mut run = self.command(cwd.unwrap_or(Path::new("/")));
+        run.args([command, "--json"]);
+        if let Some(cwd) = cwd {
+            run.arg("--cwd").arg(cwd);
+        }
+        let output = run
             .output()
             .map_err(|e| format!("running {}: {e}", self.bin.display()))?;
         if !output.status.success() {
@@ -171,8 +183,26 @@ impl Cedia {
         self.threads(cwd, &["rate", thread, word])
     }
 
+    /// `cedia threads fork <id> <run> --json`: a new thread whose conversation is `thread`'s
+    /// just before `run`, for the person's message there sent again, edited. Its id.
+    pub fn fork(&self, cwd: &Path, thread: &str, run: &str) -> anyhow::Result<String> {
+        #[derive(serde::Deserialize)]
+        struct Forked {
+            thread: String,
+        }
+        let output = self.threads_output(cwd, &["fork", thread, run, "--json"])?;
+        let forked: Forked =
+            serde_json::from_slice(&output).context("reading cedia threads fork --json")?;
+        Ok(forked.thread)
+    }
+
     /// `cedia threads --cwd <cwd> <args>`, which writes one event to a thread's file.
     fn threads(&self, cwd: &Path, args: &[&str]) -> anyhow::Result<()> {
+        self.threads_output(cwd, args).map(drop)
+    }
+
+    /// `cedia threads --cwd <cwd> <args>`, and what it printed.
+    fn threads_output(&self, cwd: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
         let output = self
             .command(cwd)
             .args(["threads", "--cwd"])
@@ -187,7 +217,7 @@ impl Cedia {
             output.status,
             String::from_utf8_lossy(&output.stderr).trim()
         );
-        Ok(())
+        Ok(output.stdout)
     }
 }
 

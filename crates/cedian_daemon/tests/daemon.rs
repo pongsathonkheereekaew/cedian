@@ -172,6 +172,101 @@ fn the_window_gets_cedias_models_and_modes() {
 }
 
 #[test]
+fn the_window_gets_the_projects_commands() {
+    let harness = start_with("edit-and-check", "\"commands\"");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Commands {
+        cwd: harness.cwd.clone(),
+    });
+    match window.next() {
+        Notice::Commands { cwd, commands } => {
+            assert_eq!(cwd, harness.cwd);
+            assert_eq!(commands.len(), 1);
+            assert_eq!(commands[0].name, "repo-review");
+            assert_eq!(commands[0].argument_hint.as_deref(), Some("<pr>"));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn an_edited_message_forks_the_thread_and_runs_there() {
+    let harness = start_with("edit-and-check", "\"threads.fork\"");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Prompt {
+        cwd: harness.cwd.clone(),
+        text: "make f.txt say good".into(),
+        thread: None,
+        worktree: false,
+        profile: None,
+        model: None,
+        permission: None,
+    });
+    window.until(status_is(Status::Done));
+    window.ask(Request::Fork {
+        cwd: harness.cwd.clone(),
+        thread: "t-00000001".into(),
+        run: "r-1".into(),
+        text: "make f.txt say better".into(),
+        model: Some("sonnet".into()),
+        permission: None,
+    });
+    let (_, seen) = window.until(|n| matches!(n, Notice::Forked { .. }));
+    assert!(
+        matches!(seen.last(), Some(Notice::Forked { from, thread, .. })
+            if from == "t-00000001" && thread == "t-0000fork"),
+        "{seen:?}"
+    );
+    // The fixture's run ends a thread that is done already, so wait on what it was given.
+    let args_file = harness.threads.join("../args");
+    for _ in 0..100 {
+        if std::fs::read_to_string(&args_file).is_ok_and(|a| a.contains("better")) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let args = std::fs::read_to_string(&args_file).expect("args");
+    let args: Vec<&str> = args.lines().collect();
+    assert!(args.contains(&"--print=make f.txt say better"), "{args:?}");
+    assert!(
+        args.windows(2).any(|w| w == ["--thread", "t-0000fork"]),
+        "{args:?}"
+    );
+    assert!(
+        args.windows(2).any(|w| w == ["--model", "sonnet"]),
+        "{args:?}"
+    );
+}
+
+#[test]
+fn a_cedia_that_cannot_fork_says_so() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Fork {
+        cwd: harness.cwd.clone(),
+        thread: "t-00000001".into(),
+        run: "r-1".into(),
+        text: "again".into(),
+        model: None,
+        permission: None,
+    });
+    assert!(matches!(window.next(), Notice::Error { .. }));
+}
+
+#[test]
+fn a_cedia_without_commands_is_not_asked() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Commands {
+        cwd: harness.cwd.clone(),
+    });
+    window.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    assert!(matches!(window.next(), Notice::Threads { .. }));
+}
+
+#[test]
 fn a_prompt_runs_and_a_second_window_rebuilds_it() {
     let harness = start("edit-and-check");
     let mut window = Window::connect(&harness);

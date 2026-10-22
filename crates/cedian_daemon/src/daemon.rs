@@ -451,6 +451,71 @@ impl Daemon {
                     }
                 }
             }
+            Request::Commands { cwd } => {
+                let (cedia, can) = {
+                    let daemon = lock(shared);
+                    let can = daemon.version.as_ref().is_ok_and(|v| {
+                        v.capabilities
+                            .contains(&cedian_protocol::Capability::Commands)
+                    });
+                    (daemon.cedia.clone(), can)
+                };
+                // An older cedia would read the word as a prompt.
+                if !can {
+                    return;
+                }
+                match cedia.commands(&cwd) {
+                    Ok(list) => lock(shared).send(
+                        client,
+                        Notice::Commands {
+                            cwd,
+                            commands: list.commands,
+                        },
+                    ),
+                    Err(error) => log::warn!("{error}"),
+                }
+            }
+            Request::Fork {
+                cwd,
+                thread,
+                run,
+                text,
+                model,
+                permission,
+            } => {
+                let (cedia, can) = {
+                    let daemon = lock(shared);
+                    let can = daemon.version.as_ref().is_ok_and(|v| {
+                        v.capabilities
+                            .contains(&cedian_protocol::Capability::ThreadsFork)
+                    });
+                    (daemon.cedia.clone(), can)
+                };
+                if !can {
+                    return lock(shared).error(client, "this cedia cannot fork a thread".into());
+                }
+                match cedia.fork(&cwd, &thread, &run) {
+                    Ok(forked) => {
+                        lock(shared).send(
+                            client,
+                            Notice::Forked {
+                                cwd: cwd.clone(),
+                                from: thread,
+                                thread: forked.clone(),
+                            },
+                        );
+                        let with = Flags {
+                            model: model.as_deref(),
+                            permission: permission.as_deref(),
+                            ..Flags::default()
+                        };
+                        // No requester: the window opens the fork itself, for the history the
+                        // fork copied, and then reads the run as any open thread's.
+                        Self::prompt(shared, None, cwd.clone(), cwd, &text, Some(forked), with);
+                    }
+                    Err(error) => lock(shared).error(client, format!("{error:#}")),
+                }
+            }
             Request::Send { cwd, thread, text } => {
                 Self::message(shared, client, &cwd, &thread, &text)
             }
