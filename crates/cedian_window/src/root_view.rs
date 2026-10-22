@@ -2,17 +2,17 @@
 //! its composer, the tool panel and its rail, and the status bar. It keeps only what the daemon
 //! can send again.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use cedian_protocol::Line;
 use cedian_wire::{HunkState, Notice, Request, Status, ThreadInfo};
 use editor::Editor;
 use futures::StreamExt as _;
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Task, Window, WindowControlArea, WindowHandle, div, prelude::FluentBuilder as _,
-    px,
+    AnyElement, AppContext as _, Context, Entity, EntityInputHandler as _, InteractiveElement as _,
+    IntoElement, MouseButton, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Task, Window, WindowControlArea, WindowHandle,
+    div, prelude::FluentBuilder as _, px,
 };
 use settings::Settings as _;
 use theme::ActiveTheme as _;
@@ -28,7 +28,7 @@ use crate::{
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
     settings_window::SettingsWindow,
-    shell_pane::ShellPane,
+    shell_pane::{AttachSelection, ShellEvent, ShellPane},
     status_bar::{self, StatusLine},
     tab_strip::{self, ProjectTab},
     thread_details::{self, Details},
@@ -68,7 +68,8 @@ pub struct RootView {
     agent: Entity<AgentPane>,
     composer: Entity<Composer>,
     editor: Entity<Editor>,
-    shell: Entity<ShellPane>,
+    /// A shell per directory: the project's, and each worktree a thread opened shows.
+    shells: HashMap<PathBuf, Entity<ShellPane>>,
     toolbar: Entity<Toolbar>,
     review: Entity<ReviewPane>,
     /// The tools open in the panel, in rail order.
@@ -160,9 +161,7 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let shell_cwd = (!cwd.as_os_str().is_empty()).then(|| cwd.clone());
         let editor = cx.new(|cx| Editor::multi_line(window, cx));
-        let shell = cx.new(|cx| ShellPane::new(shell_cwd, window, cx));
         let project: SharedString = cwd
             .file_name()
             .map_or_else(|| "cedian".to_owned(), |n| n.to_string_lossy().into_owned())
@@ -278,7 +277,7 @@ impl RootView {
             agent,
             composer,
             editor,
-            shell,
+            shells: HashMap::new(),
             toolbar,
             review,
             tools: Layout::default().tools,
@@ -439,8 +438,9 @@ impl RootView {
             .and_then(|t| t.cwd.as_deref())
             .and_then(crate::agent_pane::branch_of);
         let found = self.threads.iter().map(Found::of).collect();
+        let dir = self.shell_dir();
         self.toolbar
-            .update(cx, |toolbar, cx| toolbar.set(found, branch, cx));
+            .update(cx, |toolbar, cx| toolbar.set(found, branch, dir, cx));
         let header = Header {
             title: title.into(),
             status: self.status,
@@ -536,6 +536,53 @@ impl RootView {
         self.save_layout(cx);
         self.refresh_review();
         cx.notify();
+    }
+
+    /// Where the terminal runs: the open thread's directory (its worktree) when it is on this
+    /// machine, else the project.
+    fn shell_dir(&self) -> PathBuf {
+        self.current
+            .as_ref()
+            .and_then(|id| self.threads.iter().find(|t| &t.thread.id == id))
+            .and_then(|t| t.cwd.clone())
+            .filter(|dir| dir.is_dir())
+            .unwrap_or_else(|| self.cwd.clone())
+    }
+
+    /// Starts the shell for the terminal's directory the first time it is shown there. Each
+    /// directory keeps its shell, so going back to a thread finds its shell as it was left.
+    fn ensure_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let dir = self.shell_dir();
+        if self.shells.contains_key(&dir) {
+            return;
+        }
+        let start = (!dir.as_os_str().is_empty()).then(|| dir.clone());
+        let shell = cx.new(|cx| ShellPane::new(start, window, cx));
+        cx.subscribe_in(&shell, window, |view, _, event, window, cx| match event {
+            ShellEvent::Attach(text) => view
+                .composer
+                .update(cx, |composer, cx| composer.attach(text, window, cx)),
+        })
+        .detach();
+        self.shells.insert(dir, shell);
+    }
+
+    fn attach_editor_selection(
+        &mut self,
+        _: &AttachSelection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = self.editor.update(cx, |editor, cx| {
+            let range = editor.selected_text_range(false, window, cx)?.range;
+            (!range.is_empty())
+                .then(|| editor.text_for_range(range, &mut None, window, cx))
+                .flatten()
+        });
+        if let Some(text) = text.filter(|t| !t.trim().is_empty()) {
+            self.composer
+                .update(cx, |composer, cx| composer.attach(&text, window, cx));
+        }
     }
 
     fn hide_tools(&mut self, cx: &mut Context<Self>) {
@@ -679,11 +726,16 @@ impl RootView {
         for (n, tool) in shown.iter().enumerate() {
             let body: AnyElement = match tool {
                 Tool::Editor => div()
+                    .key_context("ToolEditor")
+                    .on_action(cx.listener(Self::attach_editor_selection))
                     .size_full()
                     .p_2()
                     .child(self.editor.clone())
                     .into_any_element(),
-                Tool::Terminal => self.shell.clone().into_any_element(),
+                Tool::Terminal => match self.shells.get(&self.shell_dir()) {
+                    Some(shell) => shell.clone().into_any_element(),
+                    None => div().into_any_element(),
+                },
                 Tool::Review => self.review.clone().into_any_element(),
                 Tool::Details => div()
                     .id("details")
@@ -932,6 +984,9 @@ impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Text sizes are in rems, so the interface size setting scales all of it, as in Zed.
         window.set_rem_size(theme_settings::ThemeSettings::get_global(cx).ui_font_size(cx));
+        if !matches!(self.connection, Connection::Replay) && self.tools.contains(&Tool::Terminal) {
+            self.ensure_shell(window, cx);
+        }
         // The window's title carries the badge: how many threads need the person.
         let project = self
             .cwd
