@@ -114,7 +114,13 @@ Done on Linux (2026-10-22): `cedian_window` opens a GPUI window with Zed's `edit
 
 The agent pane followed on the same day. `cedian_agent` folds cedia's stream-json lines into blocks (user, text, thinking, tool call with its permission and result, session, receipt). Streamed text shows until the turn's assistant event replaces it, and a sub-thread's events, which arrive in the parent's stream, go to a transcript of their own, keyed by thread. `cargo test -p cedian_agent` replays every pinned fixture against an outline in `tests/replay/`, and `cedian --replay <stream.jsonl>` plays one into the window a line at a time.
 
-Still to do on a Mac: the same window on macOS (it needs Xcode for Metal shaders, or GPUI's `runtime_shaders` until then), the compiled cedia passing its sandbox tests, and the performance budgets.
+On the owner's Mac (Apple silicon, same day):
+
+- A debug build of the window needs full Xcode for GPUI's Metal shaders; with Command Line Tools only it fails with `unable to find utility "metal"`. `cargo build -p cedian_window --features runtime_shaders` builds without Xcode (about 3 minutes clean) and compiles the shaders at launch instead. Builds that ship leave the feature off and need Xcode.
+- The window opens and runs without a panic: about 122 MB resident at start, falling to about 100 MB a minute later, at 1.5% CPU. A screenshot needs Screen Recording permission for the process taking it.
+- cedia at the pin compiles with `bun build --compile` in under a second to a 72 MB binary. Its sandbox tests pass (13 of 13), and the compiled binary runs sandboxed bash under `--sandbox on` while a write outside the working directory fails with `Operation not permitted`.
+
+Still to do: the performance budgets (cold start, keystroke latency, scrolling 10k blocks, idle memory) measured the same way against the Claude desktop app.
 
 ## Learned from the Claude desktop app
 

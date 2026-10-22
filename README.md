@@ -15,4 +15,4 @@ cargo run -p cedian_window -- --replay crates/cedian_protocol/cedia/sessions/edi
 cargo test --workspace
 ```
 
-On Linux, install the packages from Zed's `script/linux` first.
+On Linux, install the packages from Zed's `script/linux` first. On a Mac without full Xcode, add `--features runtime_shaders`.

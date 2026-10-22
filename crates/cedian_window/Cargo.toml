@@ -9,6 +9,11 @@ license.workspace = true
 name = "cedian"
 path = "src/main.rs"
 
+[features]
+# Compiles GPUI's Metal shaders when the app starts instead of at build time, for a Mac
+# without full Xcode. Builds that ship leave it off.
+runtime_shaders = ["gpui_platform/runtime_shaders"]
+
 [dependencies]
 anyhow.workspace = true
 assets.workspace = true
