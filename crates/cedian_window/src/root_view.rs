@@ -7,9 +7,9 @@ use cedian_protocol::Line;
 use cedian_wire::{Notice, Request, Status, ThreadInfo};
 use futures::StreamExt as _;
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, Hsla, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
-    div, prelude::FluentBuilder as _, px,
+    AnyElement, AppContext as _, Context, Entity, Focusable as _, Hsla, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Window, div, prelude::FluentBuilder as _, px,
 };
 use theme::ActiveTheme as _;
 
@@ -17,6 +17,7 @@ use crate::{
     agent_pane::AgentPane,
     composer::{Composer, ComposerEvent},
     daemon_client::DaemonClient,
+    review_pane::{ReviewEvent, ReviewPane},
     spike_view::SpikeView,
 };
 
@@ -50,6 +51,9 @@ pub struct RootView {
     agent: Entity<AgentPane>,
     composer: Entity<Composer>,
     tools: Entity<SpikeView>,
+    review: Entity<ReviewPane>,
+    /// The right column shows the review instead of the editor and terminal.
+    showing_review: bool,
 }
 
 impl RootView {
@@ -117,6 +121,21 @@ impl RootView {
             ComposerEvent::Submit(text) => view.submit(text.clone(), cx),
         })
         .detach();
+        let review = cx.new(ReviewPane::new);
+        cx.subscribe(&review, |view, _, event, _| match event {
+            ReviewEvent::Decide { hunk, decision } => {
+                if let Some(thread) = view.current.clone() {
+                    view.request(Request::Decide {
+                        cwd: view.cwd.clone(),
+                        thread,
+                        hunk: hunk.clone(),
+                        decision: decision.clone(),
+                    });
+                }
+            }
+            ReviewEvent::Refresh => view.refresh_review(),
+        })
+        .detach();
         Self {
             cwd,
             client: None,
@@ -132,6 +151,8 @@ impl RootView {
             agent,
             composer,
             tools,
+            review,
+            showing_review: false,
         }
     }
 
@@ -185,6 +206,7 @@ impl RootView {
                 self.current = Some(thread);
                 self.status = Some(Status::Working);
                 self.retitle(cx);
+                self.review_current(cx);
             }
             Notice::Started { .. } => {}
             Notice::Line { thread, line } if self.current.as_ref() == Some(&thread) => {
@@ -201,8 +223,14 @@ impl RootView {
                 if self.current.as_ref() == Some(&thread) {
                     self.status = Some(status);
                     self.retitle(cx);
+                    self.refresh_review();
                 }
             }
+            Notice::Review { thread, review } if self.current.as_ref() == Some(&thread) => {
+                self.review
+                    .update(cx, |pane, cx| pane.set_review(review, cx));
+            }
+            Notice::Review { .. } => {}
             Notice::Error { message } => self.error = Some(message.into()),
         }
         cx.notify();
@@ -249,6 +277,7 @@ impl RootView {
         });
         self.current = Some(thread);
         self.retitle(cx);
+        self.review_current(cx);
     }
 
     fn new_thread(&mut self, cx: &mut Context<Self>) {
@@ -260,6 +289,81 @@ impl RootView {
         self.status = None;
         self.agent
             .update(cx, |agent, cx| agent.reset("new thread", cx));
+        self.review_current(cx);
+    }
+
+    /// Points the review at the open thread.
+    fn review_current(&mut self, cx: &mut Context<Self>) {
+        let thread = self.current.clone();
+        self.review
+            .update(cx, |pane, cx| pane.set_thread(thread, cx));
+        self.refresh_review();
+    }
+
+    fn refresh_review(&self) {
+        if let (true, Some(thread)) = (self.showing_review, &self.current) {
+            self.request(Request::Review {
+                cwd: self.cwd.clone(),
+                thread: thread.clone(),
+            });
+        }
+    }
+
+    fn render_tools(&self, cx: &mut Context<Self>) -> AnyElement {
+        let colors = cx.theme().colors();
+        let live = !matches!(self.connection, Connection::Replay);
+        let tab = |id: &'static str, label: &'static str, on: bool| {
+            div()
+                .id(id)
+                .px_2()
+                .py_1()
+                .text_xs()
+                .cursor_pointer()
+                .text_color(if on { colors.text } else { colors.text_muted })
+                .when(on, |tab| tab.border_b_1().border_color(colors.text_accent))
+                .child(label)
+        };
+        div()
+            .w(px(460.))
+            .h_full()
+            .flex()
+            .flex_col()
+            .when(live, |column| {
+                column.child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .gap_1()
+                        .px_1()
+                        .border_b_1()
+                        .border_color(colors.border)
+                        .bg(colors.panel_background)
+                        .child(
+                            tab("tools-tab", "Editor and terminal", !self.showing_review).on_click(
+                                cx.listener(|view, _, _, cx| {
+                                    view.showing_review = false;
+                                    cx.notify();
+                                }),
+                            ),
+                        )
+                        .child(tab("review-tab", "Review", self.showing_review).on_click(
+                            cx.listener(|view, _, window, cx| {
+                                view.showing_review = true;
+                                view.refresh_review();
+                                window.focus(&view.review.focus_handle(cx), cx);
+                                cx.notify();
+                            }),
+                        )),
+                )
+            })
+            .child(div().flex_grow(1.).min_h_0().map(|body| {
+                if self.showing_review {
+                    body.child(self.review.clone())
+                } else {
+                    body.child(self.tools.clone())
+                }
+            }))
+            .into_any_element()
     }
 
     fn submit(&mut self, text: String, cx: &mut Context<Self>) {
@@ -468,6 +572,6 @@ impl Render for RootView {
                     })
                     .when(live, |column| column.child(self.composer.clone())),
             )
-            .child(div().w(px(460.)).h_full().child(self.tools.clone()))
+            .child(self.render_tools(cx))
     }
 }

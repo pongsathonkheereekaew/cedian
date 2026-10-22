@@ -19,6 +19,7 @@ use crate::{
     follow::{Offsets, follow},
     keep_awake::KeepAwake,
     ledger::{Ledger, RunRecord, still_running},
+    review::{Changes, DecisionStore, decide},
     run::{Run, RunId, watch},
 };
 
@@ -50,6 +51,7 @@ pub struct Daemon {
     by_thread: HashMap<String, RunId>,
     keep_awake: KeepAwake,
     ledger: Ledger,
+    decisions: DecisionStore,
     next_id: u64,
 }
 
@@ -69,6 +71,7 @@ impl Daemon {
             by_thread: HashMap::new(),
             keep_awake: KeepAwake::default(),
             ledger: Ledger::new(state_dir),
+            decisions: DecisionStore::new(state_dir),
             next_id: 1,
         }
     }
@@ -353,6 +356,62 @@ impl Daemon {
                 Self::message(shared, client, &cwd, &thread, &text)
             }
             Request::Stop { thread } => lock(shared).stop(client, &thread),
+            Request::Review { cwd, thread } => {
+                lock(shared).review(client, &cwd, &thread, None);
+            }
+            Request::Decide {
+                cwd,
+                thread,
+                hunk,
+                decision,
+            } => {
+                let told = lock(shared).review(client, &cwd, &thread, Some((&hunk, &decision)));
+                if let Some((work_tree, text)) = told {
+                    Self::message(shared, client, &work_tree, &thread, &text);
+                }
+            }
+        }
+    }
+
+    /// Sends the thread's review, after applying a decision if there is one. A reject returns
+    /// the worktree and the message for the thread.
+    fn review(
+        &mut self,
+        client: ClientId,
+        cwd: &Path,
+        thread: &str,
+        decision: Option<(&str, &cedian_wire::Decision)>,
+    ) -> Option<(PathBuf, String)> {
+        let slug = project_key(cwd);
+        let result = (|| {
+            let summary = read_thread(&threads_dir(&self.home, &slug), thread)?;
+            let changes = Changes::of(&self.home, &slug, &summary)?;
+            let mut decisions = self.decisions.load(thread);
+            let mut review = changes.review(&self.home, &decisions)?;
+            let mut told = None;
+            if let Some((hunk, decision)) = decision {
+                let text = decide(&review, &changes.work_tree, &mut decisions, hunk, decision)?;
+                self.decisions.save(thread, &decisions)?;
+                told = text.map(|text| (changes.work_tree.clone(), text));
+                review = changes.review(&self.home, &decisions)?;
+            }
+            anyhow::Ok((review, told))
+        })();
+        match result {
+            Ok((review, told)) => {
+                self.send(
+                    client,
+                    Notice::Review {
+                        thread: thread.to_owned(),
+                        review,
+                    },
+                );
+                told
+            }
+            Err(error) => {
+                self.error(client, format!("{error:#}"));
+                None
+            }
         }
     }
 

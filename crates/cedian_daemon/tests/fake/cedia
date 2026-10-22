@@ -13,6 +13,7 @@ fi
 if [[ "${1:-}" == "threads" ]]; then
   # threads --cwd <dir> send <id> -- <text>
   id="$5" text="$7"
+  printf '%s' "$text" >"$FAKE_THREADS/../sent"
   printf '{"at":"2026-10-22T03:00:00.000Z","kind":"message","id":"m-1","from":"user","text":"%s"}\n' "$text" \
     >>"$FAKE_THREADS/$id.jsonl"
   echo "sent to $id"
