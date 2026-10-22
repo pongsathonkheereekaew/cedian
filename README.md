@@ -8,15 +8,21 @@ The design decisions are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The 
 
 ## Status
 
-Phase A. The window builds and runs: an agent pane beside Zed's editor and a shell from Zed's terminal crate. The agent pane plays recorded cedia runs; there is no daemon or live run yet.
+Phase B. The window and a background daemon run real cedia threads: a thread list, the agent pane with a composer, and Zed's editor and a shell beside them. The window starts the daemon when it is not running; quitting the window leaves runs going.
 
 ```sh
-cargo run -p cedian_window -- --replay crates/cedian_protocol/cedia/sessions/edit-and-check/stream.jsonl
+cargo build -p cedian_daemon -p cedian_window
+target/debug/cedian --cwd <project>    # finds cedia on the login shell's PATH, or $CEDIAN_CEDIA_BIN
 cargo test --workspace
+
+# a recorded run, without the daemon
+cargo run -p cedian_window -- --replay crates/cedian_protocol/cedia/sessions/edit-and-check/stream.jsonl
 
 # a 10k-block thread for the scroll and memory budgets
 cargo run -p cedian_agent --example long_thread -- 10000 > /tmp/long.jsonl
 cargo run -p cedian_window -- --replay /tmp/long.jsonl --instant
 ```
+
+The daemon logs to `daemon.log` beside its socket, in `~/Library/Application Support/cedian` on macOS. `CEDIAN_STATE_DIR` moves both, which keeps a test daemon apart from the real one.
 
 On Linux, install the packages from Zed's `script/linux` first. On a Mac without full Xcode, add `--features runtime_shaders`.
