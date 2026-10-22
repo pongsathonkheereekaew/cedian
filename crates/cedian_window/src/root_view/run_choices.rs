@@ -35,7 +35,7 @@ pub(super) struct RunChoices {
     picks: HashMap<String, Pick>,
     /// The pick for the thread the composer would start.
     new_thread: Pick,
-    menu: Option<Menu>,
+    pub(super) menu: Option<Menu>,
     /// The menu a press outside it just closed: a press on its own chip closes it, and the
     /// click that follows must not open it again.
     closed: Option<(Menu, Instant)>,
@@ -47,8 +47,8 @@ pub(super) struct Pick {
     pub permission: Option<PermissionSetting>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Menu {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Menu {
     Model,
     Permission,
 }
@@ -207,6 +207,7 @@ impl RootView {
             .child(
                 div()
                     .id(id)
+                    .debug_selector(|| id.into())
                     .h(px(24.))
                     .max_w_full()
                     .px_2()
@@ -338,6 +339,7 @@ impl RootView {
         deferred(
             div().absolute().bottom(px(28.)).right_0().child(
                 popup_menu::menu("run-choice-menu", rows, cx)
+                    .debug_selector(|| "run-choice-menu".into())
                     .w(px(MENU_WIDTH))
                     .on_mouse_down_out(cx.listener(|view, _, _, cx| {
                         view.choices.closed =

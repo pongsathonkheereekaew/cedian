@@ -797,6 +797,7 @@ impl RootView {
         let menu = (self.block_menu == Some(id)).then(|| self.render_block_menu(id, kind, cx));
         div()
             .id(SharedString::from(format!("block-{id}")))
+            .debug_selector(move || format!("{kind:?}-block").to_lowercase())
             .relative()
             .size_full()
             .min_w_0()

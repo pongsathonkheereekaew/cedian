@@ -451,7 +451,11 @@ impl AgentPane {
                 .text_meta()
                 .text_color(colors.text_muted)
         };
-        let mut chips = div().min_w_0().flex().items_center().gap_1p5();
+        let mut chips = div()
+            .debug_selector(|| "agent-chips".into())
+            .flex()
+            .items_center()
+            .gap_1p5();
         if let Some(context) = self.transcript.context() {
             let meter = match window.filter(|w| *w > 0) {
                 Some(window) => {
@@ -492,9 +496,10 @@ impl AgentPane {
                     .font(tokens::numeric_font())
                     .child(format!("{} context", short_tokens(context))),
             };
-            chips = chips.child(meter);
+            chips = chips.child(meter.debug_selector(|| "context-chip".into()));
         }
         let mut modes = div()
+            .debug_selector(|| "view-modes".into())
             .flex_none()
             .h(px(24.))
             .flex()

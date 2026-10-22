@@ -3,6 +3,8 @@
 
 mod blocks;
 mod chat;
+#[cfg(test)]
+mod fit_tests;
 mod run_choices;
 
 use std::{
@@ -1809,6 +1811,7 @@ impl RootView {
                                 // The composer's bottom row: where the thread runs, then the
                                 // context and the view mode.
                                 div()
+                                    .debug_selector(|| "composer-row".into())
                                     .flex_none()
                                     .min_w_0()
                                     .px_4()
@@ -1820,11 +1823,12 @@ impl RootView {
                                     .child(self.workplace.clone())
                                     .children(worktree)
                                     .child(self.render_run_choices(cx))
+                                    // The chips keep their width: the model's name and
+                                    // the workplace give way first.
                                     .child(
                                         div()
                                             .flex_grow(1.)
-                                            .min_w_0()
-                                            .overflow_hidden()
+                                            .flex_shrink_0()
                                             .when(!narrow, |row| row.child(chips)),
                                     )
                                     .children(stop),

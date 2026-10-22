@@ -47,3 +47,7 @@ zed_actions.workspace = true
 objc2.workspace = true
 objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
+
+[dev-dependencies]
+# Records debug selectors and gives the offline test window.
+gpui = { workspace = true, features = ["test-support"] }
