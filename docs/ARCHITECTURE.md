@@ -294,6 +294,14 @@ Done in cedia PR #19: project identity across worktrees, the `desktop` key with 
 
 cedia's threads already follow Claude Projects: a thread is one line of work made of sessions joined by handoff and `recall`, and threads message each other. cedian adds the project layer above them: a project pane with a coordinator thread (a `coordinator` profile that opens threads with `open_thread`, each in its own worktree), pause for everything the coordinator opened, shared memory and files under `~/.cedia/projects/<slug>/`, an outputs card across threads, and each thread's todo list drawn as a checklist on its tab.
 
+Decided 2026-10-22 with the owner, set against Claude Projects (a project there groups chats by any topic, sharing instructions, uploaded knowledge and memory):
+
+- **One project is one repository**, as cedia already names a project (the repository with all its worktrees). Topic projects are not offered: a thread's worktree, review, shells and preview all need one repository to run in.
+- **Instructions**: the repository's `AGENTS.md` (and `CLAUDE.md` when it points there) is the project's instructions, shown and edited from the project's Session block; cedia already reads it, so cedian adds no second instructions file.
+- **Knowledge**: the Outputs and Memory blocks (phase C), and files dropped on the Memory block, which go to the project's files under `~/.cedia/projects/<slug>/` once cedia offers a write.
+- **Related repositories**: a project can link other folders read only, such as cedian linking cedia, kept in `desktop.layout` per project and passed to runs as extra read-only roots when cedia offers them. Two repositories are never merged into one project.
+- **Inside a project**, threads are grouped by state and pins, never by sub-projects.
+
 ## Roadmap
 
 | Phase | cedian | cedia | Exit gate |
