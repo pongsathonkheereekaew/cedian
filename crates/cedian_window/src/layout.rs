@@ -16,6 +16,10 @@ pub struct Layout {
     pub tools: Vec<Tool>,
     /// The open thread by project directory.
     pub open: BTreeMap<String, String>,
+    /// Each tool's share of the panel's height, by key; a tool not named takes 1.
+    pub tool_sizes: BTreeMap<String, f32>,
+    /// The sidebar folded to its rail of dots (`⌘B`).
+    pub sidebar_folded: bool,
 }
 
 impl Default for Layout {
@@ -24,6 +28,8 @@ impl Default for Layout {
             bounds: None,
             tools: vec![Tool::Editor, Tool::Terminal],
             open: BTreeMap::new(),
+            tool_sizes: BTreeMap::new(),
+            sidebar_folded: false,
         }
     }
 }
@@ -75,18 +81,46 @@ impl Layout {
                 _ => Self::default().tools,
             },
         };
+        let tool_sizes = layout
+            .get("tool_sizes")
+            .and_then(Value::as_object)
+            .map(|sizes| {
+                sizes
+                    .iter()
+                    .filter_map(|(key, n)| Some((key.clone(), n.as_f64()? as f32)))
+                    .filter(|(_, n)| n.is_finite() && *n > 0.)
+                    .collect()
+            })
+            .unwrap_or_default();
         Self {
             bounds,
             tools,
             open,
+            tool_sizes,
+            sidebar_folded: layout.get("sidebar").and_then(Value::as_str) == Some("folded"),
         }
+    }
+
+    /// The share of the panel `tool` takes.
+    pub fn tool_size(&self, tool: Tool) -> f32 {
+        self.tool_sizes.get(tool.key()).copied().unwrap_or(1.)
     }
 
     pub fn to_value(&self) -> Value {
         let mut layout = json!({
             "tools": self.tools.iter().map(|t| t.key()).collect::<Vec<_>>(),
             "open": self.open,
+            "sidebar": if self.sidebar_folded { "folded" } else { "open" },
         });
+        if !self.tool_sizes.is_empty() {
+            // Two decimals keep the file readable; a drag never needs finer.
+            let sizes: BTreeMap<&str, f64> = self
+                .tool_sizes
+                .iter()
+                .map(|(k, n)| (k.as_str(), (f64::from(*n) * 100.).round() / 100.))
+                .collect();
+            layout["tool_sizes"] = json!(sizes);
+        }
         if let Some(bounds) = self.bounds {
             let (state, b) = match bounds {
                 WindowBounds::Windowed(b) => ("windowed", b),
@@ -128,6 +162,8 @@ mod tests {
             ))),
             tools: vec![Tool::Review, Tool::Details],
             open: BTreeMap::from([("/repo".to_owned(), "t-1".to_owned())]),
+            tool_sizes: BTreeMap::from([("review".to_owned(), 1.25)]),
+            sidebar_folded: true,
         };
         let desktop = json!({ "layout": layout.to_value() });
         assert_eq!(Layout::from_desktop(&desktop), layout);
