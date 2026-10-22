@@ -1,12 +1,14 @@
 session code on faux/scripted
 user: make f.txt say good
-tool spawn [s1] allowed by mode:workspace: completed: <subthread thread="t-60bab592" kind="work" model="faux/scripted" ended="success" cost="$0.0008">
+tool spawn [s1] allowed by mode:workspace: completed: <subthread thread="t-00000002" kind="work" model="faux/scripted" ended="success" cost="$0.0008">
 tool bash [c3] allowed by effect:read: completed: (no output)
 text: done, checked
 result success after 6 turns, verified: done, checked
-subthread t-60bab592:
+  check `grep -q good f.txt` exit 0 in t-00000002
+  check `grep -q good f.txt` exit 0 in t-00000001
+subthread t-00000002:
   session code on faux/scripted
-  user: You are a sub-thread of thread t-daa41c7c: another session handed you this task and will see only your final message. Do this task and nothing else.
+  user: You are a sub-thread of thread t-00000001: another session handed you this task and will see only your final message. Do this task and nothing else.
 
   <task>
   Write good to f.txt, then run grep -q good f.txt.

@@ -47,6 +47,11 @@ impl Transcript {
         self.blocks.push(block);
     }
 
+    /// This transcript's thread id, once its first session event has arrived.
+    pub fn thread(&self) -> Option<&str> {
+        self.thread.as_deref()
+    }
+
     /// Sub-threads started from this one, by thread id.
     pub fn subthreads(&self) -> &BTreeMap<String, Transcript> {
         &self.subthreads
