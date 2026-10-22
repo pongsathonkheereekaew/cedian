@@ -39,6 +39,14 @@ if [[ "${1:-}" == "commands" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "usage" ]]; then
+  # usage --json --since <since> (--all | --cwd <dir>): one day of one model, the range and
+  # where it read named in the thread's title.
+  where="all"; [[ "${5:-}" == "--cwd" ]] && where="$(basename "$6")"
+  echo "{\"sessions\":1,\"requests\":2,\"costUsd\":0.25,\"keepaliveUsd\":0,\"compactUsd\":0,\"tokens\":{\"input\":1000,\"cacheRead\":500,\"output\":100},\"sources\":[],\"largest\":[],\"misses\":[],\"overPriceLine\":0,\"maxEffort\":0,\"handoffs\":0,\"unpriced\":0,\"days\":[{\"day\":\"2026-10-22\",\"costUsd\":0.25}],\"models\":[{\"model\":\"faux/a\",\"costUsd\":0.25,\"requests\":2}],\"projects\":[{\"project\":\"p\",\"costUsd\":0.25}],\"threads\":[{\"thread\":\"t-1\",\"title\":\"$4 $where\",\"project\":\"p\",\"costUsd\":0.25}]}"
+  exit 0
+fi
+
 if [[ "${1:-}" == "threads" && "${4:-}" == "fork" ]]; then
   # threads --cwd <dir> fork <id> <run> --json
   printf '{"at":"2026-10-22T03:00:05.000Z","kind":"open","title":"forked","task":"forked","forkOf":{"thread":"%s","run":"%s"}}\n' "$5" "$6" \

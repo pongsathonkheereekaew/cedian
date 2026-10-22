@@ -27,7 +27,7 @@ pub fn fixtures_dir() -> std::path::PathBuf {
 mod tests {
     #[test]
     fn the_schema_hash_is_cedias() {
-        // `cedia --version --json` at 5237104 prints protocol 59afe2c56d173d48.
-        assert_eq!(super::PROTOCOL_HASH, "59afe2c56d173d48");
+        // `cedia --version --json` at 3730b3d prints protocol 28748b38c18c0cc2.
+        assert_eq!(super::PROTOCOL_HASH, "28748b38c18c0cc2");
     }
 }
