@@ -207,3 +207,33 @@ fn streamed_text_shows_until_the_assistant_event_replaces_it() {
         })
     ));
 }
+
+#[test]
+fn a_check_covers_a_file_until_a_later_edit_outdates_it() {
+    let stream = fs::read_to_string(fixtures_dir().join("edit-and-check/stream.jsonl"))
+        .expect("stream.jsonl");
+    let mut transcript = Transcript::default();
+    let mut edit_lines = Vec::new();
+    for text in stream.lines() {
+        // The edit's request and result, to play again after the check.
+        if text.starts_with(r#"{"type":"event""#) && text.contains(r#""e1""#) {
+            edit_lines.push(text.replace(r#""e1""#, r#""e2""#));
+        }
+        transcript.apply(&Line::parse(text).expect("line"));
+    }
+    let covered = transcript.file_checks("f.txt");
+    assert_eq!(covered.covering, ["grep -q good f.txt"]);
+    assert!(covered.outdated.is_empty());
+    assert_eq!(
+        transcript.file_checks("other.txt").covering,
+        ["grep -q good f.txt"]
+    );
+
+    assert!(!edit_lines.is_empty(), "the fixture's edit lines");
+    for text in &edit_lines {
+        transcript.apply(&Line::parse(text).expect("edit line"));
+    }
+    let outdated = transcript.file_checks("f.txt");
+    assert_eq!(outdated.outdated, ["grep -q good f.txt"]);
+    assert!(outdated.covering.is_empty());
+}

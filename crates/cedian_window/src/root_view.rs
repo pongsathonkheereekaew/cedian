@@ -65,6 +65,8 @@ pub struct RootView {
     review: Entity<ReviewPane>,
     /// The right column shows the review instead of the editor and terminal.
     showing_review: bool,
+    /// The review fills the main area in place of the agent pane.
+    review_wide: bool,
     settings: Entity<SettingsView>,
     settings_window: Option<WindowHandle<SettingsWindow>>,
     /// What the next window opens with; saved shortly after it changes.
@@ -194,8 +196,12 @@ impl RootView {
             }),
         })
         .detach();
-        let review = cx.new(ReviewPane::new);
-        cx.subscribe(&review, |view, _, event, _| match event {
+        let review = cx.new(|cx| {
+            let mut pane = ReviewPane::new(cx);
+            pane.set_agent(&agent, cx);
+            pane
+        });
+        cx.subscribe(&review, |view, _, event, cx| match event {
             ReviewEvent::Decide { hunk, decision } => {
                 if let Some(thread) = view.current.clone() {
                     view.request(Request::Decide {
@@ -207,6 +213,11 @@ impl RootView {
                 }
             }
             ReviewEvent::Refresh => view.refresh_review(),
+            ReviewEvent::Widen(wide) => view.widen_review(*wide, cx),
+            ReviewEvent::Rerun { command, path } => view.submit(
+                format!("รัน check `{command}` ใหม่: {path} ถูกแก้หลังจาก check ครั้งล่าสุด"),
+                cx,
+            ),
         })
         .detach();
         Self {
@@ -226,6 +237,7 @@ impl RootView {
             tools,
             review,
             showing_review: false,
+            review_wide: false,
             settings,
             settings_window: None,
             layout: Layout::default(),
@@ -426,6 +438,17 @@ impl RootView {
         }));
     }
 
+    fn widen_review(&mut self, wide: bool, cx: &mut Context<Self>) {
+        self.review_wide = wide;
+        self.review.update(cx, |pane, cx| pane.set_wide(wide, cx));
+        if !wide {
+            self.show_review(true, cx);
+        } else {
+            self.refresh_review();
+        }
+        cx.notify();
+    }
+
     fn show_review(&mut self, on: bool, cx: &mut Context<Self>) {
         self.showing_review = on;
         self.layout.showing_review = on;
@@ -530,7 +553,7 @@ impl RootView {
     }
 
     fn refresh_review(&self) {
-        if let (true, Some(thread)) = (self.showing_review, &self.current) {
+        if let (true, Some(thread)) = (self.showing_review || self.review_wide, &self.current) {
             self.request(Request::Review {
                 cwd: self.cwd.clone(),
                 thread: thread.clone(),
@@ -541,6 +564,8 @@ impl RootView {
     fn render_tools(&self, cx: &mut Context<Self>) -> AnyElement {
         let colors = cx.theme().colors();
         let live = !matches!(self.connection, Connection::Replay);
+        // A widened review sits in the main area, so the column keeps the editor and terminal.
+        let showing_review = self.showing_review && !self.review_wide;
         let tab = |id: &'static str, label: &'static str, on: bool| {
             div()
                 .id(id)
@@ -569,22 +594,27 @@ impl RootView {
                         .border_color(colors.border)
                         .bg(colors.panel_background)
                         .child(
-                            tab("tools-tab", "Editor and terminal", !self.showing_review).on_click(
+                            tab("tools-tab", "Editor and terminal", !showing_review).on_click(
                                 cx.listener(|view, _, _, cx| {
                                     view.show_review(false, cx);
                                 }),
                             ),
                         )
-                        .child(tab("review-tab", "Review", self.showing_review).on_click(
-                            cx.listener(|view, _, window, cx| {
-                                view.show_review(true, cx);
-                                window.focus(&view.review.focus_handle(cx), cx);
-                            }),
-                        )),
+                        .child(
+                            tab("review-tab", "Review", showing_review).on_click(cx.listener(
+                                |view, _, window, cx| {
+                                    if view.review_wide {
+                                        view.widen_review(false, cx);
+                                    }
+                                    view.show_review(true, cx);
+                                    window.focus(&view.review.focus_handle(cx), cx);
+                                },
+                            )),
+                        ),
                 )
             })
             .child(div().flex_grow(1.).min_h_0().map(|body| {
-                if self.showing_review {
+                if showing_review {
                     body.child(self.review.clone())
                 } else {
                     body.child(self.tools.clone())
@@ -858,6 +888,7 @@ impl Render for RootView {
         let notice = failure.or_else(|| self.error.clone());
         let background = colors.background;
         let text = colors.text;
+        let wide = self.review_wide;
         let body = div()
             .flex_grow(1.)
             .min_h_0()
@@ -873,7 +904,13 @@ impl Render for RootView {
                     .flex_col()
                     .border_r_1()
                     .border_color(colors.border)
-                    .child(div().flex_grow(1.).min_h_0().child(self.agent.clone()))
+                    .child(div().flex_grow(1.).min_h_0().map(|main| {
+                        if wide {
+                            main.child(self.review.clone())
+                        } else {
+                            main.child(self.agent.clone())
+                        }
+                    }))
                     .when_some(notice, |column, notice| {
                         column.child(
                             div()
@@ -884,8 +921,8 @@ impl Render for RootView {
                                 .child(notice),
                         )
                     })
-                    .children(question)
-                    .when(live && self.current.is_none(), |column| {
+                    .when(!wide, |column| column.children(question))
+                    .when(!wide && live && self.current.is_none(), |column| {
                         let word = if self.use_worktree {
                             "In a new worktree: on"
                         } else {
@@ -906,9 +943,10 @@ impl Render for RootView {
                                 .child(word),
                         )
                     })
-                    .when(live, |column| column.child(self.composer.clone())),
+                    .when(!wide && live, |column| column.child(self.composer.clone())),
             )
-            .child(self.render_tools(cx));
+            // A widened review takes the tool column's width too.
+            .when(!wide, |body| body.child(self.render_tools(cx)));
         let tab = ProjectTab {
             name: project.into_owned().into(),
             working: self

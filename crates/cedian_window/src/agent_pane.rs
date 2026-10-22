@@ -77,6 +77,11 @@ impl AgentPane {
         self
     }
 
+    /// The latest receipt's checks, split by whether they ran after `path` was last edited.
+    pub fn file_checks(&self, path: &str) -> cedian_agent::FileChecks {
+        self.transcript.file_checks(path)
+    }
+
     /// Empties the pane for another thread.
     pub fn reset(&mut self, title: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.header = Header {
