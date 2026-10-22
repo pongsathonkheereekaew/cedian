@@ -9,7 +9,7 @@ use futures::StreamExt as _;
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, Focusable as _, Hsla, InteractiveElement as _,
     IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Window, div, prelude::FluentBuilder as _, px,
+    Styled as _, Task, Window, div, prelude::FluentBuilder as _, px,
 };
 use settings::Settings as _;
 use theme::ActiveTheme as _;
@@ -19,6 +19,7 @@ use crate::{
     composer::{Composer, ComposerEvent},
     daemon_client::DaemonClient,
     desktop::Desktop,
+    layout::Layout,
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
     spike_view::SpikeView,
@@ -60,6 +61,9 @@ pub struct RootView {
     settings: Entity<SettingsView>,
     /// The center column shows the settings instead of the thread.
     showing_settings: bool,
+    /// What the next window opens with; saved shortly after it changes.
+    layout: Layout,
+    saving_layout: Option<Task<()>>,
 }
 
 impl RootView {
@@ -70,9 +74,17 @@ impl RootView {
     }
 
     /// Connects to the daemon in the background and shows `cwd`'s threads.
-    pub fn live(cwd: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn live(cwd: PathBuf, layout: Layout, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let agent = cx.new(|_| AgentPane::new("new thread"));
-        let view = Self::new(cwd, agent, window, cx);
+        let mut view = Self::new(cwd, agent, window, cx);
+        view.showing_review = layout.showing_review;
+        view.layout = layout;
+        view.layout.bounds = Some(window.window_bounds());
+        cx.observe_window_bounds(window, |view, window, cx| {
+            view.layout.bounds = Some(window.window_bounds());
+            view.save_layout(cx);
+        })
+        .detach();
         view.composer
             .update(cx, |composer, cx| composer.focus(window, cx));
         cx.spawn(async move |this, cx| {
@@ -173,6 +185,8 @@ impl RootView {
             showing_review: false,
             settings,
             showing_settings: false,
+            layout: Layout::default(),
+            saving_layout: None,
         }
     }
 
@@ -213,10 +227,17 @@ impl RootView {
                 if std::mem::take(&mut self.first_list)
                     && self.current.is_none()
                     && !self.awaiting_thread
-                    && let Some(latest) = self.threads.first()
                 {
-                    let id = latest.thread.id.clone();
-                    self.select(id, cx);
+                    let saved = self.layout.open.get(&self.cwd.display().to_string());
+                    let thread = self
+                        .threads
+                        .iter()
+                        .find(|t| Some(&t.thread.id) == saved)
+                        .or(self.threads.first());
+                    if let Some(thread) = thread {
+                        let id = thread.thread.id.clone();
+                        self.select(id, cx);
+                    }
                 }
                 self.retitle(cx);
             }
@@ -318,8 +339,44 @@ impl RootView {
         self.review_current(cx);
     }
 
+    /// Writes the layout through the daemon half a second after the last change, so dragging
+    /// the window writes the file once.
+    fn save_layout(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.connection, Connection::Replay) {
+            return;
+        }
+        self.saving_layout = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(500))
+                .await;
+            this.update(cx, |view, _| {
+                view.request(Request::SetDesktop {
+                    key: "layout".into(),
+                    value: view.layout.to_value(),
+                });
+            })
+            .ok();
+        }));
+    }
+
+    fn show_review(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.showing_review = on;
+        self.layout.showing_review = on;
+        self.save_layout(cx);
+        self.refresh_review();
+        cx.notify();
+    }
+
     /// Points the review at the open thread.
     fn review_current(&mut self, cx: &mut Context<Self>) {
+        let cwd = self.cwd.display().to_string();
+        let changed = match &self.current {
+            Some(thread) => self.layout.open.insert(cwd, thread.clone()).as_ref() != Some(thread),
+            None => false,
+        };
+        if changed {
+            self.save_layout(cx);
+        }
         let thread = self.current.clone();
         self.review
             .update(cx, |pane, cx| pane.set_thread(thread, cx));
@@ -368,17 +425,14 @@ impl RootView {
                         .child(
                             tab("tools-tab", "Editor and terminal", !self.showing_review).on_click(
                                 cx.listener(|view, _, _, cx| {
-                                    view.showing_review = false;
-                                    cx.notify();
+                                    view.show_review(false, cx);
                                 }),
                             ),
                         )
                         .child(tab("review-tab", "Review", self.showing_review).on_click(
                             cx.listener(|view, _, window, cx| {
-                                view.showing_review = true;
-                                view.refresh_review();
+                                view.show_review(true, cx);
                                 window.focus(&view.review.focus_handle(cx), cx);
-                                cx.notify();
                             }),
                         )),
                 )
