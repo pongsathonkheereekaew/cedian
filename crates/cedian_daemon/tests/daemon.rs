@@ -25,7 +25,9 @@ struct Harness {
 fn start(fixture: &str) -> Harness {
     let dir = tempfile::tempdir().expect("tempdir");
     let home = dir.path().join("home");
-    let cwd = dir.path().join("repo");
+    // Canonical, as the window passes it: macOS's temp dir is under the /var -> /private/var
+    // symlink, and a worktree's project key is taken from its real path.
+    let cwd = dir.path().canonicalize().expect("tempdir").join("repo");
     std::fs::create_dir_all(&cwd).expect("repo");
     let slug = cedian_index::project_key(&cwd);
     let threads = cedian_index::threads_dir(&home, &slug);
