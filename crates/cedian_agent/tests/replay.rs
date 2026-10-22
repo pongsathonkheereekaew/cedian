@@ -66,11 +66,22 @@ fn outline(transcript: &Transcript) -> String {
                 subtype,
                 text,
                 turns,
+                evidence,
                 ..
-            } => format!(
-                "result {subtype} after {turns} turns{}: {text}",
-                if block.verified() { ", verified" } else { "" }
-            ),
+            } => {
+                let mut line = format!(
+                    "result {subtype} after {turns} turns{}: {text}",
+                    if block.verified() { ", verified" } else { "" }
+                );
+                for check in evidence.iter().flat_map(|e| &e.checks) {
+                    let thread = check.thread.as_deref().unwrap_or("-");
+                    line.push_str(&format!(
+                        "\n  check `{}` exit {} in {thread}",
+                        check.command, check.exit_code
+                    ));
+                }
+                line
+            }
         };
         out.push_str(line.trim_end());
         out.push('\n');
