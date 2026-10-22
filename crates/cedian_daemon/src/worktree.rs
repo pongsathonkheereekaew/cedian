@@ -1,6 +1,7 @@
 //! A new thread's own git worktree, so parallel threads never edit the same checkout. It lives
 //! in `<main worktree>/.cedian/worktrees/<name>` on a new branch `cedian/<name>` from the main
 //! worktree's HEAD; `.cedian/` goes in the repository's `info/exclude`, never its `.gitignore`.
+//! What git ignores in the main worktree is cloned in where the filesystem can (`clone_ignored`).
 
 use std::{
     path::{Path, PathBuf},
@@ -103,6 +104,10 @@ pub fn create(cwd: &Path, text: &str) -> anyhow::Result<(PathBuf, String)> {
             "HEAD",
         ],
     )?;
+    let cloned = crate::clone_ignored::clone_into(&root, &dir);
+    if !cloned.is_empty() {
+        log::info!("cloned into {}: {cloned:?}", dir.display());
+    }
     Ok((dir, branch))
 }
 

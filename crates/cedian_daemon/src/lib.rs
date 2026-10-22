@@ -3,6 +3,7 @@
 //! rebuilds a thread's history from cedia's own files.
 
 mod cedia;
+mod clone_ignored;
 mod daemon;
 mod desktop_settings;
 mod environment;
