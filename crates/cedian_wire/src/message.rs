@@ -32,6 +32,9 @@ pub enum Request {
         /// chat).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         profile: Option<String>,
+        /// The model this run's writer takes (`cedia -m`); none keeps cedia's choice.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     /// A message the running thread sees at its next turn.
     Send {
@@ -172,6 +175,7 @@ mod tests {
             thread: None,
             worktree: false,
             profile: None,
+            model: None,
         };
         let mut buffer = Vec::new();
         write_message(&mut buffer, &request).expect("write");

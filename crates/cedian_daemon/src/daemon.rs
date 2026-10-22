@@ -36,6 +36,13 @@ pub fn lock(shared: &Shared) -> MutexGuard<'_, Daemon> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// What a prompt asks of its run beyond the text: cedia's `--profile` and `--model`.
+#[derive(Clone, Copy, Default)]
+struct With<'a> {
+    profile: Option<&'a str>,
+    model: Option<&'a str>,
+}
+
 struct Client {
     tx: Sender<Notice>,
     /// Threads whose lines this client reads.
@@ -404,12 +411,17 @@ impl Daemon {
                 thread,
                 worktree,
                 profile,
+                model,
             } => {
+                let with = With {
+                    profile: profile.as_deref(),
+                    model: model.as_deref(),
+                };
                 let running = thread.as_deref().is_some_and(|t| lock(shared).running(t));
                 match thread {
                     // A run is already working on it: the text joins at its next turn.
                     Some(thread) if running => Self::message(shared, client, &cwd, &thread, &text),
-                    None if worktree => Self::prompt_in_worktree(shared, client, cwd, &text),
+                    None if worktree => Self::prompt_in_worktree(shared, client, cwd, &text, with),
                     thread => Self::prompt(
                         shared,
                         Some(client),
@@ -417,7 +429,7 @@ impl Daemon {
                         cwd,
                         &text,
                         thread,
-                        profile.as_deref(),
+                        with,
                     ),
                 }
             }
@@ -721,14 +733,20 @@ impl Daemon {
             match crate::worktree::create(&cwd, &task) {
                 Ok((dir, branch)) => {
                     log::info!("worktree {} on {branch}", dir.display());
-                    Self::prompt(shared, None, cwd, dir, &task, Some(thread), None);
+                    Self::prompt(shared, None, cwd, dir, &task, Some(thread), With::default());
                 }
                 Err(error) => log::warn!("starting {thread}: {error:#}"),
             }
         }
     }
 
-    fn prompt_in_worktree(shared: &Shared, client: ClientId, asked_in: PathBuf, text: &str) {
+    fn prompt_in_worktree(
+        shared: &Shared,
+        client: ClientId,
+        asked_in: PathBuf,
+        text: &str,
+        with: With,
+    ) {
         lock(shared).send(
             client,
             Notice::Preparing {
@@ -746,7 +764,7 @@ impl Daemon {
                         step: format!("starting on {branch}"),
                     },
                 );
-                Self::prompt(shared, Some(client), asked_in, dir, text, None, None);
+                Self::prompt(shared, Some(client), asked_in, dir, text, None, with);
             }
             Err(error) => lock(shared).error(client, format!("{error:#}")),
         }
@@ -761,7 +779,7 @@ impl Daemon {
         cwd: PathBuf,
         text: &str,
         thread: Option<String>,
-        profile: Option<&str>,
+        with: With,
     ) {
         let mut daemon = lock(shared);
         let slug = project_key(&cwd);
@@ -788,7 +806,15 @@ impl Daemon {
         );
         let child = match daemon
             .cedia
-            .prompt(&cwd, text, thread.as_deref(), profile, ask, todo)
+            .prompt(
+                &cwd,
+                text,
+                thread.as_deref(),
+                with.profile,
+                with.model,
+                ask,
+                todo,
+            )
         {
             Ok(child) => child,
             Err(error) => return daemon.error_to(client, format!("{error:#}")),

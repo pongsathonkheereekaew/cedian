@@ -237,3 +237,20 @@ fn a_check_covers_a_file_until_a_later_edit_outdates_it() {
     assert_eq!(outdated.outdated, ["grep -q good f.txt"]);
     assert!(outdated.covering.is_empty());
 }
+
+#[test]
+fn the_model_is_the_latest_writer_sessions() {
+    for name in fixture_names() {
+        let stream = fs::read_to_string(fixtures_dir().join(&name).join("stream.jsonl"))
+            .expect("stream.jsonl");
+        let mut transcript = Transcript::default();
+        for text in stream.lines() {
+            transcript.apply(&Line::parse(text).expect("line"));
+        }
+        let latest = outline(&transcript)
+            .lines()
+            .rev()
+            .find_map(|line| line.strip_prefix("session code on ").map(str::to_owned));
+        assert_eq!(transcript.model().map(str::to_owned), latest, "{name}");
+    }
+}

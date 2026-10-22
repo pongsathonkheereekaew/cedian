@@ -60,7 +60,7 @@ impl Cedia {
     }
 
     /// One run: `cedia --print=<text> --output-format stream-json --cwd <cwd> [--thread <id>]
-    /// [--ask on]`. `--print=` keeps a prompt that starts with `-` from reading as a flag.
+    /// [--profile <name>] [--model <ref>] [--ask on] [--todo on]`. `--print=` keeps a prompt that starts with `-` from reading as a flag.
     /// `ask` lets the run end on a question for the person, when this cedia can.
     pub fn prompt(
         &self,
@@ -68,6 +68,7 @@ impl Cedia {
         text: &str,
         thread: Option<&str>,
         profile: Option<&str>,
+        model: Option<&str>,
         ask: bool,
         todo: bool,
     ) -> anyhow::Result<Child> {
@@ -85,6 +86,9 @@ impl Cedia {
         }
         if let Some(profile) = profile {
             command.args(["--profile", profile]);
+        }
+        if let Some(model) = model {
+            command.args(["--model", model]);
         }
         if ask {
             command.args(["--ask", "on"]);

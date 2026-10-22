@@ -108,6 +108,7 @@ fn a_new_daemon_follows_a_run_the_old_one_started() {
             thread: None,
             worktree: false,
             profile: None,
+            model: None,
         },
     )
     .expect("prompt");
