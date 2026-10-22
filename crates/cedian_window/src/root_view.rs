@@ -280,8 +280,10 @@ impl RootView {
             Notice::Settings { path, desktop } => {
                 let settings = Desktop::from_value(&desktop);
                 settings.apply(cx);
-                self.agent
-                    .update(cx, |agent, cx| agent.set_view_mode(settings.view_mode, cx));
+                self.agent.update(cx, |agent, cx| {
+                    agent.set_view_mode(settings.view_mode, cx);
+                    agent.set_density(settings.density, cx);
+                });
                 self.settings
                     .update(cx, |view, cx| view.set(path, desktop, cx));
             }

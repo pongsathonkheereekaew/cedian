@@ -44,10 +44,10 @@ impl SettingsWindow {
             }),
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                 None,
-                size(px(760.), px(560.)),
+                size(px(920.), px(600.)),
                 cx,
             ))),
-            window_min_size: Some(size(px(560.), px(400.))),
+            window_min_size: Some(size(px(720.), px(460.))),
             ..Default::default()
         };
         match cx.open_window(options, |_, cx| {

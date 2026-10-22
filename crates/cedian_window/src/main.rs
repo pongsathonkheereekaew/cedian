@@ -2,6 +2,7 @@ mod agent_pane;
 mod assets;
 mod composer;
 mod daemon_client;
+mod density;
 mod desktop;
 mod dock;
 mod layout;
