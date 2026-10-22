@@ -2,6 +2,7 @@
 //! daemon answers, the cedia it runs, how many runs work and how many threads need you, and
 //! the way to Settings.
 
+use crate::type_scale::TypeScale as _;
 use gpui::{
     App, Div, InteractiveElement as _, ParentElement as _, SharedString, Stateful, Styled as _,
     div, prelude::FluentBuilder as _, px,
@@ -34,7 +35,7 @@ pub fn bar(line: StatusLine, settings: Stateful<Div>, cx: &App) -> Div {
         .border_t_1()
         .border_color(colors.border)
         .bg(colors.panel_background)
-        .text_size(px(12.))
+        .text_meta()
         .text_color(colors.text_muted)
         .child(div().size(px(6.)).rounded_full().bg(if line.connected {
             status.success

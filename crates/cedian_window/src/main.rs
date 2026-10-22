@@ -29,6 +29,7 @@ mod tokens;
 mod tool_card;
 mod tool_rail;
 mod toolbar;
+mod type_scale;
 mod view_mode;
 
 use std::path::PathBuf;

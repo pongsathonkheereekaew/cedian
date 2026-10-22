@@ -12,6 +12,7 @@ use theme::ActiveTheme as _;
 
 use std::path::PathBuf;
 
+use crate::type_scale::TypeScale as _;
 use crate::{open_in::OpenIn, tokens};
 
 pub const TOOLBAR_HEIGHT: f32 = 44.;
@@ -82,7 +83,7 @@ impl Toolbar {
             .border_1()
             .border_color(colors.border)
             .bg(colors.elevated_surface_background)
-            .text_size(px(13.))
+            .text_ui()
             .text_color(colors.text);
         for (n, app) in self.apps.iter().enumerate() {
             menu = menu.child(
@@ -118,7 +119,7 @@ impl Toolbar {
                     .rounded(px(6.))
                     .border_1()
                     .border_color(colors.border)
-                    .text_size(px(12.))
+                    .text_meta()
                     .text_color(colors.text_muted)
                     .cursor_pointer()
                     .hover(|b| b.text_color(colors.text))
@@ -174,21 +175,16 @@ impl Render for Toolbar {
                     )
                     .child(
                         div()
-                            .text_size(px(13.))
+                            .text_ui()
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(self.project.clone()),
                     )
-                    .child(
-                        div()
-                            .text_size(px(13.))
-                            .text_color(colors.text_muted)
-                            .child("›"),
-                    )
+                    .child(div().text_ui().text_color(colors.text_muted).child("›"))
                     .child(
                         div()
                             .max_w(px(360.))
                             .truncate()
-                            .text_size(px(13.))
+                            .text_ui()
                             .child(self.thread.clone()),
                     )
                     .child(
@@ -201,7 +197,7 @@ impl Render for Toolbar {
                             .rounded(px(6.))
                             .border_1()
                             .border_color(colors.border)
-                            .text_size(px(12.))
+                            .text_meta()
                             .text_color(colors.text_muted)
                             .child(
                                 svg()
@@ -232,7 +228,7 @@ impl Render for Toolbar {
                     .rounded(px(7.))
                     .bg(colors.text_accent)
                     .text_color(colors.background)
-                    .text_size(px(13.))
+                    .text_ui()
                     .font_weight(FontWeight::SEMIBOLD)
                     .cursor_pointer()
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(ToolbarEvent::NewThread)))

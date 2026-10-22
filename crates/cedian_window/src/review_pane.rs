@@ -14,6 +14,7 @@ use gpui::{
 };
 use theme::ActiveTheme as _;
 
+use crate::type_scale::TypeScale as _;
 use crate::{agent_pane::AgentPane, tokens};
 
 actions!(
@@ -299,8 +300,7 @@ impl ReviewPane {
             .border_color(colors.border)
             .py_1()
             .font(tokens::code_font())
-            .text_size(px(12.5))
-            .line_height(px(20.))
+            .text_code()
             .flex()
             .flex_col();
         if !folded {
@@ -357,7 +357,7 @@ impl ReviewPane {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .text_size(px(12.))
+                    .text_meta()
                     .child(
                         div()
                             .flex_grow(1.)
@@ -377,7 +377,7 @@ impl ReviewPane {
                     div()
                         .px_2()
                         .pb_2()
-                        .text_size(px(12.))
+                        .text_meta()
                         .text_color(status.warning)
                         .child(
                             "ไฟล์นี้ถูกแก้หลังจาก agent เขียน hunk นี้ จึงปฏิเสธไม่ได้: \
@@ -455,7 +455,7 @@ impl ReviewPane {
             .h(px(30.))
             .rounded(px(7.))
             .cursor_pointer()
-            .text_size(px(12.))
+            .text_meta()
             .when(open, |row| row.bg(colors.element_selected))
             .hover(|row| row.bg(colors.element_hover))
             .on_click(cx.listener(move |pane, _, _, cx| pane.open_file(n, cx)))
@@ -497,7 +497,7 @@ impl ReviewPane {
         };
         let label = |text: &'static str| {
             div()
-                .text_size(px(11.))
+                .text_label()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.text_muted)
                 .child(text)
@@ -512,7 +512,7 @@ impl ReviewPane {
             .p_3()
             .border_l_1()
             .border_color(colors.border)
-            .text_size(px(12.))
+            .text_meta()
             .child(label("หลักฐานของไฟล์นี้"));
         if checks.covering.is_empty() && checks.outdated.is_empty() {
             column = column.child(
@@ -625,8 +625,7 @@ fn badge(text: &str) -> Div {
         .flex_none()
         .px(px(6.))
         .rounded(px(4.))
-        .text_size(px(11.))
-        .line_height(px(16.))
+        .text_label()
         .font_weight(FontWeight::SEMIBOLD)
         .child(text.to_owned())
 }
@@ -652,15 +651,10 @@ fn button(
         .bg(colors.element_background)
         .hover(|b| b.bg(colors.element_hover))
         .cursor_pointer()
-        .text_size(px(12.))
+        .text_meta()
         .text_color(colors.text)
         .child(label)
-        .children(key.map(|key| {
-            div()
-                .text_size(px(11.))
-                .text_color(colors.text_muted)
-                .child(key)
-        }))
+        .children(key.map(|key| div().text_label().text_color(colors.text_muted).child(key)))
 }
 
 impl Render for ReviewPane {
@@ -711,7 +705,7 @@ impl Render for ReviewPane {
                     .gap_2()
                     .child(
                         div()
-                            .text_size(px(14.))
+                            .text_pane_title()
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("รีวิว diff"),
                     )
@@ -719,7 +713,7 @@ impl Render for ReviewPane {
                         row.child(
                             div()
                                 .font(tokens::code_font())
-                                .text_size(px(12.))
+                                .text_meta()
                                 .text_color(muted)
                                 .child(format!("+{added} −{removed} · {decided}/{total} hunk")),
                         )
@@ -752,7 +746,7 @@ impl Render for ReviewPane {
             )
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_meta()
                     .text_color(muted)
                     .child("เทียบกับ snapshot แรกของ thread ไม่ใช่ git HEAD"),
             );
@@ -773,7 +767,7 @@ impl Render for ReviewPane {
             .min_h_0()
             .overflow_y_scroll();
         if let Some(message) = empty {
-            hunk_list = hunk_list.child(div().text_size(px(13.)).text_color(muted).child(message));
+            hunk_list = hunk_list.child(div().text_ui().text_color(muted).child(message));
         } else if let Some(review) = &review {
             let mut index = 0;
             for (n, file) in review.files.iter().enumerate() {

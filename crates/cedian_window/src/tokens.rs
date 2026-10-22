@@ -1,4 +1,4 @@
-//! The Ink & Lime tokens Zed's theme has no key for (Interface, Color; the tints join them
+//! The Warm & Lime tokens Zed's theme has no key for (Interface, Color; the tints join them
 //! with the state rows), and the faces the
 //! window draws text in (Interface, Type). The rest come from the cedian themes.
 
@@ -11,6 +11,8 @@ pub struct Tokens {
     pub user_bubble: Hsla,
     /// Code blocks and tool output.
     pub code: Hsla,
+    /// Search, chips and inline code.
+    pub field: Hsla,
 }
 
 impl Tokens {
@@ -23,9 +25,10 @@ impl Tokens {
             gpui::rgb(value).into()
         };
         Self {
-            frame: hex(0x060709, 0xDDE1D8),
-            user_bubble: hex(0x1A1F26, 0xF0F2ED),
-            code: hex(0x0D1013, 0xFCFCFA),
+            frame: hex(0x151412, 0xE9E6DF),
+            user_bubble: hex(0x32302C, 0xF0EDE6),
+            code: hex(0x1E1D1B, 0xF7F5F0),
+            field: hex(0x262522, 0xE9E6DF),
         }
     }
 }

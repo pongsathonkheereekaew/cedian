@@ -14,6 +14,7 @@ use gpui::{
 };
 use theme::ActiveTheme as _;
 
+use crate::type_scale::TypeScale as _;
 use crate::{
     density::Density,
     line_breaks::wrapped,
@@ -204,7 +205,7 @@ impl AgentPane {
                 .flex()
                 .items_center()
                 .gap_3()
-                .text_size(px(12.))
+                .text_meta()
                 .text_color(colors.text_muted)
                 .child(div().flex_grow(1.).h(px(1.)).bg(colors.border))
                 .child(format!("session {role} · {model}"))
@@ -216,15 +217,13 @@ impl AgentPane {
                     .py_2()
                     .rounded(px(12.))
                     .bg(tokens.user_bubble)
-                    .text_size(px(14.))
-                    .line_height(px(24.))
+                    .text_message()
                     .child(wrapped(text)),
             ),
             Block::Text { text, streaming } => div()
                 .max_w(px(ANSWER_WIDTH))
                 .font(tokens::answer_font())
-                .text_size(px(15.5))
-                .line_height(px(26.))
+                .text_answer()
                 // A caret while the text streams.
                 .child(wrapped(&if *streaming {
                     format!("{text}▍")
@@ -243,12 +242,11 @@ impl AgentPane {
                     .border_1()
                     .border_dashed()
                     .border_color(colors.border)
-                    .text_size(px(13.))
-                    .line_height(px(21.))
+                    .text_ui()
                     .text_color(colors.text_muted)
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_label()
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("ความคิด"),
                     )
@@ -390,8 +388,7 @@ impl AgentPane {
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_ellipsis()
-                    .text_size(px(16.))
-                    .line_height(px(24.))
+                    .text_pane_title()
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(self.header.title.clone()),
             )
@@ -401,7 +398,7 @@ impl AgentPane {
                     .flex()
                     .items_center()
                     .gap_1p5()
-                    .text_size(px(12.))
+                    .text_meta()
                     .text_color(colors.text_muted)
                     .child(thread_list::dot(status, cx))
                     .child(thread_list::state_word(status))
@@ -410,7 +407,7 @@ impl AgentPane {
                 div()
                     .flex_none()
                     .font(tokens::code_font())
-                    .text_size(px(12.))
+                    .text_meta()
                     .text_color(colors.text_muted)
                     .child(format!("${cost:.4}"))
             }))
@@ -431,7 +428,7 @@ impl AgentPane {
                         .bg(colors.element_background)
                         .hover(|b| b.bg(colors.element_hover))
                         .cursor_pointer()
-                        .text_size(px(13.))
+                        .text_ui()
                         .child(
                             svg()
                                 .path("icons/stop.svg")
@@ -441,7 +438,7 @@ impl AgentPane {
                         .child("หยุด")
                         .child(
                             div()
-                                .text_size(px(11.))
+                                .text_label()
                                 .text_color(colors.text_muted)
                                 .child(STOP_KEY),
                         )
@@ -459,7 +456,7 @@ impl AgentPane {
                 .rounded(px(6.))
                 .border_1()
                 .border_color(colors.border)
-                .text_size(px(12.))
+                .text_meta()
                 .text_color(colors.text_muted)
         };
         let mut chips = div().flex().items_center().gap_1p5().pb_2();
@@ -493,7 +490,7 @@ impl AgentPane {
             .border_1()
             .border_color(colors.border)
             .overflow_hidden()
-            .text_size(px(12.));
+            .text_meta();
         for (mode, key, label) in ViewMode::ALL {
             let on = mode == self.view_mode;
             let emit = emit.clone();

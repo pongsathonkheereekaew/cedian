@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::type_scale::TypeScale as _;
 use gpui::{
     Context, EventEmitter, InteractiveElement as _, IntoElement, ParentElement as _, Render,
     SharedString, StatefulInteractiveElement as _, Styled as _, Task, Window, div,
@@ -235,7 +236,7 @@ impl Render for GitPane {
             .flex()
             .flex_col()
             .overflow_y_scroll()
-            .text_size(px(13.))
+            .text_ui()
             .text_color(colors.text);
         let Some(branch) = self.state.branch.clone() else {
             let word = if self.loading.is_some() {
@@ -264,7 +265,7 @@ impl Render for GitPane {
                 .px_3()
                 .pt_2()
                 .pb_1()
-                .text_size(px(11.))
+                .text_label()
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(colors.text_muted)
                 .child(text)
@@ -288,7 +289,7 @@ impl Render for GitPane {
                 .when_some(state.upstream.clone(), |row, upstream| {
                     row.child(
                         div()
-                            .text_size(px(12.))
+                            .text_meta()
                             .text_color(colors.text_muted)
                             .child(upstream),
                     )
@@ -296,7 +297,7 @@ impl Render for GitPane {
                 .when(!far.is_empty(), |row| {
                     row.child(
                         div()
-                            .text_size(px(12.))
+                            .text_meta()
                             .text_color(colors.text_accent)
                             .child(far.join(" ")),
                     )
@@ -331,7 +332,7 @@ impl Render for GitPane {
                             .w(px(20.))
                             .flex_none()
                             .font_family("Lilex")
-                            .text_size(px(12.))
+                            .text_meta()
                             .text_color(code_color)
                             .child(SharedString::from(change.code.clone())),
                     )
@@ -354,7 +355,7 @@ impl Render for GitPane {
                         div()
                             .flex_none()
                             .font_family("Lilex")
-                            .text_size(px(12.))
+                            .text_meta()
                             .text_color(colors.text_muted)
                             .child(commit.sha.clone()),
                     )
@@ -368,7 +369,7 @@ impl Render for GitPane {
                     .child(
                         div()
                             .flex_none()
-                            .text_size(px(12.))
+                            .text_meta()
                             .text_color(colors.text_muted)
                             .child(commit.when.clone()),
                     ),

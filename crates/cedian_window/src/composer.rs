@@ -2,6 +2,7 @@
 //! the running thread has not seen yet sit above the text as chips, to edit or take back
 //! (Interface, Agent pane: Composer).
 
+use crate::type_scale::TypeScale as _;
 use editor::Editor;
 use gpui::{
     AppContext as _, Context, Entity, EventEmitter, Focusable as _, FontWeight,
@@ -124,12 +125,11 @@ impl Render for Composer {
                 .py_1()
                 .rounded(px(8.))
                 .bg(colors.element_background)
-                .text_size(px(12.))
-                .line_height(px(18.))
+                .text_meta()
                 .child(
                     div()
                         .flex_none()
-                        .text_size(px(11.))
+                        .text_label()
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(working)
                         .child("ส่งที่ turn ถัดไป"),

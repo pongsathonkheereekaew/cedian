@@ -20,6 +20,7 @@ use gpui::{
 use settings::Settings as _;
 use theme::ActiveTheme as _;
 
+use crate::type_scale::TypeScale as _;
 use crate::{
     agent_pane::{AgentEvent, AgentPane, Header, StopRun},
     composer::{Composer, ComposerEvent, Queued},
@@ -940,7 +941,7 @@ impl RootView {
                     .rounded(px(7.))
                     .border_1()
                     .cursor_pointer()
-                    .text_size(px(13.))
+                    .text_ui()
                     .map(|button| {
                         if recommended {
                             button
@@ -977,21 +978,20 @@ impl RootView {
             .text_color(colors.text)
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_label()
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(colors.text_accent)
                     .child("ถามคุณ"),
             )
             .child(
                 div()
-                    .text_size(px(14.))
-                    .line_height(px(24.))
+                    .text_message()
                     .child(line_breaks::wrapped(&question.question)),
             )
             .child(options)
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_meta()
                     .text_color(colors.text_muted)
                     .child("หรือพิมพ์คำตอบอื่นด้านล่าง"),
             )
@@ -1087,7 +1087,7 @@ impl RootView {
                                     .border_1()
                                     .border_color(colors.border)
                                     .cursor_pointer()
-                                    .text_size(px(12.))
+                                    .text_meta()
                                     .hover(|b| b.bg(colors.element_hover))
                                     .on_click(cx.listener(|view, _, _, cx| view.export_thread(cx)))
                                     .child("ส่งออกเป็น Markdown"),
@@ -1128,7 +1128,7 @@ impl RootView {
                                 .flex()
                                 .items_center()
                                 .bg(colors.panel_background)
-                                .text_size(px(11.))
+                                .text_label()
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .text_color(colors.text_muted)
                                 .child(div().flex_grow(1.).min_w_0().truncate().child(
@@ -1237,7 +1237,7 @@ impl RootView {
                         .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
                         .child(
                             div()
-                                .text_size(px(12.))
+                                .text_meta()
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .child(initial),
                         )
@@ -1407,7 +1407,7 @@ impl RootView {
                     .px_2()
                     .pt_3()
                     .pb_1()
-                    .text_size(px(11.))
+                    .text_label()
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(colors.text_muted)
                     .child(group.label())
@@ -1455,8 +1455,7 @@ impl RootView {
                                 .flex_col()
                                 .child(
                                     div()
-                                        .text_size(px(13.))
-                                        .line_height(px(20.))
+                                        .text_ui()
                                         .truncate()
                                         .when(info.needs_you, |title| {
                                             title.font_weight(gpui::FontWeight::SEMIBOLD)
@@ -1465,8 +1464,7 @@ impl RootView {
                                 )
                                 .child(
                                     div()
-                                        .text_size(px(12.))
-                                        .line_height(px(18.))
+                                        .text_meta()
                                         .text_color(if info.status == Status::Asking {
                                             colors.text_accent
                                         } else {
@@ -1571,7 +1569,7 @@ impl RootView {
                         .gap_2()
                         .rounded(px(8.))
                         .bg(colors.element_background)
-                        .text_size(px(12.))
+                        .text_meta()
                         .child(
                             div()
                                 .flex_grow(1.)
@@ -1640,16 +1638,14 @@ impl RootView {
                                         .flex_col()
                                         .child(
                                             div()
-                                                .text_size(px(13.))
-                                                .line_height(px(20.))
+                                                .text_ui()
                                                 .truncate()
                                                 .text_color(colors.text_muted)
                                                 .child(info.thread.title.clone()),
                                         )
                                         .child(
                                             div()
-                                                .text_size(px(12.))
-                                                .line_height(px(18.))
+                                                .text_meta()
                                                 .text_color(colors.text_placeholder)
                                                 .child(thread_list::since(
                                                     &info.thread.updated_at,
@@ -1664,7 +1660,7 @@ impl RootView {
                                         .px_1()
                                         .rounded(px(4.))
                                         .cursor_pointer()
-                                        .text_size(px(12.))
+                                        .text_meta()
                                         .text_color(colors.text_accent)
                                         .opacity(0.)
                                         .group_hover("archived-row", |b| b.opacity(1.))
@@ -1689,7 +1685,7 @@ impl RootView {
                         .h(px(28.))
                         .rounded(px(8.))
                         .cursor_pointer()
-                        .text_size(px(12.))
+                        .text_meta()
                         .text_color(colors.text_muted)
                         .hover(|b| b.bg(colors.element_hover))
                         .on_click(cx.listener(|view, _, _, cx| {

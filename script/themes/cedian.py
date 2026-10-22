@@ -1,32 +1,42 @@
 """Writes crates/cedian_window/assets/themes/cedian.json, the "cedian Dark" and "cedian Light"
-Zed themes, from the Ink & Lime tokens in docs/ARCHITECTURE.md (Interface, Color).
+Zed themes, from the Warm & Lime tokens in docs/ARCHITECTURE.md (Interface, Color).
 
 Run from the repository root: python3 script/themes/cedian.py
 Change a token here and in the architecture's table together; the window reads the tokens Zed
-has no key for (frame, user.bubble, the tints) from crates/cedian_window/src/tokens.rs.
+has no key for (frame, field, user.bubble, the tints) from crates/cedian_window/src/tokens.rs.
 """
 
 import json
 import pathlib
 
+
+def rgba(r, g, b, a):
+    """A translucent token as Zed's #RRGGBBAA."""
+    return f"#{r:02X}{g:02X}{b:02X}{round(255 * a):02X}"
+
+
 TOKENS = {
     "dark": {
-        "frame": "#060709", "app": "#0B0D10", "side": "#0E1114", "surface": "#111418",
-        "raised": "#171B21", "hover": "#1E232B", "sel": "#222932", "border": "#242A33",
-        "border.strong": "#313845", "code": "#0D1013", "text": "#E8EAED",
-        "text.muted": "#9BA3AF", "text.faint": "#7D8592", "accent": "#C6F432",
-        "accent.text": "#C6F432", "working": "#5AA9FF", "failed": "#FF6B57", "warn": "#E8B931",
+        "frame": "#151412", "app": "#1C1B19", "sheet": "#252421", "raised": "#2C2B28",
+        "field": "#262522", "code": "#1E1D1B",
+        "hover": rgba(255, 248, 235, 0.045), "sel": rgba(255, 248, 235, 0.075),
+        "line": rgba(255, 248, 235, 0.07), "line.strong": rgba(255, 248, 235, 0.13),
+        "text": "#EDEBE5", "text.muted": "#ADA99F", "text.faint": "#99958B",
+        "accent": "#C6F432", "accent.text": "#C6F432", "working": "#6FB0FF",
+        "failed": "#FF7A66", "warn": "#E8B931",
         # Syntax hues past the four the spec names, kept low in chroma so lime stays the accent.
-        "function": "#B9C6FF", "type": "#7FD4C8", "tag": "#FF9E8A", "constant": "#E8B931",
-        "ansi.magenta": "#C9A0FF", "ansi.cyan": "#6FD6E0",
+        "function": "#C3C2FF", "type": "#86D4C4", "tag": "#FFA48F", "constant": "#E8B931",
+        "ansi.magenta": "#CFA6FF", "ansi.cyan": "#76D3DB",
     },
     "light": {
-        "frame": "#DDE1D8", "app": "#F6F7F4", "side": "#EFF1EC", "surface": "#FFFFFF",
-        "raised": "#FAFBF8", "hover": "#F0F2ED", "sel": "#E4E8DF", "border": "#E3E5DF",
-        "border.strong": "#CDD1C8", "code": "#FCFCFA", "text": "#0B0D10",
-        "text.muted": "#545B66", "text.faint": "#667080", "accent": "#5E8A00",
-        "accent.text": "#4F7500", "working": "#1F6FD1", "failed": "#C93B22", "warn": "#946000",
-        "function": "#4A4FC4", "type": "#00796B", "tag": "#B23A1E", "constant": "#946000",
+        "frame": "#E9E6DF", "app": "#F3F1EC", "sheet": "#FCFBF8", "raised": "#FFFFFF",
+        "field": "#E9E6DF", "code": "#F7F5F0",
+        "hover": rgba(40, 30, 10, 0.04), "sel": rgba(40, 30, 10, 0.065),
+        "line": rgba(40, 30, 10, 0.08), "line.strong": rgba(40, 30, 10, 0.15),
+        "text": "#1F1E1C", "text.muted": "#5C5850", "text.faint": "#6E6A62",
+        "accent": "#5E8A00", "accent.text": "#4F7500", "working": "#1B63BE",
+        "failed": "#C23A22", "warn": "#8F5D00",
+        "function": "#4A4FC4", "type": "#00796B", "tag": "#B23A1E", "constant": "#8F5D00",
         "ansi.magenta": "#8A3FC9", "ansi.cyan": "#007C8A",
     },
 }
@@ -40,14 +50,14 @@ def style(t, dark):
     soft = lambda c: alpha(c, 12)
     line = lambda c: alpha(c, 38)
     s = {
-        "border": t["border"],
-        "border.variant": t["border"],
+        "border": t["line"],
+        "border.variant": t["line"],
         "border.focused": t["accent"],
-        "border.selected": t["border.strong"],
+        "border.selected": t["line.strong"],
         "border.transparent": "#00000000",
-        "border.disabled": t["border"],
-        "elevated_surface.background": t["surface"],
-        "surface.background": t["surface"],
+        "border.disabled": t["line"],
+        "elevated_surface.background": t["raised"],
+        "surface.background": t["sheet"],
         "background": t["app"],
         "element.background": t["raised"],
         "element.hover": t["hover"],
@@ -70,16 +80,16 @@ def style(t, dark):
         "icon.disabled": t["text.faint"],
         "icon.placeholder": t["text.faint"],
         "icon.accent": t["accent.text"],
-        "status_bar.background": t["side"],
+        "status_bar.background": t["app"],
         "title_bar.background": t["frame"],
         "title_bar.inactive_background": t["frame"],
-        "toolbar.background": t["side"],
-        "tab_bar.background": t["side"],
-        "tab.inactive_background": t["side"],
-        "tab.active_background": t["surface"],
+        "toolbar.background": t["sheet"],
+        "tab_bar.background": t["frame"],
+        "tab.inactive_background": t["frame"],
+        "tab.active_background": t["app"],
         "search.match_background": alpha(t["working"], 30),
         "search.active_match_background": alpha(t["warn"], 40),
-        "panel.background": t["side"],
+        "panel.background": t["app"],
         "panel.focused_border": None,
         "pane.focused_border": None,
         "scrollbar.thumb.background": alpha(t["text.muted"], 30),
@@ -88,15 +98,15 @@ def style(t, dark):
         "scrollbar.track.background": "#00000000",
         "scrollbar.track.border": "#00000000",
         "editor.foreground": t["text"],
-        "editor.background": t["surface"],
-        "editor.gutter.background": t["surface"],
+        "editor.background": t["sheet"],
+        "editor.gutter.background": t["sheet"],
         "editor.subheader.background": t["raised"],
-        "editor.active_line.background": alpha(t["sel"], 60),
+        "editor.active_line.background": t["hover"],
         "editor.highlighted_line.background": t["raised"],
         "editor.line_number": t["text.faint"],
         "editor.active_line_number": t["text"],
         "editor.hover_line_number": t["text.muted"],
-        "editor.invisible": t["border.strong"],
+        "editor.invisible": t["line.strong"],
         "editor.wrap_guide": alpha(t["text"], 5),
         "editor.active_wrap_guide": alpha(t["text"], 10),
         "editor.document_highlight.read_background": soft(t["working"]),
@@ -118,7 +128,7 @@ def style(t, dark):
         "black": t["app"] if dark else t["text"],
         "red": t["failed"], "green": t["accent"], "yellow": t["warn"], "blue": t["working"],
         "magenta": t["ansi.magenta"], "cyan": t["ansi.cyan"],
-        "white": t["text"] if dark else t["border.strong"],
+        "white": t["text"] if dark else t["text.faint"],
     }
     for name, color in ansi.items():
         s[f"terminal.ansi.{name}"] = color

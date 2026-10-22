@@ -15,7 +15,8 @@ use gpui::{
 };
 use theme::ActiveTheme as _;
 
-use crate::thread_list;
+use crate::type_scale::TypeScale as _;
+use crate::{thread_list, tokens};
 
 actions!(
     thread_search,
@@ -156,7 +157,7 @@ impl ThreadSearch {
                 div()
                     .px_2()
                     .py_2()
-                    .text_size(px(12.))
+                    .text_meta()
                     .text_color(colors.text_muted)
                     .child("ไม่พบ thread"),
             );
@@ -190,26 +191,16 @@ impl ThreadSearch {
                             .min_w_0()
                             .flex()
                             .flex_col()
-                            .child(
-                                div()
-                                    .text_size(px(13.))
-                                    .line_height(px(20.))
-                                    .truncate()
-                                    .child(thread.title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .line_height(px(18.))
-                                    .text_color(colors.text_muted)
-                                    .child(match &thread.elsewhere {
-                                        Some(project) => format!(
-                                            "{} · {project}",
-                                            thread_list::state_word(thread.status)
-                                        ),
-                                        None => thread_list::state_word(thread.status).to_owned(),
-                                    }),
-                            ),
+                            .child(div().text_ui().truncate().child(thread.title.clone()))
+                            .child(div().text_meta().text_color(colors.text_muted).child(
+                                match &thread.elsewhere {
+                                    Some(project) => format!(
+                                        "{} · {project}",
+                                        thread_list::state_word(thread.status)
+                                    ),
+                                    None => thread_list::state_word(thread.status).to_owned(),
+                                },
+                            )),
                     ),
             );
         }
@@ -265,7 +256,7 @@ impl Render for ThreadSearch {
                     } else {
                         colors.border
                     })
-                    .bg(colors.editor_background)
+                    .bg(tokens::Tokens::of(cx).field)
                     .child(
                         svg()
                             .path("icons/magnifying_glass.svg")
@@ -275,7 +266,7 @@ impl Render for ThreadSearch {
                     .child(div().flex_grow(1.).min_w_0().child(self.input.clone()))
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_label()
                             .text_color(colors.text_muted)
                             .child(SEARCH_KEY),
                     ),

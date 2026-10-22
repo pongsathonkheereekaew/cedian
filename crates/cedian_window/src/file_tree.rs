@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::type_scale::TypeScale as _;
 use gpui::{
     Context, EventEmitter, InteractiveElement as _, IntoElement, ParentElement as _, Render,
     SharedString, StatefulInteractiveElement as _, Styled as _, Task, Window, div,
@@ -223,7 +224,7 @@ impl Render for FileTree {
             .flex_col()
             .py_1()
             .overflow_y_scroll()
-            .text_size(px(13.))
+            .text_ui()
             .text_color(colors.text);
         if self.files.is_empty() {
             let word = if self.loading.is_some() {

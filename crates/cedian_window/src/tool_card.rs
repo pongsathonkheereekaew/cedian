@@ -10,6 +10,7 @@ use gpui::{
 use theme::ActiveTheme as _;
 
 use crate::tokens;
+use crate::type_scale::TypeScale as _;
 
 /// Lines of a failure's output or an edit's diff shown before the rest is cut.
 const BODY_LINES: usize = 12;
@@ -89,8 +90,7 @@ pub fn card(call: &ToolCall, cx: &App) -> Div {
         } else {
             colors.editor_background
         })
-        .text_size(px(12.))
-        .line_height(px(18.))
+        .text_meta()
         .overflow_hidden()
         .child(header);
     if let Some(permission) = call.permission.as_ref().filter(|p| !p.allowed) {
@@ -139,8 +139,7 @@ fn body(lines: impl Iterator<Item = (String, Option<bool>)>, cx: &App) -> Div {
         .bg(tint.code)
         .py_1()
         .font(tokens::code_font())
-        .text_size(px(12.5))
-        .line_height(px(20.))
+        .text_code()
         .children(shown.into_iter().map(|(text, added)| {
             let row = div().px_2().whitespace_nowrap().overflow_hidden();
             match added {
@@ -189,7 +188,7 @@ pub fn chip(calls: &[&ToolCall], open: bool, cx: &App) -> Div {
         } else {
             colors.element_background
         })
-        .text_size(px(12.))
+        .text_meta()
         .text_color(colors.text_muted)
         .cursor_pointer()
         .hover(|chip| chip.bg(colors.element_hover))

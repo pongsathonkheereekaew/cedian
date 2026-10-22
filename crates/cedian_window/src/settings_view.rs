@@ -13,6 +13,7 @@ use gpui::{
 use serde_json::Value;
 use theme::ActiveTheme as _;
 
+use crate::type_scale::TypeScale as _;
 use crate::{
     density::Density,
     desktop::{Desktop, ThemeMode, UI_FONT_SIZES},
@@ -91,7 +92,7 @@ impl SettingsView {
                     .flex()
                     .items_center()
                     .cursor_pointer()
-                    .text_size(px(13.))
+                    .text_ui()
                     .when(on, |c| {
                         c.bg(colors.element_selected).text_color(colors.text)
                     })
@@ -148,7 +149,7 @@ impl SettingsView {
                     .w(px(44.))
                     .text_center()
                     .font(tokens::code_font())
-                    .text_size(px(12.))
+                    .text_meta()
                     .child(format!("{size}")),
             )
             .child(step("larger", "+", size + 1.0, size < *UI_FONT_SIZES.end()))
@@ -205,7 +206,7 @@ impl SettingsView {
                 "ฟอนต์",
                 Some("ฝังมากับแอป"),
                 div()
-                    .text_size(px(12.))
+                    .text_meta()
                     .text_color(cx.theme().colors().text_muted)
                     .child(fonts)
                     .into_any_element(),
@@ -214,8 +215,7 @@ impl SettingsView {
 
     fn render_cedia_section(&self, name: &'static str, cx: &mut Context<Self>) -> Div {
         div()
-            .text_size(px(13.))
-            .line_height(px(20.))
+            .text_ui()
             .text_color(cx.theme().colors().text_muted)
             .child(format!(
                 "{name} เป็น key ของ cedia และจะแก้ผ่าน schema ของ cedia ซึ่งยังไม่ได้ต่อเข้ามา \
@@ -241,7 +241,7 @@ impl SettingsView {
             .gap_2()
             .rounded(px(7.))
             .cursor_pointer()
-            .text_size(px(13.))
+            .text_ui()
             .when(on, |item| item.bg(colors.element_selected))
             .hover(|item| item.bg(colors.element_hover))
             .on_click(cx.listener(move |view, _, _, cx| {
@@ -283,13 +283,10 @@ fn row(
                 .flex_none()
                 .flex()
                 .flex_col()
-                .child(div().text_size(px(13.)).child(label))
-                .children(note.map(|note| {
-                    div()
-                        .text_size(px(12.))
-                        .text_color(colors.text_muted)
-                        .child(note)
-                })),
+                .child(div().text_ui().child(label))
+                .children(
+                    note.map(|note| div().text_meta().text_color(colors.text_muted).child(note)),
+                ),
         )
         .child(div().flex_grow(1.).min_w_0().child(control))
 }
@@ -330,8 +327,7 @@ impl Render for SettingsView {
             .overflow_y_scroll()
             .child(
                 div()
-                    .text_size(px(22.))
-                    .line_height(px(30.))
+                    .text_title()
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(title),
             )
@@ -372,17 +368,12 @@ impl Render for SettingsView {
             .overflow_y_scroll()
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_label()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(colors.text_muted)
                     .child("ไฟล์ที่เขียน"),
             )
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(colors.text_muted)
-                    .child(path),
-            )
+            .child(div().text_meta().text_color(colors.text_muted).child(path))
             .child(
                 div()
                     .py_1()
@@ -391,13 +382,12 @@ impl Render for SettingsView {
                     .border_color(colors.border)
                     .bg(code)
                     .font(tokens::code_font())
-                    .text_size(px(12.))
-                    .line_height(px(18.))
+                    .text_meta()
                     .children(lines),
             )
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_meta()
                     .text_color(colors.text_muted)
                     .child("แต่ละการเปลี่ยนเขียนลงไฟล์ทันที key อื่นของ cedia อยู่เหมือนเดิม"),
             );

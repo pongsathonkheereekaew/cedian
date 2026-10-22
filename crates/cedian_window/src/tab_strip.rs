@@ -9,6 +9,7 @@ use gpui::{
 };
 use theme::ActiveTheme as _;
 
+use crate::type_scale::TypeScale as _;
 use crate::{thread_list, tokens::Tokens, tool_rail::OnClick};
 
 gpui::actions!(tabs, [NewTab, CloseTab, NextTab, PreviousTab]);
@@ -57,7 +58,7 @@ impl Render for TabDrag {
             .border_color(colors.border)
             .bg(colors.panel_background)
             .text_color(colors.text)
-            .text_size(px(13.))
+            .text_ui()
             .child(self.name.clone())
     }
 }
@@ -106,7 +107,7 @@ pub fn strip(
                 .items_center()
                 .gap_2()
                 .rounded_t(px(10.))
-                .text_size(px(13.))
+                .text_ui()
                 .map(|t| {
                     if selected {
                         t.bg(colors.panel_background).text_color(colors.text)
@@ -143,7 +144,7 @@ pub fn strip(
                             .flex()
                             .items_center()
                             .gap_1()
-                            .text_size(px(12.))
+                            .text_meta()
                             .text_color(status.info)
                             .child(div().size(px(6.)).rounded_full().bg(status.info))
                             .child(tab.working.to_string()),
