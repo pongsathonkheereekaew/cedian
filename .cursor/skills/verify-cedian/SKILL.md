@@ -9,7 +9,7 @@ description: >
 
 # Verify cedian
 
-cedian is the native macOS desktop for cedia. The window is a viewer. The daemon owns the threads and runs one cedia process per prompt. The design source is `docs/ARCHITECTURE.md`. The README status is phase A: the workspace builds a `cedian` binary that opens a spike window, with no daemon yet.
+cedian is the native macOS desktop for cedia. The window is a viewer. The daemon owns the threads and runs one cedia process per prompt. The design source is `docs/ARCHITECTURE.md`. The README status is phase A: the workspace builds a `cedian` binary whose agent pane replays recorded cedia runs (`--replay`), with no daemon yet.
 
 You drive the scripts in this skill. You do not start a binary that would write `~/.cedia`. That directory is the owner's settings and cedia's thread files. This skill never creates it, never reads `settings.json`, and never points a data directory at it.
 
