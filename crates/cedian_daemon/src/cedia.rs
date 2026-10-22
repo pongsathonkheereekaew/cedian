@@ -94,6 +94,13 @@ impl Cedia {
         self.threads(cwd, &["send", thread, "--", text])
     }
 
+    /// `cedia threads unsend <id> <message>...`: the messages leave the thread's queue.
+    pub fn unsend(&self, cwd: &Path, thread: &str, ids: &[String]) -> anyhow::Result<()> {
+        let mut args = vec!["unsend", thread];
+        args.extend(ids.iter().map(String::as_str));
+        self.threads(cwd, &args)
+    }
+
     /// `cedia threads rate <id> up|down`.
     pub fn rate(&self, cwd: &Path, thread: &str, rating: Rating) -> anyhow::Result<()> {
         let word = match rating {

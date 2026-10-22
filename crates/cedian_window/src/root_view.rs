@@ -17,7 +17,7 @@ use theme::ActiveTheme as _;
 
 use crate::{
     agent_pane::{AgentEvent, AgentPane, Header, StopRun},
-    composer::{Composer, ComposerEvent},
+    composer::{Composer, ComposerEvent, Queued},
     daemon_client::DaemonClient,
     desktop::Desktop,
     dock,
@@ -153,6 +153,15 @@ impl RootView {
         let composer = cx.new(|cx| Composer::new(window, cx));
         cx.subscribe(&composer, |view, _, event, cx| match event {
             ComposerEvent::Submit(text) => view.submit(text.clone(), cx),
+            ComposerEvent::Unsend(id) => {
+                if let Some(thread) = view.current.clone() {
+                    view.request(Request::Unsend {
+                        cwd: view.cwd.clone(),
+                        thread,
+                        ids: vec![id.clone()],
+                    });
+                }
+            }
         })
         .detach();
         cx.subscribe(&agent, |view, agent, event, cx| match event {
@@ -359,6 +368,9 @@ impl RootView {
         };
         self.agent
             .update(cx, |agent, cx| agent.set_header(header, cx));
+        let queue = info.map(queued).unwrap_or_default();
+        self.composer
+            .update(cx, |composer, cx| composer.set_queue(queue, cx));
     }
 
     fn select(&mut self, thread: String, cx: &mut Context<Self>) {
@@ -780,6 +792,19 @@ impl RootView {
             )
             .into_any_element()
     }
+}
+
+/// The person's messages the thread has not seen yet, oldest first.
+fn queued(info: &ThreadInfo) -> Vec<Queued> {
+    info.thread
+        .messages
+        .iter()
+        .filter(|m| m.from == "user" && info.thread.pending.contains(&m.id))
+        .map(|m| Queued {
+            id: m.id.clone(),
+            text: m.text.clone().into(),
+        })
+        .collect()
 }
 
 /// The window's bounds as the next window should be opened with them. A window opens with its

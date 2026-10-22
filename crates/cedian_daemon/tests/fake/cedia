@@ -10,6 +10,16 @@ if [[ "${1:-}" == "--version" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "threads" && "${4:-}" == "unsend" ]]; then
+  # threads --cwd <dir> unsend <id> <message>...
+  id="$5"
+  shift 5
+  ids=$(printf '"%s",' "$@")
+  printf '{"at":"2026-10-22T03:00:03.000Z","kind":"unsend","ids":[%s]}\n' "${ids%,}" >>"$FAKE_THREADS/$id.jsonl"
+  echo "unsent from $id"
+  exit 0
+fi
+
 if [[ "${1:-}" == "threads" && "${4:-}" == "rate" ]]; then
   # threads --cwd <dir> rate <id> up|down
   printf '{"at":"2026-10-22T03:00:02.000Z","kind":"rate","rating":"%s"}\n' "$6" >>"$FAKE_THREADS/$5.jsonl"
