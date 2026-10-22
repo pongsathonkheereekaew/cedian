@@ -27,8 +27,8 @@ impl Density {
     /// The space above and below a block of the agent pane.
     pub fn block_gap(self) -> Pixels {
         match self {
-            Density::Comfortable => px(6.),
-            Density::Compact => px(2.),
+            Density::Comfortable => px(10.),
+            Density::Compact => px(4.),
         }
     }
 }

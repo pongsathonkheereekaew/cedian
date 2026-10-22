@@ -100,7 +100,7 @@ impl Receipt<'_> {
             .flex_col()
             .gap_2()
             .p_4()
-            .rounded(px(12.))
+            .rounded(px(16.))
             .border_1()
             .border_color(colors.text_accent)
             .bg(colors.editor_background)

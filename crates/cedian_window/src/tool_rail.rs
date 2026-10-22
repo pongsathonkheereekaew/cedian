@@ -1,6 +1,6 @@
-//! The tool panel's rail (Interface, Layout: tool panel and rail): one button per tool down the
-//! right edge, 48 px wide. A click toggles a tool; the open ones stack in the panel in rail
-//! order. `⌘⌥1`–`⌘⌥7` toggle them by their place in the spec's rail (Browser, not built yet,
+//! The tools and their toggles (Interface, Polish: the rail became 30 px icon toggles in the
+//! sheet's header, same keys and order). A click toggles a tool; the open ones stack in the
+//! panel in rail order. `⌘⌥1`–`⌘⌥7` toggle them by their place in the spec's rail (Browser, not built yet,
 //! keeps `⌘⌥5`) and `⌘⌥0` closes them all.
 
 use gpui::{
@@ -26,7 +26,6 @@ actions!(
     ]
 );
 
-pub const RAIL_WIDTH: f32 = 48.;
 pub const PANEL_WIDTH: f32 = 456.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -134,21 +133,13 @@ pub fn toggle(open: &mut Vec<Tool>, tool: Tool) {
     }
 }
 
-/// The rail: a button per tool, lit when open, Review with its count of hunks waiting.
-pub fn rail(open: &[Tool], waiting: usize, cx: &App, click: impl Fn(Tool) -> OnClick) -> Div {
-    let colors = cx.theme().colors();
+/// The toggles: a button per tool, lit when open, Review with its count of hunks waiting.
+pub fn toggles(open: &[Tool], waiting: usize, cx: &App, click: impl Fn(Tool) -> OnClick) -> Div {
     div()
-        .w(px(RAIL_WIDTH))
         .flex_none()
-        .h_full()
         .flex()
-        .flex_col()
         .items_center()
-        .gap_1()
-        .py_2()
-        .border_l_1()
-        .border_color(colors.border)
-        .bg(colors.panel_background)
+        .gap_0p5()
         .children(Tool::ALL.into_iter().map(|tool| {
             let on = open.contains(&tool);
             let badge = (tool == Tool::Review && waiting > 0).then_some(waiting);
@@ -161,7 +152,7 @@ fn button(tool: Tool, on: bool, badge: Option<usize>, cx: &App) -> Stateful<Div>
     div()
         .id(tool.key())
         .relative()
-        .size(px(36.))
+        .size(px(30.))
         .flex()
         .items_center()
         .justify_center()
@@ -177,10 +168,10 @@ fn button(tool: Tool, on: bool, badge: Option<usize>, cx: &App) -> Stateful<Div>
         .children(badge.map(|count| {
             div()
                 .absolute()
-                .top(px(2.))
-                .right(px(2.))
-                .min_w(px(16.))
-                .h(px(16.))
+                .top(px(-3.))
+                .right(px(-3.))
+                .min_w(px(15.))
+                .h(px(15.))
                 .px(px(4.))
                 .flex()
                 .items_center()

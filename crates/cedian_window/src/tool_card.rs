@@ -76,7 +76,7 @@ pub fn card(call: &ToolCall, cx: &App) -> Div {
     let mut card = div()
         .flex()
         .flex_col()
-        .rounded(px(8.))
+        .rounded(px(12.))
         .border_1()
         .border_color(if failed {
             status.error.opacity(0.4)
@@ -171,23 +171,20 @@ pub fn chip(calls: &[&ToolCall], open: bool, cx: &App) -> Div {
     let failed = calls.iter().any(|call| call.failed());
     let running = calls.iter().any(|call| call.state == ToolState::Running);
     div()
-        .h(px(26.))
-        .px_2()
+        .w_full()
+        .h(px(38.))
+        .px_3()
         .flex()
         .items_center()
         .gap_2()
-        .rounded(px(7.))
+        .rounded(px(10.))
         .border_1()
         .border_color(if failed {
             status.error.opacity(0.4)
         } else {
             colors.border
         })
-        .bg(if running {
-            status.info.opacity(0.1)
-        } else {
-            colors.element_background
-        })
+        .when(running, |chip| chip.bg(status.info.opacity(0.08)))
         .text_meta()
         .text_color(colors.text_muted)
         .cursor_pointer()

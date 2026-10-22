@@ -23,6 +23,7 @@ actions!(
 );
 
 /// The widths of the files and evidence columns when the review fills the main area.
+const FILES_WIDTH: f32 = 248.;
 const SIDE_WIDTH: f32 = 280.;
 
 pub enum ReviewEvent {
@@ -330,7 +331,7 @@ impl ReviewPane {
             .id(SharedString::from(format!("hunk-{}", hunk.id)))
             .flex()
             .flex_col()
-            .rounded(px(8.))
+            .rounded(px(12.))
             .overflow_hidden()
             .border_1()
             .border_color(if selected {
@@ -787,7 +788,7 @@ impl Render for ReviewPane {
             let files = review.as_ref().map(|review| {
                 div()
                     .id("review-files")
-                    .w(px(SIDE_WIDTH))
+                    .w(px(FILES_WIDTH))
                     .flex_none()
                     .h_full()
                     .flex()
