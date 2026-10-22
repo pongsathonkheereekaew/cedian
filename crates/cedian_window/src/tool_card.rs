@@ -229,7 +229,7 @@ pub fn summary(calls: &[&ToolCall]) -> String {
 }
 
 /// What a call came to on its card: `+n −n` for an edit, else its exit code and time.
-fn outcome(call: &ToolCall) -> Option<String> {
+pub fn outcome(call: &ToolCall) -> Option<String> {
     if let Some((added, removed)) = call.counts() {
         return Some(format!("+{added} −{removed}"));
     }
@@ -272,7 +272,7 @@ pub fn duration(ms: i64) -> String {
 }
 
 /// The argument worth a glance: the command, the path, the pattern.
-fn argument(call: &ToolCall) -> String {
+pub fn argument(call: &ToolCall) -> String {
     for key in [
         "command", "path", "pattern", "url", "task", "query", "thread", "question",
     ] {

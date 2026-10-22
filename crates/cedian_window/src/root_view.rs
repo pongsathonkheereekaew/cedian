@@ -25,7 +25,7 @@ use crate::{
     composer::{Composer, ComposerEvent, Queued},
     daemon_client::DaemonClient,
     desktop::Desktop,
-    dock,
+    dock, export,
     file_tree::{FileTree, FileTreeEvent},
     git_pane::{GitEvent, GitPane},
     layout::Layout,
@@ -642,6 +642,45 @@ impl RootView {
         self.save_layout(cx);
     }
 
+    /// Writes the open thread as Markdown to a file the person picks, then shows it in the
+    /// file manager. The text comes from the transcript the pane already holds.
+    fn export_thread(&mut self, cx: &mut Context<Self>) {
+        let Some(info) = self.project().info() else {
+            return;
+        };
+        let text = export::markdown(
+            &info.thread.title,
+            &info.thread.id,
+            self.agent.read(cx).transcript().blocks(),
+        );
+        let name = export::file_name(&info.thread.title);
+        let home = std::env::home_dir().unwrap_or_else(|| self.project().cwd.clone());
+        let downloads = home.join("Downloads");
+        let dir = if downloads.is_dir() { downloads } else { home };
+        let picked = cx.prompt_for_new_path(&dir, Some(&name));
+        cx.spawn(async move |this, cx| {
+            let saved = match picked.await {
+                Ok(Ok(Some(path))) => std::fs::write(&path, text)
+                    .map(|()| path)
+                    .map_err(anyhow::Error::from),
+                Ok(Ok(None)) | Err(_) => return,
+                Ok(Err(error)) => Err(error),
+            };
+            this.update(cx, |view, cx| {
+                match saved {
+                    Ok(path) => cx.reveal_path(&path),
+                    Err(error) => {
+                        log::warn!("exporting the thread: {error:#}");
+                        view.error = Some(format!("ส่งออก thread ไม่ได้: {error:#}").into());
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// `⌘T` and `+`: the system's folder picker, and a tab for the folder picked.
     fn pick_project(&mut self, cx: &mut Context<Self>) {
         let picked = cx.prompt_for_paths(gpui::PathPromptOptions {
@@ -1020,11 +1059,33 @@ impl RootView {
                     .id("details")
                     .size_full()
                     .overflow_y_scroll()
+                    .bg(colors.panel_background)
                     .child(thread_details::render(
                         info,
                         details.as_ref().unwrap_or(&Details::default()),
                         cx,
                     ))
+                    .when(info.is_some(), |details| {
+                        details.child(
+                            div().px_3().pb_3().flex().child(
+                                div()
+                                    .id("export-thread")
+                                    .h(px(26.))
+                                    .px_2()
+                                    .flex()
+                                    .items_center()
+                                    .gap_1()
+                                    .rounded(px(6.))
+                                    .border_1()
+                                    .border_color(colors.border)
+                                    .cursor_pointer()
+                                    .text_size(px(12.))
+                                    .hover(|b| b.bg(colors.element_hover))
+                                    .on_click(cx.listener(|view, _, _, cx| view.export_thread(cx)))
+                                    .child("ส่งออกเป็น Markdown"),
+                            ),
+                        )
+                    })
                     .into_any_element(),
             };
             let tool = *tool;
