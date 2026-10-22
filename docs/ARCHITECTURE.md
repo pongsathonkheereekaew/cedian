@@ -106,7 +106,7 @@ Decided 2026-10-22 with the owner over mockups (the "cedian UI design" canvas: a
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Project tabs**, drawn like Chrome's: one tab per open project (cedia's project, a repository with all its worktrees) on a darker strip in the title bar. A tab is 236 px wide, shrinking when there are many, 34 px tall, with 10 px top corners and curved flares where the active tab joins the toolbar; inactive tabs are transparent with a 1 px divider between them. Each tab has the project's icon and name, a pulsing count of working threads, a badge counting threads that need you (`failed` fill when any failed, else `accent`), and a close ×. `⌘T` or `+` opens a project, `⌘1`–`⌘9` and `⌃Tab` switch, `⌘W` closes a tab without stopping its threads, and tabs drag to reorder.
+- **Project tabs**, drawn like Chrome's: one tab per open project (cedia's project, a repository with all its worktrees) on a darker strip in the title bar. A tab is 236 px wide, shrinking when there are many, 34 px tall, with 10 px top corners and curved flares where the active tab joins the toolbar; inactive tabs are transparent with a 1 px divider between them. Each tab has the project's icon and name, a pulsing count of working threads, a badge counting threads that need you (`failed` fill when any failed, else the neutral count badge), and a close ×. `⌘T` or `+` opens a project, `⌘1`–`⌘9` and `⌃Tab` switch, `⌘W` closes a tab without stopping its threads, and tabs drag to reorder.
 - **Toolbar** under the tabs, in the active tab's color like Chrome's address bar: the project folder and its worktrees, a rounded omnibox (`⌘K`) that searches threads in every project or starts a thread when you type a task, and Thread ใหม่, the one primary button. Phase C replaces the omnibox with search at the top of the sidebar and removes Thread ใหม่ (below).
 - Each project keeps its own sidebar, open threads, tools and layout (`desktop.layout`, per project).
 - **Sidebar**: that project's threads in groups, กำลังทำ (working), ต้องดู (failed, interrupted, finished and not reviewed, asking), ปักหมุด (phase C), เสร็จแล้ว (done and stopped, newest first). A row is a state dot, the title, and a line with the state and time, cost, `verified` and `CLI`. A worktree is a branch chip on the thread, never a group. `⌘B` folds the sidebar to a 56 px rail of initials and state dots.
@@ -142,32 +142,34 @@ Threads go on working and check their own work, and ask only when something trul
 
 ### Color
 
-Warm & Lime, chosen by the owner on 2026-10-22 over Ink & Lime: warm grays in the manner of the Claude desktop app, with the app icon's lime as the only accent, meaning verified or primary; nothing decorative uses it. Dark is the default theme.
+Warm & Lime, chosen by the owner on 2026-10-22 over Ink & Lime: warm grays in the manner of the Claude desktop app, with the app icon's lime as the only accent, meaning verified or primary; nothing decorative uses it. Dark is the default theme. Light sits between Codex and Claude (owner, 2026-10-22): near white, a trace of warmth, never ivory.
 
 | Token | Dark | Light |
 | --- | --- | --- |
-| frame (tab strip) | `#151412` | `#E9E6DF` |
-| app (window, sidebar, active tab) | `#1C1B19` | `#F3F1EC` |
-| sheet (panes and tools) | `#252421` | `#FCFBF8` |
+| frame (tab strip) | `#151412` | `#EAEAE6` |
+| app (window, sidebar, active tab) | `#1C1B19` | `#F4F4F1` |
+| sheet (panes and tools) | `#252421` | `#FCFCFB` |
 | raised (cards, composer) | `#2C2B28` | `#FFFFFF` |
-| field (search, chips, inline code) | `#262522` | `#E9E6DF` |
-| code (editor, terminal, diff) | `#1E1D1B` | `#F7F5F0` |
-| hover | `rgba(255,248,235,.045)` | `rgba(40,30,10,.04)` |
-| sel | `rgba(255,248,235,.075)` | `rgba(40,30,10,.065)` |
-| line | `rgba(255,248,235,.07)` | `rgba(40,30,10,.08)` |
-| line.strong | `rgba(255,248,235,.13)` | `rgba(40,30,10,.15)` |
-| text | `#EDEBE5` (13.0:1) | `#1F1E1C` (16.1:1) |
-| text.muted | `#ADA99F` (6.6:1) | `#5C5850` (6.8:1) |
-| text.faint | `#99958B` (5.2:1) | `#6E6A62` (5.2:1) |
+| field (search, chips, inline code) | `#262522` | `#ECECE8` |
+| code (editor, terminal, diff) | `#1E1D1B` | `#F7F7F5` |
+| hover | `rgba(255,248,235,.045)` | `rgba(28,28,20,.04)` |
+| sel | `rgba(255,248,235,.075)` | `rgba(28,28,20,.065)` |
+| line | `rgba(255,248,235,.07)` | `rgba(28,28,20,.08)` |
+| line.strong | `rgba(255,248,235,.13)` | `rgba(28,28,20,.14)` |
+| text | `#EDEBE5` (13.0:1) | `#1C1C1A` (16.6:1) |
+| text.muted | `#ADA99F` (6.6:1) | `#5B5B56` (6.7:1) |
+| text.faint | `#99958B` (5.2:1) | `#6C6C66` (5.2:1) |
 | accent fill | `#C6F432` | `#5E8A00` |
-| accent text | `#C6F432` (12.1:1) | `#4F7500` (5.2:1) |
+| accent text | `#C6F432` (12.1:1) | `#4F7500` (5.3:1) |
+| diff add | `#7BD88F` (9.7:1 on code) | `#2F7D3F` (4.7:1 on code) |
 | primary button | `#C6F432`, ink text | `#1A1C1E`, white text |
 | working | `#6FB0FF` | `#1B63BE` |
 | failed | `#FF7A66` | `#C23A22` |
 | warn (interrupted, stale) | `#E8B931` | `#8F5D00` |
-| user.bubble | `#32302C` | `#F0EDE6` |
+| user.bubble | `#32302C` | `#EFEFEB` |
+| count badge | `text` fill, `app` digits | `text` fill, `app` digits |
 
-Ratios are against `sheet`; `text.faint` stays at 4.5:1 or more on `raised` too. Lines and hovers are translucent so they read the same on every layer; soft tints are the hue at 6–8% alpha, their rings at 30–32%. Diff lines carry `+` and `−` as well as their tint, so color is never the only signal.
+Ratios are against `sheet`; `text.faint` stays at 4.5:1 or more on `raised` too. Lime is kept to the primary button, the send button, `verified`, the asking ring and the edge of a question card; counts and badges are neutral, and diff additions are green, not lime, so the screen has one bright thing at a time. Numbers in interface text (costs, `2/4`, times) use Inter's tabular digits; the mono face is for code, paths, branches and commands only. Lines and hovers are translucent so they read the same on every layer; soft tints are the hue at 6–8% alpha, their rings at 30–32%. Diff lines carry `+` and `−` as well as their tint, so color is never the only signal.
 
 The tokens ship as two Zed theme files, "cedian Dark" and "cedian Light", so the window, Zed's `editor` and the terminal share them: `app` → `background` and `panel.background`, `sheet` → `editor.background`, `raised` → `elevated_surface.background`, `sel` → `element.selected`, `line` → `border`, `text.muted` → `text.muted`, `accent` → `text.accent` and `status.success`, `failed` → `status.error`, `warn` → `status.warning`, `working` → `status.info`; syntax keywords `working`, strings `accent`, comments `text.faint`. Tokens Zed has no key for (`frame`, `field`, `user.bubble`, the tints) live in `tokens.rs`. Phase B shipped Ink & Lime (`script/themes/cedian.py`); moving it to this table is the next step of the order of work.
 
