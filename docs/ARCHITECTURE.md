@@ -62,7 +62,7 @@ cedia writes five: `working`, `done`, `failed`, `stopped`, and `asking` when a r
 | Platform | macOS on Apple silicon; standard macOS keys; macOS dictation in the composer |
 | Tests | Replay cedia's recorded fixtures; no model calls in tests |
 | Performance | Budgets are gates, measured from the outside the same way on cedian and the Claude desktop app: cold start, keystroke latency, scrolling a 10k-block thread at 120 fps, idle memory |
-| Look | Ink & Lime from the app icon, dark by default; Chrome-style project tabs, a tool panel on the right, badges instead of banners; type after the Claude desktop app with open faces (Interface, below) |
+| Look | Warm & Lime (warm grays, the app icon's lime as the one accent; Ink & Lime until 2026-10-22), dark by default, chrome kept low in the manner of the Claude desktop app; Chrome-style project tabs, a tool panel on the right, badges instead of banners; type after the Claude desktop app with open faces (Interface, below) |
 | Reactions | cedian draws cedia's `message` and `delivered` events as reactions on your messages; your 👍/👎 on an answer goes in through `cedia threads rate` as an event for picking eval cases and never reaches the model |
 | Bots | A bot is a named profile in cedia's own `profiles` settings key (role, model, instructions, tools), started with `--profile`. Start a thread with one, or @mention one to send it work in its own thread through cedia's `message_thread`. Never several bots answering in one conversation (one session, one model) |
 
@@ -142,34 +142,34 @@ Threads go on working and check their own work, and ask only when something trul
 
 ### Color
 
-Ink & Lime, from the app icon. Lime is the only accent and means verified or primary; nothing decorative uses it. Dark is the default theme.
+Warm & Lime, chosen by the owner on 2026-10-22 over Ink & Lime: warm grays in the manner of the Claude desktop app, with the app icon's lime as the only accent, meaning verified or primary; nothing decorative uses it. Dark is the default theme.
 
 | Token | Dark | Light |
 | --- | --- | --- |
-| frame (tab strip) | `#060709` | `#DDE1D8` |
-| app | `#0B0D10` | `#F6F7F4` |
-| side (sidebar, toolbar, active tab) | `#0E1114` | `#EFF1EC` |
-| surface | `#111418` | `#FFFFFF` |
-| raised | `#171B21` | `#FAFBF8` |
-| hover | `#1E232B` | `#F0F2ED` |
-| sel | `#222932` | `#E4E8DF` |
-| border | `#242A33` | `#E3E5DF` |
-| border.strong | `#313845` | `#CDD1C8` |
-| code | `#0D1013` | `#FCFCFA` |
-| text | `#E8EAED` | `#0B0D10` |
-| text.muted | `#9BA3AF` (7.3:1) | `#545B66` (6.9:1) |
-| text.faint | `#7D8592` (5.0:1) | `#667080` (4.5:1 on app) |
+| frame (tab strip) | `#151412` | `#E9E6DF` |
+| app (window, sidebar, active tab) | `#1C1B19` | `#F3F1EC` |
+| sheet (panes and tools) | `#252421` | `#FCFBF8` |
+| raised (cards, composer) | `#2C2B28` | `#FFFFFF` |
+| field (search, chips, inline code) | `#262522` | `#E9E6DF` |
+| code (editor, terminal, diff) | `#1E1D1B` | `#F7F5F0` |
+| hover | `rgba(255,248,235,.045)` | `rgba(40,30,10,.04)` |
+| sel | `rgba(255,248,235,.075)` | `rgba(40,30,10,.065)` |
+| line | `rgba(255,248,235,.07)` | `rgba(40,30,10,.08)` |
+| line.strong | `rgba(255,248,235,.13)` | `rgba(40,30,10,.15)` |
+| text | `#EDEBE5` (13.0:1) | `#1F1E1C` (16.1:1) |
+| text.muted | `#ADA99F` (6.6:1) | `#5C5850` (6.8:1) |
+| text.faint | `#99958B` (5.2:1) | `#6E6A62` (5.2:1) |
 | accent fill | `#C6F432` | `#5E8A00` |
-| accent text | `#C6F432` (14.4:1) | `#4F7500` (5.4:1) |
-| primary button | `#C6F432`, ink text | `#0B0D10`, lime text |
-| working | `#5AA9FF` | `#1F6FD1` |
-| failed | `#FF6B57` | `#C93B22` |
-| warn (interrupted, stale) | `#E8B931` | `#946000` |
-| user.bubble | `#1A1F26` | `#F0F2ED` |
+| accent text | `#C6F432` (12.1:1) | `#4F7500` (5.2:1) |
+| primary button | `#C6F432`, ink text | `#1A1C1E`, white text |
+| working | `#6FB0FF` | `#1B63BE` |
+| failed | `#FF7A66` | `#C23A22` |
+| warn (interrupted, stale) | `#E8B931` | `#8F5D00` |
+| user.bubble | `#32302C` | `#F0EDE6` |
 
-Ratios are against `surface` unless noted. Soft tints are the hue at 8–14% alpha, lines at 35–40%. Diff lines carry `+` and `−` as well as their tint, so color is never the only signal.
+Ratios are against `sheet`; `text.faint` stays at 4.5:1 or more on `raised` too. Lines and hovers are translucent so they read the same on every layer; soft tints are the hue at 6–8% alpha, their rings at 30–32%. Diff lines carry `+` and `−` as well as their tint, so color is never the only signal.
 
-The tokens ship as two Zed theme files, "cedian Dark" and "cedian Light", loaded in place of `LoadThemes::JustBase`, so the window, Zed's `editor` and the terminal share them: `app` → `background`, `side` → `panel.background`, `surface` → `editor.background` and `elevated_surface.background`, `sel` → `element.selected`, `text.muted` → `text.muted`, `accent` → `text.accent` and `status.success`, `failed` → `status.error`, `warn` → `status.warning`, `working` → `status.info`; syntax keywords `working`, strings `accent`, comments `text.faint`. Tokens Zed has no key for (`frame`, `user.bubble`, the tints) live in one `cedian_window` file derived from the active theme.
+The tokens ship as two Zed theme files, "cedian Dark" and "cedian Light", so the window, Zed's `editor` and the terminal share them: `app` → `background` and `panel.background`, `sheet` → `editor.background`, `raised` → `elevated_surface.background`, `sel` → `element.selected`, `line` → `border`, `text.muted` → `text.muted`, `accent` → `text.accent` and `status.success`, `failed` → `status.error`, `warn` → `status.warning`, `working` → `status.info`; syntax keywords `working`, strings `accent`, comments `text.faint`. Tokens Zed has no key for (`frame`, `field`, `user.bubble`, the tints) live in `tokens.rs`. Phase B shipped Ink & Lime (`script/themes/cedian.py`); moving it to this table is the next step of the order of work.
 
 ### Thread states as drawn
 
@@ -194,20 +194,20 @@ The owner asked for type in the manner of the Claude desktop app: a plain sans f
 | Name | Size / line | Weight | Use |
 | --- | --- | --- | --- |
 | title | 22 / 30 | 600 | settings section title |
-| pane title | 16 / 24 | 600 | thread title |
-| answer | 15.5 / 26 serif | 400 | the agent's text |
-| message | 14 / 24 | 400 | the person's text, composer |
-| ui | 13 / 20 | 400 | lists, buttons, inputs |
+| pane title | 14 / 22 | 600 | thread title in the sheet's header |
+| answer | 16 / 27 serif | 400 | the agent's text |
+| message | 14.5 / 24 | 400 | the person's text, composer |
+| ui | 13.5 / 21 | 400 | lists, buttons, inputs |
 | meta | 12 / 18 | 400 | chips, secondary lines |
-| label | 11 / 16 | 600 | group headers, badges |
+| label | 11.5 / 16 | 500 | group headers, badges |
 | code | 12.5 / 20 | 400 | editor, tool output, terminal |
 
 Thai: line height at least 1.6 times the size for running text, no italics (use weight), capitals only on English labels, and line breaks by dictionary, not spaces. GPUI's line wrapper breaks at spaces and punctuation, so Thai would wrap mid-word; the first step of this work is word segmentation (ICU4X `icu_segmenter`) feeding the agent pane's wrap points, measured against the 10k-block scroll budget.
 
 ### Spacing, radius, motion, access
 
-- Spacing 4, 8, 12, 16, 20, 24, 32. Radius 4 (badges, inline code), 6–7 (buttons, chips), 8 (cards, rows), 10 (tab tops), 12 (composer, receipt, window).
-- Heights: tab 34, toolbar 44, pane tab 32, tool card header 30, buttons 28 in a pane and 30 in a header, status bar 26.
+- Spacing 4, 8, 12, 16, 20, 24, 32. Radius 5 (inline code), 6–7 (badges), 8–10 (buttons, rows, tab tops), 12 (sheets, tool cards, window), 14 (cards in the conversation), 16 (receipt), 20 (composer).
+- Heights: tab 32 on a 40 strip, sheet header 48, sidebar row 32, tool line 38, buttons 32 (28 inside a card), composer 52 at rest.
 - Motion: 120 ms ease-out for hover and expand, the working pulse, the streaming caret; under Reduce Motion all of it stops and the working dot stays solid.
 - Text meets 4.5:1 at every size. Focus ring: 2 px `accent`. States differ by shape and word as well as color. Every control has a key and a VoiceOver name.
 
@@ -236,6 +236,18 @@ Decided 2026-10-22 with the owner over the canvas's C1–C4 boards.
 - **Usage**, a full pane: 7 วัน, 30 วัน, เดือนนี้ and a project filter in one row; tiles for today, the range, the average per thread and the share verified; cost per day as one series of bars with a hover readout and a table view; and breakdowns by model, by project and the costliest threads. Figures come from the `costUsd` cedia logs.
 - **Background tasks**, a full pane: running sub-threads and bash calls across the project's threads, with the thread each belongs to, the time, and เปิด or หยุด. Under it, scheduled runs (made by asking in the project chat; the daemon wakes the coordinator at the time; each with its next and last run and a switch), and the MCP servers cedia has connected, with their tools and state, configured in cedia's keys of `settings.json`.
 - Needs from cedia: `open_thread` and a coordinator profile, per-project memory and files, a todo list event for progress, and schedules (item 4 below).
+
+### Polish
+
+Decided 2026-10-22 with the owner over the canvas's P1–P6 boards ("like the Claude desktop app"): the chrome goes quiet so the conversation carries the screen.
+
+- **Sheets on a window**: the sidebar has no border and sits on `app`; each pane and the tool panel is a sheet (`sheet`, 12 px corners, a `line` ring, 8 px apart and from the window's edge). Lines inside a sheet are rare and translucent.
+- **No toolbar row and no status bar**: the sheet's 48 px header has the thread's state dot, title and cost, then the tools as 30 px icon toggles (replacing the 48 px rail, same keys and order), then Stop. The sidebar's foot has the daemon's dot, the archived count, today's cost and Settings. The branch, context and view mode move into the composer's bottom row.
+- **Conversation** centred at most 700 px wide, 18–22 px between blocks. The person's bubble has 18 px corners and no border. The coordinator's thread cards share one card, each with a progress ring. Thinking is a single quiet line (คิดอยู่ 14 วินาที ›). Tool calls fold into one 38 px line that opens to their list and the edit's diff. A run in progress is one line with the pulsing dot, the command and its time.
+- **Composer**: `raised`, 20 px corners, a `line.strong` ring and a soft shadow; queued messages sit inside it as rows; a square 32 px send button in the primary color.
+- **Sidebar rows** are one line (dot, title, a short mono meta such as `2/4` or ถาม); group headers are 11.5 px `text.faint` with the count in `accent text` when someone is needed.
+- **Review widened** is one sheet: files (248 px), hunks as 12 px cards with รับ and ปฏิเสธ in their header, evidence (280 px), and the keys at the evidence's foot.
+- This replaces, in what phase B built: the toolbar, the rail, the status bar, the sidebar's two-line rows, and the Ink & Lime theme files. Order: theme files and type sizes, then sheets and header, then sidebar and composer, then the conversation blocks.
 
 ## What cedia needs to add
 
