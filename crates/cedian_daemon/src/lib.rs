@@ -5,6 +5,8 @@
 mod cedia;
 mod daemon;
 mod environment;
+mod keep_awake;
+pub mod launch_agent;
 mod run;
 mod server;
 

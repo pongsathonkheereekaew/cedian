@@ -15,6 +15,7 @@ use cedian_wire::{Notice, Request, Status, ThreadInfo};
 
 use crate::{
     Cedia,
+    keep_awake::KeepAwake,
     run::{Run, RunId, watch},
 };
 
@@ -44,6 +45,7 @@ pub struct Daemon {
     runs: HashMap<RunId, Run>,
     /// Each thread's latest run.
     by_thread: HashMap<String, RunId>,
+    keep_awake: KeepAwake,
     next_id: u64,
 }
 
@@ -61,6 +63,7 @@ impl Daemon {
             clients: HashMap::new(),
             runs: HashMap::new(),
             by_thread: HashMap::new(),
+            keep_awake: KeepAwake::default(),
             next_id: 1,
         }
     }
@@ -311,6 +314,7 @@ impl Daemon {
         if let Some(thread) = thread {
             daemon.claim(id, thread);
         }
+        daemon.keep_awake.set(true);
         drop(daemon);
         watch(shared.clone(), id, child);
     }
@@ -414,6 +418,11 @@ impl Daemon {
         };
         run.alive = false;
         log::info!("run {id}: exited {status:?}");
+        let working = self.runs.values().any(|run| run.alive);
+        self.keep_awake.set(working);
+        let Some(run) = self.runs.get(&id) else {
+            return;
+        };
         let (thread, slug, requester) = (run.thread.clone(), run.slug.clone(), run.requester);
         let stderr = run.stderr.iter().cloned().collect::<Vec<_>>().join("\n");
         match thread {
