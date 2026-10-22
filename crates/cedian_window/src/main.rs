@@ -24,6 +24,7 @@ mod status_bar;
 mod tab_strip;
 mod thread_details;
 mod thread_list;
+mod thread_search;
 mod tokens;
 mod tool_card;
 mod tool_rail;
@@ -109,9 +110,9 @@ const STOP_KEY: &str = "cmd-.";
 #[cfg(not(target_os = "macos"))]
 const STOP_KEY: &str = "ctrl-.";
 #[cfg(target_os = "macos")]
-const OMNIBOX_KEY: &str = "cmd-k";
+const SEARCH_KEY: &str = "cmd-k";
 #[cfg(not(target_os = "macos"))]
-const OMNIBOX_KEY: &str = "ctrl-k";
+const SEARCH_KEY: &str = "ctrl-k";
 /// Puts the selection in the editor or the shell into the composer, as Cursor's `⌘L` does;
 /// `ctrl-l` clears a Linux shell, so Linux takes the shifted key.
 #[cfg(target_os = "macos")]
@@ -162,16 +163,32 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         // the key to code actions.
         KeyBinding::new(STOP_KEY, agent_pane::StopRun, None),
         KeyBinding::new(STOP_KEY, agent_pane::StopRun, Some("Composer > Editor")),
-        KeyBinding::new(OMNIBOX_KEY, toolbar::FocusOmnibox, None),
+        KeyBinding::new(SEARCH_KEY, thread_search::FocusSearch, None),
         KeyBinding::new(
-            OMNIBOX_KEY,
-            toolbar::FocusOmnibox,
+            SEARCH_KEY,
+            thread_search::FocusSearch,
             Some("Composer > Editor"),
         ),
-        KeyBinding::new("up", toolbar::SelectPrevious, Some("Omnibox > Editor")),
-        KeyBinding::new("down", toolbar::SelectNext, Some("Omnibox > Editor")),
-        KeyBinding::new("enter", toolbar::Confirm, Some("Omnibox > Editor")),
-        KeyBinding::new("escape", toolbar::Dismiss, Some("Omnibox > Editor")),
+        KeyBinding::new(
+            "up",
+            thread_search::SelectPrevious,
+            Some("ThreadSearch > Editor"),
+        ),
+        KeyBinding::new(
+            "down",
+            thread_search::SelectNext,
+            Some("ThreadSearch > Editor"),
+        ),
+        KeyBinding::new(
+            "enter",
+            thread_search::Confirm,
+            Some("ThreadSearch > Editor"),
+        ),
+        KeyBinding::new(
+            "escape",
+            thread_search::Dismiss,
+            Some("ThreadSearch > Editor"),
+        ),
         KeyBinding::new(SIDEBAR_KEY, root_view::ToggleSidebar, None),
         KeyBinding::new(
             SIDEBAR_KEY,
