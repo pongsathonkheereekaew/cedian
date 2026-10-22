@@ -34,7 +34,7 @@ The native macOS desktop for [cedia](https://github.com/pongsathonkheereekaew/ce
 
 ## Thread states
 
-cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon adds `idle` (no run in progress). There is no `waiting`, because cedia never stops to ask. A thread whose last state is `working` but whose process is gone (crash, reboot) shows as stopped and offers to continue it with `--thread`. Tabs show the state, with a notification and sound when a thread finishes or fails, and a `verified` badge when its last receipt has no unverified or flagged files.
+cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon shows `working` only while a run of the thread is alive, and adds `interrupted` for a thread whose last state is `working` but whose run is gone (crash, reboot), which can go on with `--thread`. There is no `waiting`, because cedia never stops to ask. Tabs show the state, with a notification and sound when a thread finishes or fails, and a `verified` badge when its last receipt has no unverified or flagged files.
 
 ## Decisions
 
@@ -79,12 +79,13 @@ cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon adds `idle
 
 Done in cedia PR #19: project identity across worktrees, the `desktop` key with unknown keys failing loudly, the protocol schema and session fixtures, `permission_reply` removed. Done in cedia PR #28 (pinned at `4716402`): `cedia --version --json` with version, protocol hash and capabilities; `threads rate` and `threads unsend` as thread events; a Keychain fallback for API keys (service `cedia`, the env var name as account); each check in a receipt names the thread that ran it; fixture thread ids are stable across re-records. Still to add, in the order cedian needs them:
 
-1. `threads delete`, and a `title` event for rename (phase C).
-2. `profiles` and `--profile` (phase C).
-3. `open_thread` for a coordinator, and per-project memory and files (phase C).
-4. `cedia serve` with `host_tools`, `host_call` and `host_result`, once a host tool is needed (phase C).
-5. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
-6. Media references (video frames, original file) in tool results (phase D).
+1. The run's result (the receipt, with its evidence) in the session log, so a thread rebuilt from cedia's files shows its last receipt after the daemon restarts; today only the live run's stream carries it (phase B).
+2. `threads delete`, and a `title` event for rename (phase C).
+3. `profiles` and `--profile` (phase C).
+4. `open_thread` for a coordinator, and per-project memory and files (phase C).
+5. `cedia serve` with `host_tools`, `host_call` and `host_result`, once a host tool is needed (phase C).
+6. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
+7. Media references (video frames, original file) in tool results (phase D).
 
 ## Projects
 
@@ -129,6 +130,16 @@ Performance budgets, first measurement (2026-10-22, release build with `runtime_
 | Idle memory, 10k-block thread open | about 127 MB, under 1% CPU | about 1,020 MB across 14 processes |
 
 The release binary is 117 MB and a clean release build takes about 10 minutes on the Mac. Typing works in the editor and the shell, including Thai: the shell takes text from the platform input handler, as Zed's terminal does, and draws combining marks with their base character.
+
+## Phase B
+
+The daemon came first (2026-10-22). Three crates carry it:
+
+- `cedian_index` reads cedia's files: the project key (the main worktree's root, slugged as cedia does), the project's threads folded as cedia folds them, and a thread's session logs as stream-json lines.
+- `cedian_wire` is what the window and the daemon say over the socket: one JSON object per line, requests (`threads`, `open`, `close`, `prompt`, `send`, `stop`) one way and notices (`welcome`, `threads`, `started`, `line`, `caught`, `status`, `error`) the other.
+- `cedian_daemon` (binary `cedian-daemon`) listens on `daemon.sock` in cedian's state directory (`~/Library/Application Support/cedian` on macOS), never under `~/.cedia`. It reads the login shell's environment once, as Zed does (the shell runs the daemon with `--printenv`), and asks cedia for `--version --json`. Each prompt is one `cedia --print=<text> --output-format stream-json --cwd <dir> [--thread <id>]`; the run's first session event names its thread. A prompt to a thread whose run is alive goes in with `cedia threads send` instead, and Stop sends SIGTERM. The daemon keeps each thread's latest run's lines, so a window that opens the thread mid-run, or after it ends, gets all of it; older sessions come from cedia's session logs.
+
+The window connects to the daemon and starts it when nobody answers, in its own process group so quitting the window leaves it running. `cedian --cwd <dir>` shows that project's threads, opens the latest, and has a composer under the agent pane (Enter sends, Shift-Enter adds a line). Under Xvfb, with a fake cedia that plays the recorded fixtures (`crates/cedian_daemon/tests/fake/cedia`), a prompt typed in the composer runs and draws live, the thread is intact after the window quits and reopens, and after the daemon too is killed the thread rebuilds from cedia's files, without its receipt (item 1 in the list above). Still to do in phase B: the LaunchAgent, reconcile and keep-awake, worktrees, review, the settings UI, and the window and layout restored after quit.
 
 ## Learned from the Claude desktop app
 
