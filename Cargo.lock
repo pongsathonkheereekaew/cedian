@@ -1139,6 +1139,7 @@ name = "cedian_agent"
 version = "0.1.0"
 dependencies = [
  "cedian_protocol",
+ "chrono",
  "serde_json",
 ]
 

@@ -6,7 +6,7 @@ use gpui::{App, BorrowAppContext as _};
 use serde_json::Value;
 use settings::SettingsStore;
 
-use crate::tokens;
+use crate::{tokens, view_mode::ViewMode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThemeMode {
@@ -28,6 +28,7 @@ pub struct Desktop {
     pub theme: ThemeMode,
     pub ui_font_size: f32,
     pub code_font_size: f32,
+    pub view_mode: ViewMode,
 }
 
 pub const UI_FONT_SIZES: std::ops::RangeInclusive<f32> = 12.0..=24.0;
@@ -52,6 +53,7 @@ impl Desktop {
             theme,
             ui_font_size: size("ui_font_size", 16.0),
             code_font_size: size("code_font_size", 14.0),
+            view_mode: ViewMode::from_key(desktop.get("view_mode").and_then(Value::as_str)),
         }
     }
 

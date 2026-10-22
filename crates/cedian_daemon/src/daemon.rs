@@ -404,6 +404,16 @@ impl Daemon {
                 Self::message(shared, client, &cwd, &thread, &text)
             }
             Request::Stop { thread } => lock(shared).stop(client, &thread),
+            Request::Rate {
+                cwd,
+                thread,
+                rating,
+            } => {
+                let cedia = lock(shared).cedia.clone();
+                if let Err(error) = cedia.rate(&cwd, &thread, rating) {
+                    lock(shared).error(client, format!("{error:#}"));
+                }
+            }
             Request::Settings => lock(shared).settings(client),
             Request::SetDesktop { key, value } => lock(shared).set_desktop(client, &key, value),
             Request::Review { cwd, thread } => {

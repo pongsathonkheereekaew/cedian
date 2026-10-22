@@ -1,7 +1,7 @@
 session code on faux/scripted
 user: make f.txt say good
 tool spawn [s1] allowed by mode:workspace: completed: <subthread thread="t-00000002" kind="work" model="faux/scripted" ended="success" cost="$0.0008">
-tool bash [c3] allowed by effect:read: completed: (no output)
+tool bash [c3] allowed by effect:read: completed exit 0: (no output)
 text: done, checked
 result success after 6 turns, verified: done, checked
   check `grep -q good f.txt` exit 0 in t-00000002
@@ -15,6 +15,6 @@ subthread t-00000002:
   </task>
 
   End with the report it asked for: findings or changes with paths and line numbers, how you confirmed them, and anything left undone. Keep it short; leave out the steps you took to get there.
-  tool bash [c1] allowed by mode:workspace: completed: (no output)
-  tool bash [c2] allowed by effect:read: completed: (no output)
+  tool bash [c1] allowed by mode:workspace: completed exit 0: (no output)
+  tool bash [c2] allowed by effect:read: completed exit 0: (no output)
   text: Wrote good to f.txt; grep -q good f.txt passes.

@@ -113,3 +113,21 @@ fn a_thread_that_asked_holds_its_question() {
     );
     assert_eq!(question.options, ["good", "great"]);
 }
+
+#[test]
+fn the_latest_rating_wins() {
+    let line = |rating: &str, at: &str| {
+        serde_json::from_str::<cedian_protocol::ThreadEvent>(&format!(
+            r#"{{"kind":"rate","rating":"{rating}","at":"{at}"}}"#
+        ))
+        .expect("rate event")
+    };
+    let thread = cedian_index::fold(
+        "t-1",
+        &[
+            line("down", "2026-10-22T03:00:00.000Z"),
+            line("up", "2026-10-22T03:00:01.000Z"),
+        ],
+    );
+    assert_eq!(thread.rating, Some(cedian_protocol::Rating::Up));
+}

@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
 };
 
-use cedian_protocol::VersionInfo;
+use cedian_protocol::{Rating, VersionInfo};
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -37,6 +37,12 @@ pub enum Request {
     },
     /// Ends the thread's run.
     Stop { thread: String },
+    /// The person's 👍 or 👎 on the thread, through `cedia threads rate`.
+    Rate {
+        cwd: PathBuf,
+        thread: String,
+        rating: Rating,
+    },
     /// The thread's changes since its first snapshot, answered with `Notice::Review`.
     Review { cwd: PathBuf, thread: String },
     /// A decision on one hunk of the thread's review, answered with the review again.

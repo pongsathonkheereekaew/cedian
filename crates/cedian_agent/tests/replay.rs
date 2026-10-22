@@ -57,8 +57,16 @@ fn outline(transcript: &Transcript) -> String {
                     .lines()
                     .next()
                     .unwrap_or("");
+                let counts = call
+                    .counts()
+                    .map(|(added, removed)| format!(" +{added} -{removed}"))
+                    .unwrap_or_default();
+                let exit = call
+                    .exit_code
+                    .map(|code| format!(" exit {code}"))
+                    .unwrap_or_default();
                 format!(
-                    "tool {} [{}]{permission}: {state}: {output}",
+                    "tool {} [{}]{counts}{permission}: {state}{exit}: {output}",
                     call.name, call.call_id
                 )
             }
