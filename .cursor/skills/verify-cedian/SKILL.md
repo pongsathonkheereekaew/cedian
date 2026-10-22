@@ -9,11 +9,11 @@ description: >
 
 # Verify cedian
 
-cedian is the native macOS desktop for cedia. The window is a viewer. The design source is `docs/ARCHITECTURE.md`. The README status is phase A. `cargo build -p cedian_window` produces `target/debug/cedian`. That binary opens a GPUI window and plays a recorded cedia run with `--replay`. It does not start a daemon, does not spawn cedia, and does not take a data-directory flag.
+cedian is the native macOS desktop for cedia. The window is a viewer. The daemon owns the threads and runs one cedia process per prompt. The design source is `docs/ARCHITECTURE.md`. The README status is phase B: the workspace builds `cedian` (the window) and `cedian-daemon`, and the window starts the daemon when nobody answers on its socket. The scripts below drive only the window's replay mode: `cargo build -p cedian_window` produces `target/debug/cedian`, and `--replay` plays a recorded cedia run without starting the daemon, spawning cedia, or taking a data-directory flag.
 
 You drive the scripts in this skill. You do not start a binary that would write `~/.cedia`. That directory is the owner's settings and cedia's thread files. This skill never creates it, never reads `settings.json` there, and never points a data directory at it. If a launch finds that the binary created `~/.cedia`, the script deletes that directory and exits `1`.
 
-Two runs stay apart by using different `CEDIAN_DATA_DIR` values. Both stay under `/tmp/verify-cedian/`. Phase A has no socket.
+Two runs stay apart by using different `CEDIAN_DATA_DIR` values. Both stay under `/tmp/verify-cedian/`. Replay mode has no socket. A run that starts the window or the daemon outside replay also sets `CEDIAN_STATE_DIR` (the daemon's socket and log) and `CEDIA_HOME` (cedia's threads and sessions) under the same directory, so it never meets the owner's daemon or `~/.cedia`. `crates/cedian_daemon/tests/fake/cedia`, pointed at by `CEDIAN_CEDIA_BIN`, plays a recorded fixture instead of calling a model.
 
 cedia itself is checked out by `.cursor/install.sh` to `/home/ubuntu/cedia` when the agent token can read `github.com/pongsathonkheereekaew/cedia`. This skill does not clone it. The phase A window does not exec it. Running `bin/cedia` yourself would skip the desktop.
 

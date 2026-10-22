@@ -26,6 +26,19 @@ impl AgentPane {
         }
     }
 
+    /// Empties the pane for another thread.
+    pub fn reset(&mut self, title: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.title = title.into();
+        self.transcript = Transcript::default();
+        self.list.reset(0);
+        cx.notify();
+    }
+
+    pub fn set_title(&mut self, title: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.title = title.into();
+        cx.notify();
+    }
+
     pub fn apply(&mut self, line: &Line, cx: &mut Context<Self>) {
         self.transcript.apply(line);
         let Some(from) = self.transcript.take_changed_from() else {
@@ -116,8 +129,10 @@ impl AgentPane {
                                 .text_xs()
                                 .text_color(if passed { status.success } else { status.error })
                                 .child(format!(
-                                    "check `{}` exit {}",
-                                    check.command, check.exit_code
+                                    "check `{}` exit {}{}",
+                                    check.command,
+                                    check.exit_code,
+                                    self.check_origin(check.thread.as_deref())
                                 )),
                         );
                     }
@@ -134,6 +149,18 @@ impl AgentPane {
             }
         };
         div().px_3().py_1().child(body).into_any_element()
+    }
+}
+
+impl AgentPane {
+    /// Names the sub-thread a check ran in; a check of this thread needs no label.
+    fn check_origin(&self, thread: Option<&str>) -> String {
+        match thread {
+            Some(thread) if Some(thread) != self.transcript.thread() => {
+                format!(" in sub-thread {thread}")
+            }
+            _ => String::new(),
+        }
     }
 }
 

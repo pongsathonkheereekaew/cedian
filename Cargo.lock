@@ -1143,6 +1143,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "cedian_daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cedian_index",
+ "cedian_protocol",
+ "cedian_wire",
+ "futures",
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "util",
+]
+
+[[package]]
+name = "cedian_index"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cedian_agent",
+ "cedian_protocol",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cedian_protocol"
 version = "0.1.0"
 dependencies = [
@@ -1163,8 +1193,10 @@ dependencies = [
  "assets",
  "cedian_agent",
  "cedian_protocol",
+ "cedian_wire",
  "collections",
  "editor",
+ "futures",
  "gpui",
  "gpui_platform",
  "log",
@@ -1177,6 +1209,18 @@ dependencies = [
  "theme",
  "theme_settings",
  "util",
+ "zed_actions",
+]
+
+[[package]]
+name = "cedian_wire"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cedian_index",
+ "cedian_protocol",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
