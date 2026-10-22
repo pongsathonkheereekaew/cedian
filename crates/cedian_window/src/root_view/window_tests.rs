@@ -253,3 +253,32 @@ fn the_file_finder_matches_letters_in_order_and_opens_the_best() {
         ))
     );
 }
+
+#[test]
+fn at_lists_files_and_a_pick_puts_the_path_in_the_text() {
+    use crate::composer::{CommandPick, Composer};
+    let mut app = app();
+    let files: Vec<PathBuf> = ["README.md", "crates/cedian_window/src/root_view/blocks.rs"]
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+    let (composer, cx) = app.add_window_view(|window, cx| {
+        let mut composer = Composer::new(window, cx);
+        composer.set_files(std::path::Path::new("/repo"), &files);
+        composer
+    });
+    composer.update_in(cx, |composer, window, cx| composer.focus(window, cx));
+    cx.simulate_input("look at @rvblk");
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("mention-list").is_some(),
+        "the files are listed"
+    );
+    cx.dispatch_action(CommandPick);
+    cx.run_until_parked();
+    assert_eq!(
+        composer.read_with(cx, |composer, cx| composer.text(cx)),
+        "look at @crates/cedian_window/src/root_view/blocks.rs "
+    );
+    assert!(cx.debug_bounds("mention-list").is_none(), "the list closes");
+}

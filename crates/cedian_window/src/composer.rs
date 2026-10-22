@@ -1,15 +1,26 @@
 //! Where the person types to the thread: Enter or the send button sends, Shift-Enter starts a
 //! new line. Messages the running thread has not seen yet sit inside it above the text as
 //! rows, to edit or take back (Interface, Polish: composer). A `/` at the start lists the
-//! project's commands (cedia's skills) over the field, narrowed as the person types.
+//! project's commands (cedia's skills) over the field, narrowed as the person types. An `@`
+//! starting the last word lists the files of the thread's directory, matched as `⌘P` does;
+//! a pick puts `@<path> ` in its place, which the model reads as the file to look at.
+
+use std::{
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use crate::type_scale::TypeScale as _;
 use cedian_protocol::CommandEntry;
 use editor::{Editor, EditorEvent};
+use fuzzy::{StringMatch, StringMatchCandidate};
 use gpui::{
-    AppContext as _, Context, Entity, EventEmitter, Focusable as _, FontWeight,
+    AppContext as _, Context, Entity, EventEmitter, Focusable as _, FontWeight, HighlightStyle,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window, actions, deferred, div,
+    StatefulInteractiveElement as _, Styled as _, StyledText, Task, Window, actions, deferred, div,
     prelude::FluentBuilder as _, px, svg,
 };
 use theme::ActiveTheme as _;
@@ -33,6 +44,14 @@ pub struct Composer {
     dismissed: Option<String>,
     /// The field holds one of the person's sent messages, to send again in a fork.
     editing: bool,
+    /// The files `@` lists: the directory and its file count they were built for, and each
+    /// path relative to it.
+    files: (PathBuf, usize),
+    candidates: Arc<Vec<StringMatchCandidate>>,
+    /// The `@` word being matched and the files that match it, best first.
+    mention: Option<(String, Vec<StringMatch>)>,
+    cancel: Arc<AtomicBool>,
+    search: Option<Task<()>>,
 }
 
 /// A message sent to a running thread that no session has seen yet.
@@ -74,7 +93,115 @@ impl Composer {
             selected: 0,
             dismissed: None,
             editing: false,
+            files: (PathBuf::new(), 0),
+            candidates: Arc::new(Vec::new()),
+            mention: None,
+            cancel: Arc::new(AtomicBool::new(false)),
+            search: None,
         }
+    }
+
+    /// Whether `@` already lists these files.
+    pub fn has_files(&self, root: &Path, count: usize) -> bool {
+        self.files.0 == root && self.files.1 == count
+    }
+
+    /// The files `@` lists, relative to `root`; built again only when they change.
+    pub fn set_files(&mut self, root: &Path, files: &[PathBuf]) {
+        if self.has_files(root, files.len()) {
+            return;
+        }
+        self.files = (root.to_owned(), files.len());
+        self.candidates = Arc::new(
+            files
+                .iter()
+                .enumerate()
+                .map(|(n, path)| StringMatchCandidate::new(n, &path.to_string_lossy()))
+                .collect(),
+        );
+    }
+
+    /// Matches the `@` word at the end of the text in the background, or drops the list.
+    fn find_mention(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.cancel.store(true, Ordering::Relaxed);
+        let Some(word) = mention_word(text) else {
+            self.mention = None;
+            self.search = None;
+            return;
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.cancel = cancel.clone();
+        let candidates = self.candidates.clone();
+        let word = word.to_owned();
+        let executor = cx.background_executor().clone();
+        self.search = Some(cx.spawn(async move |this, cx| {
+            let matches = if word.is_empty() {
+                candidates
+                    .iter()
+                    .take(SHOWN_COMMANDS)
+                    .map(|c| StringMatch {
+                        candidate_id: c.id,
+                        score: 0.,
+                        positions: Vec::new(),
+                        string: c.string.clone(),
+                    })
+                    .collect()
+            } else {
+                fuzzy::match_strings(
+                    candidates.as_slice(),
+                    &word,
+                    false,
+                    true,
+                    SHOWN_COMMANDS,
+                    &cancel,
+                    executor,
+                )
+                .await
+            };
+            if cancel.load(Ordering::Relaxed) {
+                return;
+            }
+            this.update(cx, |composer, cx| {
+                composer.mention = Some((word, matches));
+                composer.selected = 0;
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// The files listed for the `@` word, when the list is open.
+    fn mentions(&self, cx: &gpui::App) -> &[StringMatch] {
+        let text = self.editor.read(cx).text(cx);
+        match &self.mention {
+            Some((word, found))
+                if self.dismissed.as_ref() != Some(&text)
+                    && mention_word(&text) == Some(word.as_str()) =>
+            {
+                found
+            }
+            _ => &[],
+        }
+    }
+
+    /// Replaces the `@` word with the picked file's path and a space.
+    fn pick_mention(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.mentions(cx).get(index).map(|m| m.string.clone()) else {
+            return;
+        };
+        let text = self.editor.read(cx).text(cx);
+        let Some(word) = mention_word(&text) else {
+            return;
+        };
+        let keep = &text[..text.len() - word.len() - 1];
+        let text = format!("{keep}@{path} ");
+        self.mention = None;
+        self.editor.update(cx, |editor, cx| {
+            editor.set_text(text, window, cx);
+            editor.move_to_end(&editor::actions::MoveToEnd, window, cx);
+            window.focus(&editor.focus_handle(cx), cx);
+        });
+        cx.notify();
     }
 
     /// Puts a sent message in the field to edit, under a line saying a send forks the
@@ -122,6 +249,7 @@ impl Composer {
         if self.dismissed.as_ref().is_some_and(|d| *d != text) {
             self.dismissed = None;
         }
+        self.find_mention(&text, cx);
         self.selected = 0;
         cx.notify();
     }
@@ -149,8 +277,18 @@ impl Composer {
         found
     }
 
+    /// How many rows the open list shows: the files for `@`, else the commands.
+    fn rows(&self, cx: &gpui::App) -> usize {
+        let files = self.mentions(cx).len();
+        if files > 0 {
+            files
+        } else {
+            self.matching(cx).len().min(SHOWN_COMMANDS)
+        }
+    }
+
     fn command_up(&mut self, _: &CommandUp, _: &mut Window, cx: &mut Context<Self>) {
-        let n = self.matching(cx).len().min(SHOWN_COMMANDS);
+        let n = self.rows(cx);
         if n > 0 {
             self.selected = (self.selected + n - 1) % n;
             cx.notify();
@@ -158,7 +296,7 @@ impl Composer {
     }
 
     fn command_down(&mut self, _: &CommandDown, _: &mut Window, cx: &mut Context<Self>) {
-        let n = self.matching(cx).len().min(SHOWN_COMMANDS);
+        let n = self.rows(cx);
         if n > 0 {
             self.selected = (self.selected + 1) % n;
             cx.notify();
@@ -166,7 +304,11 @@ impl Composer {
     }
 
     fn command_pick(&mut self, _: &CommandPick, window: &mut Window, cx: &mut Context<Self>) {
-        self.pick(self.selected, window, cx);
+        if self.mentions(cx).is_empty() {
+            self.pick(self.selected, window, cx);
+        } else {
+            self.pick_mention(self.selected, window, cx);
+        }
     }
 
     /// Puts `/<name> ` in the field, for the text the command is for.
@@ -291,6 +433,79 @@ impl Composer {
         .into_any_element()
     }
 
+    /// The files for `@`, over the field as the commands are, with the matched letters marked.
+    fn file_list(&self, found: &[StringMatch], cx: &mut Context<Self>) -> gpui::AnyElement {
+        let colors = cx.theme().colors();
+        let marked = HighlightStyle {
+            color: Some(colors.text_accent),
+            font_weight: Some(FontWeight::SEMIBOLD),
+            ..Default::default()
+        };
+        let mut list = div()
+            .id("file-list")
+            .debug_selector(|| "mention-list".into())
+            .flex()
+            .flex_col()
+            .p(px(5.))
+            .rounded(px(12.))
+            .border_1()
+            .border_color(colors.border)
+            .bg(colors.elevated_surface_background)
+            .shadow_lg()
+            .text_ui()
+            .text_color(colors.text)
+            .on_mouse_down_out(cx.listener(|composer, _, _, cx| {
+                composer.dismissed = Some(composer.editor.read(cx).text(cx));
+                cx.notify();
+            }));
+        for (n, found) in found.iter().enumerate() {
+            let path = StyledText::new(found.string.clone())
+                .with_highlights(found.ranges().map(|range| (range, marked)));
+            list = list.child(
+                div()
+                    .id(("mention", n))
+                    .flex_none()
+                    .px(px(9.))
+                    .py(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .rounded(px(7.))
+                    .cursor_pointer()
+                    .when(n == self.selected, |r| r.bg(colors.element_selected))
+                    .hover(|r| r.bg(colors.element_hover))
+                    .on_click(cx.listener(move |composer, _, window, cx| {
+                        composer.pick_mention(n, window, cx)
+                    }))
+                    .child(
+                        svg()
+                            .path("icons/file.svg")
+                            .size(px(14.))
+                            .flex_none()
+                            .text_color(colors.text_muted),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .font(crate::tokens::code_font())
+                            .child(path),
+                    ),
+            );
+        }
+        deferred(
+            div()
+                .absolute()
+                .bottom_full()
+                .left_4()
+                .right_4()
+                .mb_1()
+                .child(list),
+        )
+        .with_priority(1)
+        .into_any_element()
+    }
+
     pub fn set_queue(&mut self, queue: Vec<Queued>, cx: &mut Context<Self>) {
         if queue != self.queue {
             self.queue = queue;
@@ -328,6 +543,11 @@ impl Composer {
         });
     }
 
+    #[cfg(test)]
+    pub fn text(&self, cx: &gpui::App) -> String {
+        self.editor.read(cx).text(cx)
+    }
+
     pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.editor.focus_handle(cx), cx);
     }
@@ -347,9 +567,14 @@ impl Composer {
 
 impl Render for Composer {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let files = self.mentions(cx).to_vec();
         let found = self.matching(cx);
-        let listing = !found.is_empty();
-        let list = listing.then(|| self.command_list(&found, cx));
+        let listing = !found.is_empty() || !files.is_empty();
+        let list = if !files.is_empty() {
+            Some(self.file_list(&files, cx))
+        } else {
+            (!found.is_empty()).then(|| self.command_list(&found, cx))
+        };
         let colors = cx.theme().colors();
         let tokens = crate::tokens::Tokens::of(cx);
         let working = cx.theme().status().info;
@@ -501,5 +726,26 @@ impl Render for Composer {
                             .child(send),
                     ),
             )
+    }
+}
+
+/// The word after an `@` that starts the text's last word, while it is being typed: the text
+/// does not end in a space.
+fn mention_word(text: &str) -> Option<&str> {
+    let last = text.rsplit(char::is_whitespace).next()?;
+    last.strip_prefix('@')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_mention_is_the_last_word_after_an_at() {
+        assert_eq!(mention_word("look at @src/ma"), Some("src/ma"));
+        assert_eq!(mention_word("@"), Some(""));
+        assert_eq!(mention_word("look at @src/main.rs "), None);
+        assert_eq!(mention_word("mail me@x"), None);
+        assert_eq!(mention_word("plain"), None);
     }
 }

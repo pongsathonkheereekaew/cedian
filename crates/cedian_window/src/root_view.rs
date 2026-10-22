@@ -334,6 +334,21 @@ impl RootView {
             FileTreeEvent::Open(path) => view.show_file(path.clone(), window, cx),
         })
         .detach();
+        // `@` in the composers lists the same files.
+        cx.observe(&files, |view, files, cx| {
+            let (root, count) = {
+                let tree = files.read(cx);
+                (tree.root().to_owned(), tree.files().len())
+            };
+            if view.composer.read(cx).has_files(&root, count) {
+                return;
+            }
+            let list = files.read(cx).files().to_vec();
+            for composer in [&view.composer, &view.chat_composer] {
+                composer.update(cx, |composer, _| composer.set_files(&root, &list));
+            }
+        })
+        .detach();
         let git = cx.new(|_| GitPane::default());
         cx.subscribe_in(&git, window, |view, _, event, window, cx| match event {
             GitEvent::Show { name, text } => view.show_text(name.into(), text.clone(), window, cx),
