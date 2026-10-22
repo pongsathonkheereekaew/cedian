@@ -28,6 +28,13 @@ pub enum Request {
         /// For a new thread: run it in a new git worktree of the project.
         #[serde(default)]
         worktree: bool,
+        /// For a new thread: the cedia profile its runs take (`coordinator` for the project
+        /// chat).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profile: Option<String>,
+        /// The model this run's writer takes (`cedia -m`); none keeps cedia's choice.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     /// A message the running thread sees at its next turn.
     Send {
@@ -167,6 +174,8 @@ mod tests {
             text: "fix it".into(),
             thread: None,
             worktree: false,
+            profile: None,
+            model: None,
         };
         let mut buffer = Vec::new();
         write_message(&mut buffer, &request).expect("write");

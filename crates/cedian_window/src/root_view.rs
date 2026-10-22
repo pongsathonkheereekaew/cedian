@@ -1349,6 +1349,8 @@ impl RootView {
             text,
             thread: project.current.clone(),
             worktree: project.current.is_none() && self.use_worktree,
+            profile: None,
+            model: None,
         });
         self.retitle(cx);
         cx.notify();
@@ -1963,6 +1965,7 @@ impl Render for RootView {
             .w_full()
             .flex()
             .gap(px(SHEET_GAP))
+            .pt(px(SHEET_GAP))
             .pr(px(SHEET_GAP))
             .pb(px(SHEET_GAP))
             .when(!live, |body| body.pl(px(SHEET_GAP)))

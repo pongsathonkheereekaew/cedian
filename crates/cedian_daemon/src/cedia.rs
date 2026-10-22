@@ -6,7 +6,18 @@ use std::{
 };
 
 use anyhow::Context as _;
-use cedian_protocol::{Rating, VersionInfo};
+use cedian_protocol::{Capability, Rating, VersionInfo};
+
+/// A run's flags beyond its text: cedia's `--profile`, `--model`, `--ask on` and `--todo on`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Flags<'a> {
+    pub profile: Option<&'a str>,
+    pub model: Option<&'a str>,
+    /// The run may end on a question for the person, when this cedia can.
+    pub ask: bool,
+    /// The writer keeps a todo list, when this cedia can.
+    pub todo: bool,
+}
 
 /// How the daemon starts cedia: which binary, with which environment.
 #[derive(Clone, Debug)]
@@ -56,19 +67,18 @@ impl Cedia {
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
         }
-        serde_json::from_slice(&output.stdout).map_err(|e| format!("cedia's version: {e}"))
+        known_capabilities(&output.stdout).map_err(|e| format!("cedia's version: {e}"))
     }
 
     /// One run: `cedia --print=<text> --output-format stream-json --cwd <cwd> [--thread <id>]
-    /// [--ask on]`. `--print=` keeps a prompt that starts with `-` from reading as a flag.
+    /// [--profile <name>] [--model <ref>] [--ask on] [--todo on]`. `--print=` keeps a prompt that starts with `-` from reading as a flag.
     /// `ask` lets the run end on a question for the person, when this cedia can.
     pub fn prompt(
         &self,
         cwd: &Path,
         text: &str,
         thread: Option<&str>,
-        ask: bool,
-        todo: bool,
+        flags: Flags,
     ) -> anyhow::Result<Child> {
         let mut command = self.command(cwd);
         command
@@ -82,11 +92,17 @@ impl Cedia {
         if let Some(thread) = thread {
             command.args(["--thread", thread]);
         }
-        if ask {
+        if let Some(profile) = flags.profile {
+            command.args(["--profile", profile]);
+        }
+        if let Some(model) = flags.model {
+            command.args(["--model", model]);
+        }
+        if flags.ask {
             command.args(["--ask", "on"]);
         }
         // The writer's todo list is the thread's progress in the window.
-        if todo {
+        if flags.todo {
             command.args(["--todo", "on"]);
         }
         command
@@ -138,5 +154,38 @@ impl Cedia {
             String::from_utf8_lossy(&output.stderr).trim()
         );
         Ok(())
+    }
+}
+
+/// cedia's version, without the capabilities this pin does not know: a cedia newer than the pin
+/// still runs, with only what cedian can use.
+fn known_capabilities(json: &[u8]) -> serde_json::Result<VersionInfo> {
+    let mut version: serde_json::Value = serde_json::from_slice(json)?;
+    if let Some(capabilities) = version
+        .get_mut("capabilities")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        capabilities.retain(|capability| {
+            let known = serde_json::from_value::<Capability>(capability.clone()).is_ok();
+            if !known {
+                log::info!("cedia offers {capability}, which this pin does not know");
+            }
+            known
+        });
+    }
+    serde_json::from_value(version)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_capability_newer_than_the_pin_is_left_out() {
+        let version = known_capabilities(
+            br#"{"name":"cedia","version":"0.1.0","protocol":"x","capabilities":["ask","from-the-future"]}"#,
+        )
+        .expect("version");
+        assert_eq!(version.capabilities, vec![Capability::Ask]);
     }
 }

@@ -240,8 +240,8 @@ impl Render for ThreadSearch {
             .on_action(cx.listener(Self::dismiss))
             .flex()
             .flex_col()
+            // The body's gap above the sheets is above the search too.
             .px_2()
-            .pt_2()
             .child(
                 div()
                     .h(px(30.))

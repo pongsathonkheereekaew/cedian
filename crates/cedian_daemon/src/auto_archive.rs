@@ -22,6 +22,8 @@ pub fn nothing_owed(
     status == Status::Done
         && !summary.archived
         && summary.parent.is_none()
+        // The project chat is the coordinator's thread, which stays.
+        && summary.profile.as_deref() != Some("coordinator")
         && summary.pending.is_empty()
         && verified
         && waiting == 0

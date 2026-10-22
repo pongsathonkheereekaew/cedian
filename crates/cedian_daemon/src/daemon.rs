@@ -16,6 +16,7 @@ use cedian_wire::{Notice, Request, Status, ThreadInfo};
 
 use crate::{
     Cedia, auto_archive,
+    cedia::Flags,
     desktop_settings::{read_desktop, set_desktop_key, settings_path},
     follow::{Offsets, follow},
     keep_awake::KeepAwake,
@@ -403,13 +404,28 @@ impl Daemon {
                 text,
                 thread,
                 worktree,
+                profile,
+                model,
             } => {
+                let with = Flags {
+                    profile: profile.as_deref(),
+                    model: model.as_deref(),
+                    ..Flags::default()
+                };
                 let running = thread.as_deref().is_some_and(|t| lock(shared).running(t));
                 match thread {
                     // A run is already working on it: the text joins at its next turn.
                     Some(thread) if running => Self::message(shared, client, &cwd, &thread, &text),
-                    None if worktree => Self::prompt_in_worktree(shared, client, cwd, &text),
-                    thread => Self::prompt(shared, Some(client), cwd.clone(), cwd, &text, thread),
+                    None if worktree => Self::prompt_in_worktree(shared, client, cwd, &text, with),
+                    thread => Self::prompt(
+                        shared,
+                        Some(client),
+                        cwd.clone(),
+                        cwd,
+                        &text,
+                        thread,
+                        with,
+                    ),
                 }
             }
             Request::Send { cwd, thread, text } => {
@@ -712,14 +728,20 @@ impl Daemon {
             match crate::worktree::create(&cwd, &task) {
                 Ok((dir, branch)) => {
                     log::info!("worktree {} on {branch}", dir.display());
-                    Self::prompt(shared, None, cwd, dir, &task, Some(thread));
+                    Self::prompt(shared, None, cwd, dir, &task, Some(thread), Flags::default());
                 }
                 Err(error) => log::warn!("starting {thread}: {error:#}"),
             }
         }
     }
 
-    fn prompt_in_worktree(shared: &Shared, client: ClientId, asked_in: PathBuf, text: &str) {
+    fn prompt_in_worktree(
+        shared: &Shared,
+        client: ClientId,
+        asked_in: PathBuf,
+        text: &str,
+        with: Flags,
+    ) {
         lock(shared).send(
             client,
             Notice::Preparing {
@@ -737,7 +759,7 @@ impl Daemon {
                         step: format!("starting on {branch}"),
                     },
                 );
-                Self::prompt(shared, Some(client), asked_in, dir, text, None);
+                Self::prompt(shared, Some(client), asked_in, dir, text, None, with);
             }
             Err(error) => lock(shared).error(client, format!("{error:#}")),
         }
@@ -752,6 +774,7 @@ impl Daemon {
         cwd: PathBuf,
         text: &str,
         thread: Option<String>,
+        with: Flags,
     ) {
         let mut daemon = lock(shared);
         let slug = project_key(&cwd);
@@ -772,14 +795,12 @@ impl Daemon {
                 .as_ref()
                 .is_ok_and(|v| v.capabilities.contains(&capability))
         };
-        let (ask, todo) = (
-            can(cedian_protocol::Capability::Ask),
-            can(cedian_protocol::Capability::Todo),
-        );
-        let child = match daemon
-            .cedia
-            .prompt(&cwd, text, thread.as_deref(), ask, todo)
-        {
+        let with = Flags {
+            ask: can(cedian_protocol::Capability::Ask),
+            todo: can(cedian_protocol::Capability::Todo),
+            ..with
+        };
+        let child = match daemon.cedia.prompt(&cwd, text, thread.as_deref(), with) {
             Ok(child) => child,
             Err(error) => return daemon.error_to(client, format!("{error:#}")),
         };

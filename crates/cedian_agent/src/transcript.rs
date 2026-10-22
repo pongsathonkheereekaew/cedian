@@ -54,6 +54,14 @@ impl Transcript {
         self.context
     }
 
+    /// The model the thread's writer runs on: its latest `code` session's.
+    pub fn model(&self) -> Option<&str> {
+        self.blocks.iter().rev().find_map(|block| match block {
+            Block::Session { model, role } if role == "code" => Some(model.as_str()),
+            _ => None,
+        })
+    }
+
     /// This transcript's thread id, once its first session event has arrived.
     pub fn thread(&self) -> Option<&str> {
         self.thread.as_deref()
