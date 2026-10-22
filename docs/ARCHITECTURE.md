@@ -121,7 +121,16 @@ On the owner's Mac (Apple silicon, same day):
 - A sub-thread's receipt lists the same check twice, because cedia's evidence counts the sub-thread's run of it and the parent's. The fix is in cedia: say which thread ran each check.
 - cedia at the pin compiles with `bun build --compile` in under a second to a 72 MB binary. Its sandbox tests pass (13 of 13), and the compiled binary runs sandboxed bash under `--sandbox on` while a write outside the working directory fails with `Operation not permitted`.
 
-Still to do: keystroke latency (it needs Accessibility permission to send keys), scrolling a 10k-block thread, and the same measurements on the Claude desktop app.
+Performance budgets, first measurement (2026-10-22, release build with `runtime_shaders`, Apple silicon). Each number is taken from outside the app: keys and scroll events are posted as HID events, and the window's pixels are polled with `CGWindowListCreateImage`. That polling caps the resolution at about 14 ms a frame, so these are upper bounds that cannot tell 60 Hz from 120 Hz. ScreenCaptureKit is the next step.
+
+| Budget | cedian | Claude desktop |
+| --- | --- | --- |
+| Cold start, launch to window on screen | median 194 ms; 268 ms with a 10k-block thread loaded | not measured: quitting it would end the session doing the measuring |
+| Keystroke to pixels, editor | median 36 ms, p95 43 ms (30 keys) | not measured: it was in use |
+| Scrolling a 10k-block thread | changed on 87% of captures at about 67 captures/s; longest gap 33 ms | not measured |
+| Idle memory, 10k-block thread open | about 127 MB, under 1% CPU | about 1,020 MB across 14 processes |
+
+The release binary is 117 MB and a clean release build takes about 10 minutes on the Mac. Typing works in the editor and the shell, including Thai: the shell takes text from the platform input handler, as Zed's terminal does, and draws combining marks with their base character.
 
 ## Learned from the Claude desktop app
 

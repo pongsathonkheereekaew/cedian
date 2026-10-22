@@ -1,6 +1,7 @@
 mod agent_pane;
 mod replay;
 mod root_view;
+mod shell_pane;
 mod spike_view;
 
 use std::path::PathBuf;
