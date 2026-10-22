@@ -107,7 +107,7 @@ Decided 2026-10-22 with the owner over mockups (the "cedian UI design" canvas: a
 ```
 
 - **Project tabs**, drawn like Chrome's: one tab per open project (cedia's project, a repository with all its worktrees) on a darker strip in the title bar. A tab is 236 px wide, shrinking when there are many, 34 px tall, with 10 px top corners and curved flares where the active tab joins the toolbar; inactive tabs are transparent with a 1 px divider between them. Each tab has the project's icon and name, a pulsing count of working threads, a badge counting threads that need you (`failed` fill when any failed, else `accent`), and a close ×. `⌘T` or `+` opens a project, `⌘1`–`⌘9` and `⌃Tab` switch, `⌘W` closes a tab without stopping its threads, and tabs drag to reorder.
-- **Toolbar** under the tabs, in the active tab's color like Chrome's address bar: the project folder and its worktrees, a rounded omnibox (`⌘K`) that searches threads in every project or starts a thread when you type a task, and Thread ใหม่, the one primary button.
+- **Toolbar** under the tabs, in the active tab's color like Chrome's address bar: the project folder and its worktrees, a rounded omnibox (`⌘K`) that searches threads in every project or starts a thread when you type a task, and Thread ใหม่, the one primary button. Phase C replaces the omnibox with search at the top of the sidebar and removes Thread ใหม่ (below).
 - Each project keeps its own sidebar, open threads, tools and layout (`desktop.layout`, per project).
 - **Sidebar**: that project's threads in groups, กำลังทำ (working), ต้องดู (failed, interrupted, finished and not reviewed, asking), ปักหมุด (phase C), เสร็จแล้ว (done and stopped, newest first). A row is a state dot, the title, and a line with the state and time, cost, `verified` and `CLI`. A worktree is a branch chip on the thread, never a group. `⌘B` folds the sidebar to a 56 px rail of initials and state dots.
 - **Tool panel and rail** on the right: Editor, Terminal, Review (badge: files waiting), Files, Browser, Git, Thread details, and `+` for more (usage, background tasks, MCP in phase C). A click toggles a tool; open tools stack in rail order with draggable dividers, and follow the selected thread (its worktree, its shell, its review). `⌘⌥1`–`⌘⌥7` toggle tools and `⌘⌥0` hides the panel. Any tool drags out into the main area as a full pane, which is how a long review is read.
@@ -221,6 +221,21 @@ Thai: line height at least 1.6 times the size for running text, no italics (use 
 2. Agent pane: header, tool cards, receipt, composer with the queue (phase B).
 3. Review and the settings window (phase B).
 4. Project tabs, toolbar, sidebar groups, tool panel and rail, badges (phase B for one project, phase C for many).
+5. Phase C, below: the project chat first (it changes what phase B built), then the browser, usage, background tasks, scheduled runs and MCP.
+
+### Phase C
+
+Decided 2026-10-22 with the owner over the canvas's C1–C4 boards.
+
+- **The person does not start threads.** Each project has a project chat (`⌘0`, the first row of the sidebar), a conversation with the project's coordinator: the person asks there, and the coordinator opens threads with `open_thread`, each in its own worktree, and answers with cards for them (title, branch, a progress bar from the thread's todo list as `3/5`, the current step). `@` sends a message straight to one thread. Thread ใหม่ leaves the toolbar, and the omnibox's last row stops starting a thread; both were phase B's and change with this. Opening a thread from the sidebar still shows its agent pane, and the person can write to it there.
+- **Search moves to the top of the thread list**, above the project chat row: the omnibox's filter as an input in the sidebar (`⌘K` focuses it). The toolbar keeps a breadcrumb (folder › thread or แชทโปรเจกต์) and the branch.
+- **Questions** come to the project chat as cards: the thread that asks, the question, its answers as buttons with the recommended one filled. The thread's row shows ถามคุณ, counted in every badge, as before.
+- **Auto-archive when nothing is owed** (owner's choice): a thread is archived by itself once it is done, its receipt is `verified`, and it has no hunk left to review. A thread that failed, was interrupted, is unverified, asks, or has hunks waiting stays in ต้องดู. The coordinator's card for it turns into a finished card (verified, its PR, `เก็บแล้ว`); the sidebar's foot counts `เก็บอัตโนมัติแล้ว n` and opens the archived list, with เอากลับ. The daemon archives it through `cedia threads archive` and marks the change seen.
+- **New tools on the rail**: Outputs (files the project's threads produced, across threads) and Memory (the project's shared memory under `~/.cedia/projects/<slug>/`, read only until cedia offers a write) when the project chat is open; Usage, Background tasks and MCP under `+`.
+- **Browser**: one Chromium per workspace that the daemon starts, shared by the person and the agent; cedia's browser tool drives it through its CDP endpoint, and cedian adds none of its own. The pane has back, reload, the URL (a worktree's preview first), mobile and desktop widths, and จับภาพและวาด, which captures the frame, lets the person mark it, and sends the capture with the marks to the thread. A banner says when the agent is using it, with the sites it may open. An agent browser that ships its own tools (ego-lite, looked at 2026-10-22) is not used: it would be a second browser tool beside cedia's, and it is an app, not something a pane can host.
+- **Usage**, a full pane: 7 วัน, 30 วัน, เดือนนี้ and a project filter in one row; tiles for today, the range, the average per thread and the share verified; cost per day as one series of bars with a hover readout and a table view; and breakdowns by model, by project and the costliest threads. Figures come from the `costUsd` cedia logs.
+- **Background tasks**, a full pane: running sub-threads and bash calls across the project's threads, with the thread each belongs to, the time, and เปิด or หยุด. Under it, scheduled runs (made by asking in the project chat; the daemon wakes the coordinator at the time; each with its next and last run and a switch), and the MCP servers cedia has connected, with their tools and state, configured in cedia's keys of `settings.json`.
+- Needs from cedia: `open_thread` and a coordinator profile, per-project memory and files, a todo list event for progress, and schedules (item 4 below).
 
 ## What cedia needs to add
 
@@ -229,7 +244,7 @@ Done in cedia PR #19: project identity across worktrees, the `desktop` key with 
 1. For the agent pane's header: a running cost on each `assistant` event (today only the result carries `costUsd`, so the header shows finished runs only), the model's context window (the meter shows `76k`, not `76k/200k`), and when a thinking block started and ended (its duration).
 2. `threads delete`, and a `title` event for rename (phase C).
 3. `profiles` and `--profile` (phase C).
-4. `open_thread` for a coordinator, and per-project memory and files (phase C).
+4. `open_thread` for a coordinator, per-project memory and files, a todo list event for a thread's progress, and scheduled runs the daemon can wake (phase C).
 5. `cedia serve` with `host_tools`, `host_call` and `host_result`, once a host tool is needed (phase C).
 5. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
 6. Media references (video frames, original file) in tool results (phase D).
