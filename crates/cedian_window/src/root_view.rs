@@ -145,6 +145,8 @@ pub struct RootView {
     finder: Option<Entity<FileFinder>>,
     /// `⌘⇧F`, while open.
     contents: Option<Entity<ContentSearch>>,
+    /// The blocks moving after a split, close, zoom or park.
+    motion: Option<crate::motion::Motion>,
 }
 
 impl RootView {
@@ -434,6 +436,7 @@ impl RootView {
             editing: None,
             finder: None,
             contents: None,
+            motion: None,
         }
     }
 

@@ -33,18 +33,23 @@ impl Rect {
 
 /// Each leaf's shown block and its rectangle, with `gap` between siblings.
 pub fn leaves(node: &Node, area: Rect, gap: f32) -> Vec<(BlockId, Rect)> {
+    leaf_tabs(node, area, gap)
+        .into_iter()
+        .filter_map(|(tabs, active, rect)| tabs.get(active).map(|id| (*id, rect)))
+        .collect()
+}
+
+/// Each leaf's tabs, its active tab and its rectangle, with `gap` between siblings: what
+/// drawing the leaves on their own, as an animation does, needs.
+pub fn leaf_tabs(node: &Node, area: Rect, gap: f32) -> Vec<(Vec<BlockId>, usize, Rect)> {
     let mut out = Vec::new();
     collect(node, area, gap, &mut out);
     out
 }
 
-fn collect(node: &Node, area: Rect, gap: f32, out: &mut Vec<(BlockId, Rect)>) {
+fn collect(node: &Node, area: Rect, gap: f32, out: &mut Vec<(Vec<BlockId>, usize, Rect)>) {
     match node {
-        Node::Leaf { tabs, active } => {
-            if let Some(id) = tabs.get(*active) {
-                out.push((*id, area));
-            }
-        }
+        Node::Leaf { tabs, active } => out.push((tabs.clone(), *active, area)),
         Node::Split { dir, sizes, kids } => {
             let total: f32 = sizes.iter().sum();
             let gaps = gap * (kids.len().saturating_sub(1)) as f32;

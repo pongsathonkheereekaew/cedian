@@ -15,6 +15,7 @@ mod file_tree;
 mod git_pane;
 mod layout;
 mod line_breaks;
+mod motion;
 mod on_click;
 mod open_in;
 mod overview;

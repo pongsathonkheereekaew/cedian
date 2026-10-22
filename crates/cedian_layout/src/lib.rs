@@ -12,6 +12,6 @@ mod workspace;
 pub use block::{Block, BlockId, Kind};
 pub use fit::fit;
 pub use min_size::min_size;
-pub use rect::{Rect, leaves, neighbour};
+pub use rect::{Rect, leaf_tabs, leaves, neighbour};
 pub use tree::{Dir, MIN_SHARE, Node, Place, Side};
 pub use workspace::{Hidden, Layout, Workspace};
