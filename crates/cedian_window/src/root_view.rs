@@ -42,11 +42,12 @@ use crate::{
     },
     thread_details::{self, Details},
     thread_list::{self, Group},
+    thread_search::{FocusSearch, Found, SearchEvent, ThreadSearch},
     tool_rail::{
         self, DividerDrag, HideTools, ToggleDetails, ToggleEditor, ToggleFiles, ToggleGit,
         ToggleReview, ToggleTerminal, Tool,
     },
-    toolbar::{FocusOmnibox, Found, Toolbar, ToolbarEvent},
+    toolbar::{Toolbar, ToolbarEvent},
     view_mode::ViewMode,
 };
 
@@ -85,6 +86,7 @@ pub struct RootView {
     files: Entity<FileTree>,
     git: Entity<GitPane>,
     toolbar: Entity<Toolbar>,
+    search: Entity<ThreadSearch>,
     review: Entity<ReviewPane>,
     /// The tools open in the panel, in rail order.
     tools: Vec<Tool>,
@@ -193,27 +195,29 @@ impl RootView {
         };
         let active = active.min(tabs.len() - 1);
         let project = project::name_of(&tabs[active]);
-        let toolbar = cx.new(|cx| Toolbar::new(project, window, cx));
+        let toolbar = cx.new(|_| Toolbar::new(project));
         cx.subscribe_in(&toolbar, window, |view, _, event, window, cx| match event {
-            ToolbarEvent::Open { cwd, thread } => {
-                view.open_thread(cwd, thread.clone(), cx);
-                view.composer
-                    .update(cx, |composer, cx| composer.focus(window, cx));
-            }
-            ToolbarEvent::Start(task) => {
-                view.new_thread(cx);
-                view.submit(task.clone(), cx);
-            }
             ToolbarEvent::NewThread => {
                 view.new_thread(cx);
                 view.composer
                     .update(cx, |composer, cx| composer.focus(window, cx));
             }
-            ToolbarEvent::Dismissed => view
+        })
+        .detach();
+        let search = cx.new(|cx| ThreadSearch::new(window, cx));
+        cx.subscribe_in(&search, window, |view, _, event, window, cx| match event {
+            SearchEvent::Open { cwd, thread } => {
+                view.open_thread(cwd, thread.clone(), cx);
+                view.composer
+                    .update(cx, |composer, cx| composer.focus(window, cx));
+            }
+            SearchEvent::Dismissed => view
                 .composer
                 .update(cx, |composer, cx| composer.focus(window, cx)),
         })
         .detach();
+        // The sidebar shows the search's matches in place of its groups while it has text.
+        cx.observe(&search, |_, _, cx| cx.notify()).detach();
         // Thread details reads the transcript.
         cx.observe(&agent, |view, _, cx| {
             if view.tools.contains(&Tool::Details) {
@@ -313,6 +317,7 @@ impl RootView {
             files,
             git,
             toolbar,
+            search,
             review,
             tools: Layout::default().tools,
             waiting_hunks: 0,
@@ -528,7 +533,7 @@ impl RootView {
         let branch = info
             .and_then(|t| t.cwd.as_deref())
             .and_then(crate::agent_pane::branch_of);
-        // The omnibox finds threads of every tab, this one's first.
+        // The search finds threads of every tab, this one's first.
         let found = std::iter::once(project)
             .chain(self.projects.iter().filter(|p| p.cwd != project.cwd))
             .flat_map(|p| {
@@ -544,7 +549,7 @@ impl RootView {
             .update(cx, |files, cx| files.set_root(dir.clone(), cx));
         self.git.update(cx, |git, cx| git.set_dir(dir.clone(), cx));
         let header = Header {
-            title: title.into(),
+            title: title.clone().into(),
             status: project.status,
             cwd: info.and_then(|t| t.cwd.clone()),
             rating: info.and_then(|t| t.thread.rating),
@@ -552,8 +557,10 @@ impl RootView {
         self.agent
             .update(cx, |agent, cx| agent.set_header(header, cx));
         let queue = info.map(queued).unwrap_or_default();
+        let crumb = title.clone().into();
+        self.search.update(cx, |search, cx| search.set(found, cx));
         self.toolbar
-            .update(cx, |toolbar, cx| toolbar.set(name, found, branch, dir, cx));
+            .update(cx, |toolbar, cx| toolbar.set(name, crumb, branch, dir, cx));
         self.composer
             .update(cx, |composer, cx| composer.set_queue(queue, cx));
     }
@@ -1365,6 +1372,7 @@ impl RootView {
             return self.render_folded_threads(cx);
         }
         let archived = self.render_archived(cx);
+        let searching = self.search.read(cx).searching(cx);
         let colors = cx.theme().colors();
         let status_colors = cx.theme().status();
         let now = chrono::Utc::now();
@@ -1540,7 +1548,14 @@ impl RootView {
             .border_color(colors.border)
             .bg(colors.panel_background)
             .text_color(colors.text)
-            .child(list)
+            .child(self.search.clone())
+            .map(|sidebar| {
+                if searching {
+                    sidebar.child(div().flex_grow(1.))
+                } else {
+                    sidebar.child(list)
+                }
+            })
             .child(archived)
             .when_some(self.archived.as_ref(), |sidebar, archived| {
                 sidebar.child(
@@ -1937,9 +1952,13 @@ impl Render for RootView {
                         }
                     }))
             })
-            .on_action(cx.listener(|view, _: &FocusOmnibox, window, cx| {
-                view.toolbar
-                    .update(cx, |toolbar, cx| toolbar.focus(window, cx))
+            .on_action(cx.listener(|view, _: &FocusSearch, window, cx| {
+                // A folded sidebar has no room for the search, so it opens first.
+                if view.layout.sidebar_folded {
+                    view.toggle_sidebar(cx);
+                }
+                view.search
+                    .update(cx, |search, cx| search.focus(window, cx))
             }))
             .font(
                 theme_settings::ThemeSettings::get_global(cx)
