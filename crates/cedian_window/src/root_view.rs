@@ -7,9 +7,9 @@ use cedian_protocol::Line;
 use cedian_wire::{Notice, Request, Status, ThreadInfo};
 use futures::StreamExt as _;
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, Focusable as _, Hsla, InteractiveElement as _,
+    AnyElement, AppContext as _, Context, Entity, Focusable as _, InteractiveElement as _,
     IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Task, Window, div, prelude::FluentBuilder as _, px,
+    Styled as _, Task, Window, WindowHandle, div, prelude::FluentBuilder as _, px,
 };
 use settings::Settings as _;
 use theme::ActiveTheme as _;
@@ -22,7 +22,9 @@ use crate::{
     layout::Layout,
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
+    settings_window::SettingsWindow,
     spike_view::SpikeView,
+    thread_list::{self, Group},
 };
 
 enum Connection {
@@ -59,8 +61,7 @@ pub struct RootView {
     /// The right column shows the review instead of the editor and terminal.
     showing_review: bool,
     settings: Entity<SettingsView>,
-    /// The center column shows the settings instead of the thread.
-    showing_settings: bool,
+    settings_window: Option<WindowHandle<SettingsWindow>>,
     /// What the next window opens with; saved shortly after it changes.
     layout: Layout,
     saving_layout: Option<Task<()>>,
@@ -140,15 +141,11 @@ impl RootView {
         })
         .detach();
         let settings = cx.new(|_| SettingsView::default());
-        cx.subscribe(&settings, |view, _, event, cx| match event {
+        cx.subscribe(&settings, |view, _, event, _| match event {
             SettingsEvent::Set { key, value } => view.request(Request::SetDesktop {
                 key: (*key).to_owned(),
                 value: value.clone(),
             }),
-            SettingsEvent::Close => {
-                view.showing_settings = false;
-                cx.notify();
-            }
         })
         .detach();
         let review = cx.new(ReviewPane::new);
@@ -184,10 +181,16 @@ impl RootView {
             review,
             showing_review: false,
             settings,
-            showing_settings: false,
+            settings_window: None,
             layout: Layout::default(),
             saving_layout: None,
         }
+    }
+
+    fn open_settings(&mut self, cx: &mut Context<Self>) {
+        self.request(Request::Settings);
+        self.settings_window =
+            SettingsWindow::show(self.settings.clone(), self.settings_window.take(), cx);
     }
 
     fn request(&self, request: Request) {
@@ -292,7 +295,7 @@ impl RootView {
                     .find(|t| &t.thread.id == id)
                     .map_or(id.as_str(), |t| t.thread.title.as_str());
                 match self.status {
-                    Some(status) => format!("{name} · {}", status_word(status)),
+                    Some(status) => format!("{name} · {}", thread_list::state_word(status)),
                     None => name.to_owned(),
                 }
             }
@@ -546,36 +549,112 @@ impl RootView {
             Connection::Connected { cedia } => cedia.clone(),
             Connection::Failed(_) => "daemon unreachable".into(),
         };
+        let now = chrono::Utc::now();
         let mut list = div()
             .id("threads")
             .flex()
             .flex_col()
             .flex_grow(1.)
+            .px_2()
             .overflow_y_scroll();
-        for info in &self.threads {
-            let id = info.thread.id.clone();
-            let selected = self.current.as_ref() == Some(&id);
-            let color = status_color(info.status, status_colors, colors.text_muted);
+        for group in Group::ALL {
+            let members: Vec<&ThreadInfo> = self
+                .threads
+                .iter()
+                .filter(|t| Group::of(t) == group)
+                .collect();
+            if members.is_empty() {
+                continue;
+            }
+            let counted = members.iter().filter(|t| t.needs_you).count();
+            let failed = members
+                .iter()
+                .any(|t| t.needs_you && t.status == Status::Failed);
             list = list.child(
                 div()
-                    .id(SharedString::from(id.clone()))
+                    .flex()
+                    .items_center()
+                    .gap_2()
                     .px_2()
-                    .py_1()
-                    .cursor_pointer()
-                    .when(selected, |row| row.bg(colors.element_selected))
-                    .hover(|row| row.bg(colors.element_hover))
-                    .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
-                    .child(div().text_sm().child(info.thread.title.clone()))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(color)
-                            .child(status_word(info.status)),
-                    ),
+                    .pt_3()
+                    .pb_1()
+                    .text_size(px(11.))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(colors.text_muted)
+                    .child(group.label())
+                    .when(counted > 0, |header| {
+                        header.child(thread_list::badge(counted, failed, cx))
+                    }),
             );
+            for info in members {
+                let id = info.thread.id.clone();
+                let selected = self.current.as_ref() == Some(&id);
+                let word = thread_list::state_word(info.status);
+                let when = match info.status {
+                    Status::Working => String::new(),
+                    _ => thread_list::since(&info.thread.updated_at, now),
+                };
+                let meta = if when.is_empty() {
+                    word.to_owned()
+                } else {
+                    format!("{word} · {when}")
+                };
+                list = list.child(
+                    div()
+                        .id(SharedString::from(id.clone()))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .px_2()
+                        .py(px(6.))
+                        .rounded(px(8.))
+                        .cursor_pointer()
+                        .when(selected, |row| row.bg(colors.element_selected))
+                        .hover(|row| row.bg(colors.element_hover))
+                        .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
+                        .child(thread_list::dot(info.status, cx))
+                        .child(
+                            div()
+                                .flex_grow(1.)
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .text_size(px(13.))
+                                        .line_height(px(20.))
+                                        .truncate()
+                                        .when(info.needs_you, |title| {
+                                            title.font_weight(gpui::FontWeight::SEMIBOLD)
+                                        })
+                                        .child(info.thread.title.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .line_height(px(18.))
+                                        .text_color(if info.status == Status::Asking {
+                                            colors.text_accent
+                                        } else {
+                                            colors.text_muted
+                                        })
+                                        .child(meta),
+                                ),
+                        )
+                        .when(info.needs_you, |row| {
+                            row.child(div().flex_none().size(px(6.)).rounded_full().bg(
+                                if info.status == Status::Failed {
+                                    status_colors.error
+                                } else {
+                                    colors.text_accent
+                                },
+                            ))
+                        }),
+                );
+            }
         }
         div()
-            .w(px(220.))
+            .w(px(264.))
             .flex_none()
             .h_full()
             .flex()
@@ -622,11 +701,7 @@ impl RootView {
                             .id("open-settings")
                             .cursor_pointer()
                             .text_color(colors.text_accent)
-                            .on_click(cx.listener(|view, _, _, cx| {
-                                view.showing_settings = !view.showing_settings;
-                                view.request(Request::Settings);
-                                cx.notify();
-                            }))
+                            .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx)))
                             .child("Settings"),
                     ),
             )
@@ -648,38 +723,28 @@ fn saved_bounds(window: &Window) -> gpui::WindowBounds {
     }
 }
 
-fn status_word(status: Status) -> &'static str {
-    match status {
-        Status::Working => "working",
-        Status::Done => "done",
-        Status::Failed => "failed",
-        Status::Stopped => "stopped",
-        Status::Interrupted => "interrupted",
-        Status::Asking => "● asking you",
-    }
-}
-
-fn status_color(status: Status, colors: &theme::StatusColors, idle: Hsla) -> Hsla {
-    match status {
-        Status::Working => colors.info,
-        Status::Done => colors.success,
-        Status::Failed => colors.error,
-        Status::Interrupted | Status::Asking => colors.warning,
-        Status::Stopped => idle,
-    }
-}
-
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Text sizes are in rems, so the interface size setting scales all of it, as in Zed.
         window.set_rem_size(theme_settings::ThemeSettings::get_global(cx).ui_font_size(cx));
+        // The window's title carries the badge: how many threads need the person.
+        let project = self
+            .cwd
+            .file_name()
+            .map_or_else(|| "cedian".into(), |name| name.to_string_lossy());
+        let waiting = thread_list::badge_count(&self.threads);
+        window.set_window_title(&if waiting > 0 {
+            format!("{project} ({waiting})")
+        } else {
+            project.into_owned()
+        });
         let live = !matches!(self.connection, Connection::Replay);
         let threads = live.then(|| self.render_threads(cx));
         let question = self
             .current
             .as_ref()
             .and_then(|id| self.threads.iter().find(|t| &t.thread.id == id))
-            .filter(|t| t.status == Status::Asking && !self.showing_settings)
+            .filter(|t| t.status == Status::Asking)
             .and_then(|t| t.thread.question.clone())
             .map(|question| self.render_question(question, cx));
         let colors = cx.theme().colors();
@@ -689,11 +754,13 @@ impl Render for RootView {
             _ => None,
         };
         let notice = failure.or_else(|| self.error.clone());
-        let working = self.status == Some(Status::Working) && !self.showing_settings;
-        let live = live && !self.showing_settings;
+        let working = self.status == Some(Status::Working);
         div()
             .size_full()
             .flex()
+            .on_action(
+                cx.listener(|view, _: &zed_actions::OpenSettings, _, cx| view.open_settings(cx)),
+            )
             .font(
                 theme_settings::ThemeSettings::get_global(cx)
                     .ui_font
@@ -710,13 +777,7 @@ impl Render for RootView {
                     .flex_col()
                     .border_r_1()
                     .border_color(colors.border)
-                    .child(div().flex_grow(1.).min_h_0().map(|body| {
-                        if self.showing_settings {
-                            body.child(self.settings.clone())
-                        } else {
-                            body.child(self.agent.clone())
-                        }
-                    }))
+                    .child(div().flex_grow(1.).min_h_0().child(self.agent.clone()))
                     .when_some(notice, |column, notice| {
                         column.child(
                             div()

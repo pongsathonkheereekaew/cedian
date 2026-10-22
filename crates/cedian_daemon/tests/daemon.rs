@@ -251,6 +251,41 @@ fn a_thread_made_outside_the_daemon_reaches_the_list() {
 }
 
 #[test]
+fn a_failed_thread_needs_you_until_a_window_opens_it() {
+    let harness = start("edit-and-check");
+    std::fs::create_dir_all(&harness.threads).expect("threads dir");
+    std::fs::write(
+        harness.threads.join("t-0000000c.jsonl"),
+        "{\"at\":\"2026-10-22T03:00:00.000Z\",\"kind\":\"open\",\"title\":\"x\",\"task\":\"x\"}\n\
+         {\"at\":\"2026-10-22T03:01:00.000Z\",\"kind\":\"state\",\"state\":\"failed\"}\n",
+    )
+    .expect("thread");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    match window.next() {
+        Notice::Threads { threads, .. } => assert!(threads[0].needs_you),
+        other => panic!("{other:?}"),
+    }
+    window.ask(Request::Open {
+        cwd: harness.cwd.clone(),
+        thread: "t-0000000c".into(),
+    });
+    window.until(|n| matches!(n, Notice::Threads { threads, .. } if !threads[0].needs_you));
+
+    // Seen stays seen for the next window.
+    let mut other = Window::connect(&harness);
+    other.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    match other.next() {
+        Notice::Threads { threads, .. } => assert!(!threads[0].needs_you),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
 fn a_socket_path_too_long_fails_with_the_reason() {
     let config = Config {
         socket: PathBuf::from(format!("/tmp/{}/daemon.sock", "x".repeat(120))),

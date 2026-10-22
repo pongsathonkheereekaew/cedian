@@ -12,6 +12,7 @@ pub mod launch_agent;
 mod ledger;
 mod review;
 mod run;
+mod seen;
 mod server;
 mod thread_watch;
 mod worktree;

@@ -21,6 +21,7 @@ cedian_agent = { path = "../cedian_agent" }
 cedian_index = { path = "../cedian_index" }
 cedian_protocol = { path = "../cedian_protocol" }
 cedian_wire = { path = "../cedian_wire" }
+chrono.workspace = true
 collections.workspace = true
 editor.workspace = true
 futures.workspace = true

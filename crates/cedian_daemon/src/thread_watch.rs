@@ -15,9 +15,9 @@ const POLL: Duration = Duration::from_secs(1);
 
 /// Each project's threads directory as last seen: its files' names, sizes and times.
 #[derive(Default)]
-pub struct Seen(HashMap<String, u64>);
+pub struct Fingerprints(HashMap<String, u64>);
 
-impl Seen {
+impl Fingerprints {
     /// Records `fingerprint` for `slug`; true when it differs from what was there before.
     pub fn changed(&mut self, slug: &str, fingerprint: u64) -> bool {
         self.0.insert(slug.to_string(), fingerprint) != Some(fingerprint)
