@@ -24,6 +24,9 @@ pub enum Request {
         cwd: PathBuf,
         text: String,
         thread: Option<String>,
+        /// For a new thread: run it in a new git worktree of the project.
+        #[serde(default)]
+        worktree: bool,
     },
     /// A message the running thread sees at its next turn.
     Send {
@@ -48,6 +51,11 @@ pub enum Notice {
     Threads {
         cwd: PathBuf,
         threads: Vec<ThreadInfo>,
+    },
+    /// A step before a new thread's run starts, such as creating its worktree.
+    Preparing {
+        cwd: PathBuf,
+        step: String,
     },
     /// A prompt with no thread got one.
     Started {
@@ -101,12 +109,13 @@ mod tests {
             cwd: "/repo".into(),
             text: "fix it".into(),
             thread: None,
+            worktree: false,
         };
         let mut buffer = Vec::new();
         write_message(&mut buffer, &request).expect("write");
         assert_eq!(
             String::from_utf8_lossy(&buffer),
-            "{\"op\":\"prompt\",\"cwd\":\"/repo\",\"text\":\"fix it\",\"thread\":null}\n"
+            "{\"op\":\"prompt\",\"cwd\":\"/repo\",\"text\":\"fix it\",\"thread\":null,\"worktree\":false}\n"
         );
         let back: Request = read_message(&mut buffer.as_slice())
             .expect("read")

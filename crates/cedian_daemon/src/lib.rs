@@ -11,6 +11,7 @@ pub mod launch_agent;
 mod ledger;
 mod run;
 mod server;
+mod worktree;
 
 pub use cedia::Cedia;
 pub use environment::login_environment;

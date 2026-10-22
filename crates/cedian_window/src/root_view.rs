@@ -40,6 +40,10 @@ pub struct RootView {
     status: Option<Status>,
     /// A prompt went out with no thread, and the daemon has not named the thread yet.
     awaiting_thread: bool,
+    /// A new thread runs in its own git worktree.
+    use_worktree: bool,
+    /// What the daemon is doing before the new thread's run starts.
+    preparing: Option<String>,
     /// Opens the most recent thread when the first list arrives.
     first_list: bool,
     error: Option<SharedString>,
@@ -121,6 +125,8 @@ impl RootView {
             current: None,
             status: None,
             awaiting_thread: false,
+            use_worktree: true,
+            preparing: None,
             first_list: true,
             error: None,
             agent,
@@ -168,8 +174,14 @@ impl RootView {
                 self.retitle(cx);
             }
             Notice::Threads { .. } => {}
+            Notice::Preparing { cwd, step } if cwd == self.cwd && self.awaiting_thread => {
+                self.preparing = Some(step);
+                self.retitle(cx);
+            }
+            Notice::Preparing { .. } => {}
             Notice::Started { cwd, thread } if cwd == self.cwd && self.awaiting_thread => {
                 self.awaiting_thread = false;
+                self.preparing = None;
                 self.current = Some(thread);
                 self.status = Some(Status::Working);
                 self.retitle(cx);
@@ -209,7 +221,10 @@ impl RootView {
                     None => name.to_owned(),
                 }
             }
-            None if self.awaiting_thread => "new thread · starting".to_owned(),
+            None if self.awaiting_thread => match &self.preparing {
+                Some(step) => format!("new thread · {step}"),
+                None => "new thread · starting".to_owned(),
+            },
             None => "new thread".to_owned(),
         };
         self.agent
@@ -224,6 +239,7 @@ impl RootView {
             self.request(Request::Close { thread: old });
         }
         self.awaiting_thread = false;
+        self.preparing = None;
         self.status = None;
         self.agent
             .update(cx, |agent, cx| agent.reset(thread.clone(), cx));
@@ -240,6 +256,7 @@ impl RootView {
             self.request(Request::Close { thread: old });
         }
         self.awaiting_thread = false;
+        self.preparing = None;
         self.status = None;
         self.agent
             .update(cx, |agent, cx| agent.reset("new thread", cx));
@@ -264,6 +281,7 @@ impl RootView {
             cwd: self.cwd.clone(),
             text,
             thread: self.current.clone(),
+            worktree: self.current.is_none() && self.use_worktree,
         });
         self.retitle(cx);
         cx.notify();
@@ -425,6 +443,27 @@ impl Render for RootView {
                                 .text_color(colors.text_accent)
                                 .on_click(cx.listener(|view, _, _, cx| view.stop(cx)))
                                 .child("Stop the run"),
+                        )
+                    })
+                    .when(live && self.current.is_none(), |column| {
+                        let word = if self.use_worktree {
+                            "In a new worktree: on"
+                        } else {
+                            "In a new worktree: off"
+                        };
+                        column.child(
+                            div()
+                                .id("worktree")
+                                .px_3()
+                                .py_1()
+                                .text_xs()
+                                .cursor_pointer()
+                                .text_color(colors.text_muted)
+                                .on_click(cx.listener(|view, _, _, cx| {
+                                    view.use_worktree = !view.use_worktree;
+                                    cx.notify();
+                                }))
+                                .child(word),
                         )
                     })
                     .when(live, |column| column.child(self.composer.clone())),

@@ -106,6 +106,7 @@ fn a_new_daemon_follows_a_run_the_old_one_started() {
             cwd: env.cwd.clone(),
             text: "make f.txt say good".into(),
             thread: None,
+            worktree: false,
         },
     )
     .expect("prompt");

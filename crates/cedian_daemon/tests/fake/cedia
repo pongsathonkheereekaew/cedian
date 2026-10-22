@@ -20,6 +20,8 @@ if [[ "${1:-}" == "threads" ]]; then
 fi
 
 mkdir -p "$FAKE_THREADS" "$FAKE_SESSIONS"
+# Where the daemon ran it, for the worktree test.
+pwd >"$FAKE_THREADS/../cwd"
 for f in "$FAKE_FIXTURE"/threads/*.jsonl; do
   # The last line is the final state, written when the run ends.
   head -n -1 "$f" >"$FAKE_THREADS/$(basename "$f")"
