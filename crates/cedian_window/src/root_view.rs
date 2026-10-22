@@ -8,8 +8,9 @@ use cedian_wire::{Notice, Request, Status, ThreadInfo};
 use futures::StreamExt as _;
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, Focusable as _, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Task, Window, WindowHandle, div, prelude::FluentBuilder as _, px,
+    IntoElement, MouseButton, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Task, Window, WindowControlArea, WindowHandle,
+    div, prelude::FluentBuilder as _, px,
 };
 use settings::Settings as _;
 use theme::ActiveTheme as _;
@@ -19,11 +20,13 @@ use crate::{
     composer::{Composer, ComposerEvent},
     daemon_client::DaemonClient,
     desktop::Desktop,
+    dock,
     layout::Layout,
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
     settings_window::SettingsWindow,
     spike_view::SpikeView,
+    tab_strip::{self, ProjectTab},
     thread_list::{self, Group},
 };
 
@@ -65,6 +68,10 @@ pub struct RootView {
     /// What the next window opens with; saved shortly after it changes.
     layout: Layout,
     saving_layout: Option<Task<()>>,
+    /// A press on the tab strip that moves the window once the mouse moves.
+    should_move: bool,
+    /// The count last put on the Dock icon.
+    dock_badge: Option<usize>,
 }
 
 impl RootView {
@@ -184,6 +191,8 @@ impl RootView {
             settings_window: None,
             layout: Layout::default(),
             saving_layout: None,
+            should_move: false,
+            dock_badge: None,
         }
     }
 
@@ -736,8 +745,12 @@ impl Render for RootView {
         window.set_window_title(&if waiting > 0 {
             format!("{project} ({waiting})")
         } else {
-            project.into_owned()
+            project.to_string()
         });
+        if self.dock_badge != Some(waiting) {
+            self.dock_badge = Some(waiting);
+            dock::set_badge(waiting);
+        }
         let live = !matches!(self.connection, Connection::Replay);
         let threads = live.then(|| self.render_threads(cx));
         let question = self
@@ -755,18 +768,12 @@ impl Render for RootView {
         };
         let notice = failure.or_else(|| self.error.clone());
         let working = self.status == Some(Status::Working);
-        div()
-            .size_full()
+        let background = colors.background;
+        let body = div()
+            .flex_grow(1.)
+            .min_h_0()
+            .w_full()
             .flex()
-            .on_action(
-                cx.listener(|view, _: &zed_actions::OpenSettings, _, cx| view.open_settings(cx)),
-            )
-            .font(
-                theme_settings::ThemeSettings::get_global(cx)
-                    .ui_font
-                    .clone(),
-            )
-            .bg(colors.background)
             .children(threads)
             .child(
                 div()
@@ -825,6 +832,56 @@ impl Render for RootView {
                     })
                     .when(live, |column| column.child(self.composer.clone())),
             )
-            .child(self.render_tools(cx))
+            .child(self.render_tools(cx));
+        let tab = ProjectTab {
+            name: project.into_owned().into(),
+            working: self
+                .threads
+                .iter()
+                .filter(|t| t.status == Status::Working)
+                .count(),
+            waiting,
+            failed: self
+                .threads
+                .iter()
+                .any(|t| t.needs_you && t.status == Status::Failed),
+        };
+        let strip = tab_strip::strip(&tab, cx)
+            .id("tab-strip")
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|view, _, _, _| view.should_move = true),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|view, _, _, _| view.should_move = false),
+            )
+            .on_mouse_down_out(cx.listener(|view, _, _, _| view.should_move = false))
+            .on_mouse_move(cx.listener(|view, _, window, _| {
+                if std::mem::take(&mut view.should_move) {
+                    window.start_window_move();
+                }
+            }))
+            .on_click(|event, window, _| {
+                if event.click_count() == 2 {
+                    window.titlebar_double_click();
+                }
+            });
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .on_action(
+                cx.listener(|view, _: &zed_actions::OpenSettings, _, cx| view.open_settings(cx)),
+            )
+            .font(
+                theme_settings::ThemeSettings::get_global(cx)
+                    .ui_font
+                    .clone(),
+            )
+            .bg(background)
+            .child(strip)
+            .child(body)
     }
 }

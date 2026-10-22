@@ -39,3 +39,8 @@ theme.workspace = true
 theme_settings.workspace = true
 util.workspace = true
 zed_actions.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true

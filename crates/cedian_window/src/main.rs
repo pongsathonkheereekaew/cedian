@@ -3,6 +3,7 @@ mod assets;
 mod composer;
 mod daemon_client;
 mod desktop;
+mod dock;
 mod layout;
 mod line_breaks;
 mod replay;
@@ -12,6 +13,7 @@ mod settings_view;
 mod settings_window;
 mod shell_pane;
 mod spike_view;
+mod tab_strip;
 mod thread_list;
 mod tokens;
 
@@ -19,7 +21,8 @@ use std::path::PathBuf;
 
 use anyhow::Context as _;
 use gpui::{
-    App, AppContext as _, Bounds, KeyBinding, Menu, MenuItem, WindowBounds, WindowOptions, px, size,
+    App, AppContext as _, Bounds, KeyBinding, Menu, MenuItem, TitlebarOptions, WindowBounds,
+    WindowOptions, point, px, size,
 };
 use settings::KeymapFile;
 
@@ -145,6 +148,13 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     let options = WindowOptions {
         window_bounds: Some(bounds),
         window_min_size: Some(size(px(1024.), px(640.))),
+        // The project tabs are drawn in the title bar, under the traffic lights (macOS; Linux
+        // keeps its window manager's title bar).
+        titlebar: Some(TitlebarOptions {
+            title: None,
+            appears_transparent: true,
+            traffic_light_position: Some(point(px(14.), px(14.))),
+        }),
         ..Default::default()
     };
     cx.open_window(options, |window, cx| match mode {
