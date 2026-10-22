@@ -694,6 +694,11 @@ impl Render for RootView {
         div()
             .size_full()
             .flex()
+            .font(
+                theme_settings::ThemeSettings::get_global(cx)
+                    .ui_font
+                    .clone(),
+            )
             .bg(colors.background)
             .children(threads)
             .child(

@@ -8,6 +8,8 @@ use gpui::{
 };
 use theme::ActiveTheme as _;
 
+use crate::tokens;
+
 /// Lines of tool output shown under a call before it is cut.
 const OUTPUT_LINES: usize = 6;
 
@@ -56,6 +58,7 @@ impl AgentPane {
     fn render_block(&self, index: usize, cx: &App) -> AnyElement {
         let colors = cx.theme().colors();
         let status = cx.theme().status();
+        let tokens = tokens::Tokens::of(cx);
         let Some(block) = self.transcript.blocks().get(index) else {
             return div().into_any_element();
         };
@@ -67,16 +70,22 @@ impl AgentPane {
             Block::User { text } => div()
                 .p_2()
                 .rounded_md()
-                .bg(colors.element_background)
+                .bg(tokens.user_bubble)
                 .child(text.clone()),
-            Block::Text { text, .. } => div().child(text.clone()),
+            Block::Text { text, .. } => div().font(tokens::answer_font()).child(text.clone()),
             Block::Thinking { text, .. } => div()
                 .italic()
                 .text_color(colors.text_muted)
                 .child(text.clone()),
             Block::Tool(call) => {
                 let color = tool_color(call, status.success, status.error, colors.text_muted);
-                tool_block(call, color, colors.text_muted, colors.border_variant)
+                tool_block(
+                    call,
+                    color,
+                    colors.text_muted,
+                    colors.border_variant,
+                    tokens.code,
+                )
             }
             Block::Result {
                 subtype,
@@ -172,7 +181,7 @@ fn tool_color(call: &ToolCall, ok: Hsla, bad: Hsla, idle: Hsla) -> Hsla {
     }
 }
 
-fn tool_block(call: &ToolCall, color: Hsla, muted: Hsla, border: Hsla) -> gpui::Div {
+fn tool_block(call: &ToolCall, color: Hsla, muted: Hsla, border: Hsla, code: Hsla) -> gpui::Div {
     let mut block = div()
         .pl_2()
         .border_l_2()
@@ -202,7 +211,10 @@ fn tool_block(call: &ToolCall, color: Hsla, muted: Hsla, border: Hsla) -> gpui::
         block = block.child(
             div()
                 .text_xs()
-                .font_family("Lilex")
+                .font(tokens::code_font())
+                .bg(code)
+                .px_1()
+                .rounded_sm()
                 .text_color(muted)
                 .children(shown.into_iter().map(|line| div().child(line.to_owned())))
                 .when(more > 0, |d| d.child(format!("… {more} more lines"))),
