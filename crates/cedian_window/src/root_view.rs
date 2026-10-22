@@ -4,6 +4,7 @@
 mod blocks;
 mod chat;
 mod run_choices;
+mod tear_off;
 #[cfg(test)]
 mod window_tests;
 
@@ -18,10 +19,10 @@ use cedian_wire::{HunkState, Notice, Request, Status, ThreadInfo};
 use editor::Editor;
 use futures::StreamExt as _;
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, EntityInputHandler as _, InteractiveElement as _,
-    IntoElement, MouseButton, ParentElement as _, Render, SharedString,
+    AnyElement, AppContext as _, Context, Entity, EntityInputHandler as _, Focusable as _,
+    InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Task, Window, WindowControlArea, WindowHandle,
-    div, prelude::FluentBuilder as _, px, svg,
+    deferred, div, prelude::FluentBuilder as _, px, svg,
 };
 use settings::Settings as _;
 use theme::ActiveTheme as _;
@@ -30,9 +31,11 @@ use crate::type_scale::TypeScale as _;
 use crate::{
     agent_pane::{AgentEvent, AgentPane, Header, StopRun},
     composer::{Composer, ComposerEvent, Queued},
+    content_search::{ContentEvent, ContentSearch, SearchContents},
     daemon_client::DaemonClient,
     desktop::Desktop,
     dock, export,
+    file_finder::{FileFinder, FindFile, FinderEvent},
     file_tree::{FileTree, FileTreeEvent},
     git_pane::{GitEvent, GitPane},
     layout::Layout,
@@ -139,6 +142,17 @@ pub struct RootView {
     can_fork: bool,
     /// The sent message the composer holds to send again: its thread and the run it started.
     editing: Option<(String, String)>,
+    /// `⌘P`, while open.
+    finder: Option<Entity<FileFinder>>,
+    /// `⌘⇧F`, while open.
+    contents: Option<Entity<ContentSearch>>,
+    /// The blocks moving after a split, close, zoom or park.
+    motion: Option<crate::motion::Motion>,
+    /// A window a block was dragged out into: its tree is its own and is not saved.
+    torn: bool,
+    /// The block being dragged and where the mouse last was, to open it in a new window when
+    /// it is let go outside this one.
+    dragging: Option<(BlockId, gpui::Point<gpui::Pixels>)>,
 }
 
 impl RootView {
@@ -331,6 +345,21 @@ impl RootView {
             FileTreeEvent::Open(path) => view.show_file(path.clone(), window, cx),
         })
         .detach();
+        // `@` in the composers lists the same files.
+        cx.observe(&files, |view, files, cx| {
+            let (root, count) = {
+                let tree = files.read(cx);
+                (tree.root().to_owned(), tree.files().len())
+            };
+            if view.composer.read(cx).has_files(&root, count) {
+                return;
+            }
+            let list = files.read(cx).files().to_vec();
+            for composer in [&view.composer, &view.chat_composer] {
+                composer.update(cx, |composer, _| composer.set_files(&root, &list));
+            }
+        })
+        .detach();
         let git = cx.new(|_| GitPane::default());
         cx.subscribe_in(&git, window, |view, _, event, window, cx| match event {
             GitEvent::Show { name, text } => view.show_text(name.into(), text.clone(), window, cx),
@@ -411,6 +440,11 @@ impl RootView {
             dock_badge: None,
             can_fork: false,
             editing: None,
+            finder: None,
+            contents: None,
+            motion: None,
+            torn: false,
+            dragging: None,
         }
     }
 
@@ -956,7 +990,7 @@ impl RootView {
     /// Writes the layout through the daemon half a second after the last change, so dragging
     /// the window writes the file once.
     fn save_layout(&mut self, cx: &mut Context<Self>) {
-        if matches!(self.connection, Connection::Replay) {
+        if matches!(self.connection, Connection::Replay) || self.torn {
             return;
         }
         self.saving_layout = Some(cx.spawn(async move |this, cx| {
@@ -1011,6 +1045,74 @@ impl RootView {
 
     /// Shows `path` in the Editor, read only (saving waits for the editor to open files), and
     /// opens the Editor when it is closed.
+    /// Opens `⌘P` on the open thread's directory, or closes it when it is open.
+    fn find_file(&mut self, _: &FindFile, window: &mut Window, cx: &mut Context<Self>) {
+        if self.finder.is_some() {
+            self.close_finder(window, cx);
+            return;
+        }
+        self.contents = None;
+        let (root, files) = {
+            let tree = self.files.read(cx);
+            (tree.root().to_owned(), tree.files().to_vec())
+        };
+        if files.is_empty() {
+            self.files.update(cx, |tree, cx| tree.refresh(cx));
+        }
+        let finder = cx.new(|cx| FileFinder::new(root, &files, window, cx));
+        cx.subscribe_in(&finder, window, |view, _, event, window, cx| match event {
+            FinderEvent::Open(path) => {
+                let path = path.clone();
+                view.close_finder(window, cx);
+                view.show_file(path, window, cx);
+            }
+            FinderEvent::Closed => view.close_finder(window, cx),
+        })
+        .detach();
+        window.focus(&finder.focus_handle(cx), cx);
+        self.finder = Some(finder);
+        cx.notify();
+    }
+
+    /// Opens `⌘⇧F` on the open thread's directory, or closes it when it is open.
+    fn search_contents(&mut self, _: &SearchContents, window: &mut Window, cx: &mut Context<Self>) {
+        if self.contents.is_some() {
+            self.close_finder(window, cx);
+            return;
+        }
+        self.finder = None;
+        let (root, files) = {
+            let tree = self.files.read(cx);
+            (tree.root().to_owned(), tree.files().to_vec())
+        };
+        let search = cx.new(|cx| ContentSearch::new(root, files, window, cx));
+        cx.subscribe_in(&search, window, |view, _, event, window, cx| match event {
+            ContentEvent::Open { path, line } => {
+                let (path, line) = (path.clone(), *line);
+                view.close_finder(window, cx);
+                view.show_file(path, window, cx);
+                view.editor.update(cx, |editor, cx| {
+                    let row = line.saturating_sub(1);
+                    editor.go_to_singleton_buffer_point(text::Point::new(row, 0), window, cx);
+                });
+            }
+            ContentEvent::Closed => view.close_finder(window, cx),
+        })
+        .detach();
+        window.focus(&search.focus_handle(cx), cx);
+        self.contents = Some(search);
+        cx.notify();
+    }
+
+    /// Closes `⌘P` or `⌘⇧F`, whichever is open.
+    fn close_finder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let open = self.finder.take().is_some() | self.contents.take().is_some();
+        if open {
+            self.focus_input(window, cx);
+            cx.notify();
+        }
+    }
+
     fn show_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         let text = match std::fs::read(&path) {
             Ok(bytes) if bytes.len() > MAX_SHOWN => {
@@ -1953,7 +2055,9 @@ impl Render for RootView {
             .on_action(
                 cx.listener(|view, _: &zed_actions::OpenSettings, _, cx| view.open_settings(cx)),
             )
-            .on_action(cx.listener(|view, _: &StopRun, _, cx| view.stop(cx)));
+            .on_action(cx.listener(|view, _: &StopRun, _, cx| view.stop(cx)))
+            .on_action(cx.listener(Self::find_file))
+            .on_action(cx.listener(Self::search_contents));
         let root = if live {
             self.block_actions(root, cx)
                 .on_action(cx.listener(|view, _: &NewTab, _, cx| view.pick_project(cx)))
@@ -1992,5 +2096,33 @@ impl Render for RootView {
         .child(strip)
         .child(body)
         .children(overview)
+        .children(
+            self.finder
+                .as_ref()
+                .map(|f| f.clone().into_any_element())
+                .or(self.contents.as_ref().map(|c| c.clone().into_any_element()))
+                .map(|finder| {
+                    // Over everything, a little below the tabs, as Zed's file finder.
+                    deferred(
+                        div()
+                            .absolute()
+                            .top(px(64.))
+                            .left_0()
+                            .right_0()
+                            .px_4()
+                            .flex()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .occlude()
+                                    .on_mouse_down_out(cx.listener(|view, _, window, cx| {
+                                        view.close_finder(window, cx)
+                                    }))
+                                    .child(finder),
+                            ),
+                    )
+                    .with_priority(2)
+                }),
+        )
     }
 }

@@ -57,6 +57,15 @@ impl FileTree {
         }
     }
 
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Every file under the root, relative to it, sorted; empty until the first listing ends.
+    pub fn files(&self) -> &[PathBuf] {
+        &self.files
+    }
+
     /// Lists the root again, keeping what was open.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         if self.root.as_os_str().is_empty() {

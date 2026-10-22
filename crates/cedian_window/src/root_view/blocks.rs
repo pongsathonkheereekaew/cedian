@@ -4,7 +4,7 @@
 //! `Workspace`, which the daemon keeps in `desktop.layout`.
 
 use cedian_layout::{
-    BlockId, Dir, Kind, Node, Rect, Side, Workspace, fit, leaves, min_size, neighbour,
+    BlockId, Dir, Kind, Node, Rect, Side, Workspace, fit, leaf_tabs, leaves, min_size, neighbour,
 };
 use gpui::{
     AnyElement, AppContext as _, Bounds, Context, DragMoveEvent, Focusable as _,
@@ -19,6 +19,7 @@ use crate::{
     block_drag::{self, BlockDrag, SplitDrag},
     block_header::{self, HeaderActions, HeaderSpec, Tab},
     block_keys,
+    motion::Motion,
     on_click::OnClick,
     overview::{self, OverviewActions},
     popup_menu::{self, Row},
@@ -75,12 +76,18 @@ impl RootView {
     pub(super) fn change(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Workspace, Rect)) {
         let area = self.area();
         let before = self.ws().clone();
+        let rects = self.shown_rects();
         let project = self.project_mut();
         f(&mut project.workspace, area);
+        // Switching layouts is a new scene, not a move.
+        let moved = project.workspace.current == before.current;
         if project.workspace != before {
             project.undo.push(before);
             if project.undo.len() > UNDO_DEPTH {
                 project.undo.remove(0);
+            }
+            if moved {
+                self.motion = Motion::from(rects);
             }
             self.remember_blocks(cx);
         }
@@ -292,6 +299,7 @@ impl RootView {
 
     pub(super) fn toggle_zoom(&mut self, id: BlockId, cx: &mut Context<Self>) {
         self.block_menu = None;
+        self.motion = Motion::from(self.shown_rects());
         self.zoomed = if self.zoomed == Some(id) {
             None
         } else {
@@ -313,6 +321,48 @@ impl RootView {
         let compact = width < 380.;
         self.review
             .update(cx, |pane, cx| pane.set_width(wide, compact, cx));
+    }
+
+    /// Where each block is drawn now, for a motion to start from.
+    pub(super) fn shown_rects(&self) -> Vec<(BlockId, Rect)> {
+        if let Some(id) = self.zoomed {
+            return vec![(id, self.area())];
+        }
+        self.drawn()
+            .map(|tree| leaves(&tree, self.area(), BLOCK_GAP))
+            .unwrap_or_default()
+    }
+
+    /// The blocks drawn on their own while a motion runs: each leaf at its place between
+    /// where it was and where it goes, a new one fading in.
+    fn render_motion(&mut self, p: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let leaves = match (self.zoomed, self.drawn()) {
+            (Some(id), _) => vec![(vec![id], 0, self.area())],
+            (None, Some(tree)) => leaf_tabs(&tree, self.area(), BLOCK_GAP),
+            (None, None) => Vec::new(),
+        };
+        let mut scene = div().relative().size_full();
+        for (tabs, active, to) in leaves {
+            let Some(&id) = tabs.get(active).or(tabs.first()) else {
+                continue;
+            };
+            let (at, opacity) = match &self.motion {
+                Some(motion) => motion.at(id, to, p),
+                None => (to, 1.),
+            };
+            scene = scene.child(
+                div()
+                    .absolute()
+                    .left(px(at.x))
+                    .top(px(at.y))
+                    .w(px(at.w))
+                    .h(px(at.h))
+                    .flex()
+                    .opacity(opacity)
+                    .child(self.render_leaf(&tabs, active, &[], window, cx)),
+            );
+        }
+        scene.into_any_element()
     }
 
     pub(super) fn block_rect(&self, id: BlockId) -> Option<Rect> {
@@ -557,10 +607,21 @@ impl RootView {
         self.folded = tree.as_ref() != self.ws().tree();
         let floating = self.ws().floating;
         let colors = cx.theme().colors().clone();
-        let body = match (self.zoomed, tree) {
-            (Some(id), _) => self.render_leaf(&[id], 0, &[], window, cx),
-            (None, Some(tree)) => self.render_node(&tree, Vec::new(), window, cx),
-            (None, None) => div()
+        let progress = self
+            .motion
+            .as_ref()
+            .and_then(|m| m.progress(std::time::Instant::now()));
+        if progress.is_none() {
+            self.motion = None;
+        }
+        let body = match (progress, self.zoomed, tree) {
+            (Some(p), _, _) => {
+                window.request_animation_frame();
+                self.render_motion(p, window, cx)
+            }
+            (None, Some(id), _) => self.render_leaf(&[id], 0, &[], window, cx),
+            (None, None, Some(tree)) => self.render_node(&tree, Vec::new(), window, cx),
+            (None, None, None) => div()
                 .size_full()
                 .flex()
                 .items_center()
@@ -578,6 +639,29 @@ impl RootView {
             .p(px(BLOCK_GAP))
             .flex()
             .overflow_hidden()
+            // A block let go outside the window opens in a new one.
+            .on_drag_move(
+                cx.listener(|view, event: &DragMoveEvent<BlockDrag>, window, cx| {
+                    let at = event.event.position;
+                    view.dragging = Some((event.drag(cx).id, at));
+                    if super::tear_off::outside(window.viewport_size(), at)
+                        && view.drop_target.take().is_some()
+                    {
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_mouse_up_out(
+                gpui::MouseButton::Left,
+                cx.listener(|view, event: &gpui::MouseUpEvent, window, cx| {
+                    if let Some((id, _)) = view.dragging.take()
+                        && super::tear_off::outside(window.viewport_size(), event.position)
+                    {
+                        view.tear_off(id, event.position, window, cx);
+                    }
+                }),
+            )
+            .capture_any_mouse_up(cx.listener(|view, _, _, _| view.dragging = None))
             .child(body)
             .when_some(floating.filter(|_| self.zoomed.is_none()), |area, id| {
                 area.child(

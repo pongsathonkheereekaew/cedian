@@ -101,6 +101,10 @@ impl AgentPane {
         self
     }
 
+    pub fn view_mode(&self) -> ViewMode {
+        self.view_mode
+    }
+
     /// The latest receipt's checks, split by whether they ran after `path` was last edited.
     pub fn transcript(&self) -> &Transcript {
         &self.transcript

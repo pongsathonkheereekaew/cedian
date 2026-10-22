@@ -170,6 +170,27 @@ fn tabs(leaves: Vec<Node>) -> Node {
 }
 
 impl Workspace {
+    /// A workspace of one block, `kind`, in a layout named after it: what a block dragged out
+    /// of the window opens with in its new window. It has no thread list until a layout switch
+    /// asks for one.
+    pub fn alone(kind: Kind) -> Self {
+        let mut ws = Workspace {
+            layouts: Vec::new(),
+            current: 0,
+            blocks: BTreeMap::new(),
+            parked: Vec::new(),
+            hidden: None,
+            floating: None,
+            next: 1,
+        };
+        let id = ws.new_block(kind);
+        ws.layouts.push(Layout {
+            name: kind.name().into(),
+            tree: Some(Node::leaf(id)),
+        });
+        ws
+    }
+
     pub fn tree(&self) -> Option<&Node> {
         self.layouts.get(self.current)?.tree.as_ref()
     }
@@ -514,6 +535,15 @@ mod tests {
         w: 1400.,
         h: 800.,
     };
+
+    #[test]
+    fn a_block_alone_has_one_layout_and_no_thread_list() {
+        let ws = Workspace::alone(Kind::Terminal);
+        assert_eq!(ws.layouts.len(), 1);
+        let id = ws.find(Kind::Terminal).expect("the terminal");
+        assert_eq!(ws.tree(), Some(&Node::leaf(id)));
+        assert!(ws.find(Kind::Threads).is_none());
+    }
 
     fn threads_rect(ws: &Workspace) -> Rect {
         let id = ws.find(Kind::Threads).expect("threads shown");

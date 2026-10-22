@@ -8,7 +8,8 @@ use std::path::PathBuf;
 use cedian_protocol::Line;
 use cedian_wire::Notice;
 use gpui::{
-    AppContext as _, Bounds, Pixels, TestAppContext, TestDispatcher, VisualTestContext, px, size,
+    AppContext as _, Bounds, Focusable as _, Pixels, TestAppContext, TestDispatcher,
+    VisualContext as _, VisualTestContext, px, size,
 };
 
 use super::{Kind, RootView};
@@ -214,4 +215,143 @@ fn a_cut_label_shows_its_whole_text_on_hover_and_one_that_fits_does_not() {
         cx.notify();
     });
     assert!(hover_model(cx), "the long model name is cut");
+}
+
+#[test]
+fn the_file_finder_matches_letters_in_order_and_opens_the_best() {
+    use crate::file_finder::{FileFinder, FinderEvent, Pick};
+    let mut app = app();
+    let files: Vec<PathBuf> = [
+        "README.md",
+        "crates/cedian_window/src/root_view.rs",
+        "crates/cedian_window/src/root_view/blocks.rs",
+        "crates/cedian_layout/src/block.rs",
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .collect();
+    let (finder, cx) = app
+        .add_window_view(|window, cx| FileFinder::new(PathBuf::from("/repo"), &files, window, cx));
+    let opened = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let seen = opened.clone();
+    cx.update(|window, cx| {
+        window.focus(&finder.focus_handle(cx), cx);
+        cx.subscribe(&finder, move |_, event, _| {
+            if let FinderEvent::Open(path) = event {
+                *seen.borrow_mut() = Some(path.clone());
+            }
+        })
+        .detach();
+    });
+    cx.simulate_input("rvblk");
+    cx.run_until_parked();
+    cx.dispatch_action(Pick);
+    assert_eq!(
+        opened.borrow().as_deref(),
+        Some(std::path::Path::new(
+            "/repo/crates/cedian_window/src/root_view/blocks.rs"
+        ))
+    );
+}
+
+#[test]
+fn at_lists_files_and_a_pick_puts_the_path_in_the_text() {
+    use crate::composer::{CommandPick, Composer};
+    let mut app = app();
+    let files: Vec<PathBuf> = ["README.md", "crates/cedian_window/src/root_view/blocks.rs"]
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+    let (composer, cx) = app.add_window_view(|window, cx| {
+        let mut composer = Composer::new(window, cx);
+        composer.set_files(std::path::Path::new("/repo"), &files);
+        composer
+    });
+    composer.update_in(cx, |composer, window, cx| composer.focus(window, cx));
+    cx.simulate_input("look at @rvblk");
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("mention-list").is_some(),
+        "the files are listed"
+    );
+    cx.dispatch_action(CommandPick);
+    cx.run_until_parked();
+    assert_eq!(
+        composer.read_with(cx, |composer, cx| composer.text(cx)),
+        "look at @crates/cedian_window/src/root_view/blocks.rs "
+    );
+    assert!(cx.debug_bounds("mention-list").is_none(), "the list closes");
+}
+
+#[test]
+fn a_block_let_go_outside_the_window_opens_in_a_new_one() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    cx.run_until_parked();
+    let agent = view.read_with(cx, |view, _| view.ws().find(Kind::Agent));
+    let block = bounds(cx, "agent-block");
+    let grip = gpui::point(block.center().x, block.top() + px(18.));
+    let outside = gpui::point(px(1400.), px(300.));
+    let button = Some(gpui::MouseButton::Left);
+    cx.simulate_mouse_down(grip, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.simulate_mouse_move(
+        grip + gpui::point(px(40.), px(0.)),
+        button,
+        gpui::Modifiers::none(),
+    );
+    cx.simulate_mouse_move(outside, button, gpui::Modifiers::none());
+    cx.simulate_mouse_up(outside, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(cx.windows().len(), 2, "a second window opened");
+    view.read_with(cx, |view, _| {
+        assert!(
+            view.ws().find(Kind::Agent).is_none(),
+            "the block left this window"
+        );
+        assert!(agent.is_some_and(|id| view.ws().kind(id).is_none()));
+    });
+    let here = cx.window_handle().window_id();
+    let torn = cx
+        .windows()
+        .into_iter()
+        .filter(|w| w.window_id() != here)
+        .find_map(|w| w.downcast::<RootView>());
+    let torn = torn.expect("the new window holds a RootView");
+    cx.update(|_, cx| {
+        torn.read_with(cx, |torn, _| {
+            assert!(torn.torn);
+            assert!(torn.ws().find(Kind::Agent).is_some());
+            assert!(torn.ws().find(Kind::Threads).is_none());
+            assert_eq!(
+                torn.layout.open.get("/fixture/repo").map(String::as_str),
+                Some("t-00000001")
+            );
+        })
+        .expect("the torn window is open");
+    });
+}
+
+#[test]
+fn a_block_let_go_inside_the_window_stays() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    cx.run_until_parked();
+    let block = bounds(cx, "agent-block");
+    let grip = gpui::point(block.center().x, block.top() + px(18.));
+    // The title bar: in the window, over no block.
+    let above = gpui::point(px(600.), px(8.));
+    let button = Some(gpui::MouseButton::Left);
+    cx.simulate_mouse_down(grip, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.simulate_mouse_move(
+        grip + gpui::point(px(40.), px(0.)),
+        button,
+        gpui::Modifiers::none(),
+    );
+    cx.simulate_mouse_move(above, button, gpui::Modifiers::none());
+    cx.simulate_mouse_up(above, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(cx.windows().len(), 1);
+    assert!(view.read_with(cx, |view, _| view.ws().find(Kind::Agent).is_some()));
 }

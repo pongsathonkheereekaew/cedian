@@ -4,15 +4,18 @@ mod block_drag;
 mod block_header;
 mod block_keys;
 mod composer;
+mod content_search;
 mod daemon_client;
 mod density;
 mod desktop;
 mod dock;
 mod export;
+mod file_finder;
 mod file_tree;
 mod git_pane;
 mod layout;
 mod line_breaks;
+mod motion;
 mod on_click;
 mod open_in;
 mod overview;
@@ -80,6 +83,16 @@ fn main() {
 
 const USAGE: &str = "usage: cedian [--cwd <dir>] | cedian --replay <stream.jsonl> [--instant]";
 
+/// The project tabs are drawn in the title bar, under the traffic lights (macOS; Linux keeps
+/// its window manager's title bar).
+pub fn titlebar() -> TitlebarOptions {
+    TitlebarOptions {
+        title: None,
+        appears_transparent: true,
+        traffic_light_position: Some(point(px(14.), px(14.))),
+    }
+}
+
 /// `--cwd <dir>` opens the project in front of the saved tabs (with neither, the current
 /// directory). `--replay
 /// <stream.jsonl>` plays a recorded run instead, read before the window opens so a bad file
@@ -117,6 +130,16 @@ fn mode() -> anyhow::Result<Mode> {
 const STOP_KEY: &str = "cmd-.";
 #[cfg(not(target_os = "macos"))]
 const STOP_KEY: &str = "ctrl-.";
+/// Finds a file by name, as in Zed and VS Code.
+#[cfg(target_os = "macos")]
+const FIND_FILE_KEY: &str = "cmd-p";
+#[cfg(not(target_os = "macos"))]
+const FIND_FILE_KEY: &str = "ctrl-p";
+/// Searches the files' contents, as in Zed and VS Code.
+#[cfg(target_os = "macos")]
+const SEARCH_CONTENTS_KEY: &str = "cmd-shift-f";
+#[cfg(not(target_os = "macos"))]
+const SEARCH_CONTENTS_KEY: &str = "ctrl-shift-f";
 #[cfg(target_os = "macos")]
 const SEARCH_KEY: &str = "cmd-k";
 #[cfg(not(target_os = "macos"))]
@@ -167,6 +190,32 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         KeyBinding::new(STOP_KEY, agent_pane::StopRun, None),
         KeyBinding::new(STOP_KEY, agent_pane::StopRun, Some("Composer > Editor")),
         KeyBinding::new(SEARCH_KEY, thread_search::FocusSearch, None),
+        KeyBinding::new(FIND_FILE_KEY, file_finder::FindFile, None),
+        KeyBinding::new(
+            FIND_FILE_KEY,
+            file_finder::FindFile,
+            Some("Composer > Editor"),
+        ),
+        KeyBinding::new("up", file_finder::Previous, Some("FileFinder > Editor")),
+        KeyBinding::new("down", file_finder::Next, Some("FileFinder > Editor")),
+        KeyBinding::new("enter", file_finder::Pick, Some("FileFinder > Editor")),
+        KeyBinding::new(SEARCH_CONTENTS_KEY, content_search::SearchContents, None),
+        KeyBinding::new(
+            SEARCH_CONTENTS_KEY,
+            content_search::SearchContents,
+            Some("Composer > Editor"),
+        ),
+        KeyBinding::new(
+            "up",
+            content_search::Previous,
+            Some("ContentSearch > Editor"),
+        ),
+        KeyBinding::new("down", content_search::Next, Some("ContentSearch > Editor")),
+        KeyBinding::new(
+            "enter",
+            content_search::Pick,
+            Some("ContentSearch > Editor"),
+        ),
         KeyBinding::new(
             SEARCH_KEY,
             thread_search::FocusSearch,
@@ -201,11 +250,19 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     ]);
     cx.bind_keys(block_keys::bindings());
     // After the block keys' window-wide Escape, which would otherwise take it first.
-    cx.bind_keys([KeyBinding::new(
-        "escape",
-        composer::CommandDismiss,
-        Some("CommandList > Editor"),
-    )]);
+    cx.bind_keys([
+        KeyBinding::new(
+            "escape",
+            composer::CommandDismiss,
+            Some("CommandList > Editor"),
+        ),
+        KeyBinding::new("escape", file_finder::Close, Some("FileFinder > Editor")),
+        KeyBinding::new(
+            "escape",
+            content_search::Close,
+            Some("ContentSearch > Editor"),
+        ),
+    ]);
     // Bound in the composer too, where Zed's keymap would otherwise take some of these keys.
     let (new_tab, close_tab, pick) = TAB_KEYS;
     for context in [None, Some("Composer > Editor")] {
@@ -255,13 +312,7 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     let options = WindowOptions {
         window_bounds: Some(bounds),
         window_min_size: Some(size(px(1024.), px(640.))),
-        // The project tabs are drawn in the title bar, under the traffic lights (macOS; Linux
-        // keeps its window manager's title bar).
-        titlebar: Some(TitlebarOptions {
-            title: None,
-            appears_transparent: true,
-            traffic_light_position: Some(point(px(14.), px(14.))),
-        }),
+        titlebar: Some(titlebar()),
         ..Default::default()
     };
     cx.open_window(options, |window, cx| match mode {
