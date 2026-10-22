@@ -30,6 +30,7 @@ use crate::type_scale::TypeScale as _;
 use crate::{
     agent_pane::{AgentEvent, AgentPane, Header, StopRun},
     composer::{Composer, ComposerEvent, Queued},
+    content_search::{ContentEvent, ContentSearch, SearchContents},
     daemon_client::DaemonClient,
     desktop::Desktop,
     dock, export,
@@ -142,6 +143,8 @@ pub struct RootView {
     editing: Option<(String, String)>,
     /// `⌘P`, while open.
     finder: Option<Entity<FileFinder>>,
+    /// `⌘⇧F`, while open.
+    contents: Option<Entity<ContentSearch>>,
 }
 
 impl RootView {
@@ -430,6 +433,7 @@ impl RootView {
             can_fork: false,
             editing: None,
             finder: None,
+            contents: None,
         }
     }
 
@@ -1036,6 +1040,7 @@ impl RootView {
             self.close_finder(window, cx);
             return;
         }
+        self.contents = None;
         let (root, files) = {
             let tree = self.files.read(cx);
             (tree.root().to_owned(), tree.files().to_vec())
@@ -1058,8 +1063,40 @@ impl RootView {
         cx.notify();
     }
 
+    /// Opens `⌘⇧F` on the open thread's directory, or closes it when it is open.
+    fn search_contents(&mut self, _: &SearchContents, window: &mut Window, cx: &mut Context<Self>) {
+        if self.contents.is_some() {
+            self.close_finder(window, cx);
+            return;
+        }
+        self.finder = None;
+        let (root, files) = {
+            let tree = self.files.read(cx);
+            (tree.root().to_owned(), tree.files().to_vec())
+        };
+        let search = cx.new(|cx| ContentSearch::new(root, files, window, cx));
+        cx.subscribe_in(&search, window, |view, _, event, window, cx| match event {
+            ContentEvent::Open { path, line } => {
+                let (path, line) = (path.clone(), *line);
+                view.close_finder(window, cx);
+                view.show_file(path, window, cx);
+                view.editor.update(cx, |editor, cx| {
+                    let row = line.saturating_sub(1);
+                    editor.go_to_singleton_buffer_point(text::Point::new(row, 0), window, cx);
+                });
+            }
+            ContentEvent::Closed => view.close_finder(window, cx),
+        })
+        .detach();
+        window.focus(&search.focus_handle(cx), cx);
+        self.contents = Some(search);
+        cx.notify();
+    }
+
+    /// Closes `⌘P` or `⌘⇧F`, whichever is open.
     fn close_finder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.finder.take().is_some() {
+        let open = self.finder.take().is_some() | self.contents.take().is_some();
+        if open {
             self.focus_input(window, cx);
             cx.notify();
         }
@@ -2008,7 +2045,8 @@ impl Render for RootView {
                 cx.listener(|view, _: &zed_actions::OpenSettings, _, cx| view.open_settings(cx)),
             )
             .on_action(cx.listener(|view, _: &StopRun, _, cx| view.stop(cx)))
-            .on_action(cx.listener(Self::find_file));
+            .on_action(cx.listener(Self::find_file))
+            .on_action(cx.listener(Self::search_contents));
         let root = if live {
             self.block_actions(root, cx)
                 .on_action(cx.listener(|view, _: &NewTab, _, cx| view.pick_project(cx)))
@@ -2047,27 +2085,33 @@ impl Render for RootView {
         .child(strip)
         .child(body)
         .children(overview)
-        .children(self.finder.clone().map(|finder| {
-            // Over everything, a little below the tabs, as Zed's file finder.
-            deferred(
-                div()
-                    .absolute()
-                    .top(px(64.))
-                    .left_0()
-                    .right_0()
-                    .px_4()
-                    .flex()
-                    .justify_center()
-                    .child(
+        .children(
+            self.finder
+                .as_ref()
+                .map(|f| f.clone().into_any_element())
+                .or(self.contents.as_ref().map(|c| c.clone().into_any_element()))
+                .map(|finder| {
+                    // Over everything, a little below the tabs, as Zed's file finder.
+                    deferred(
                         div()
-                            .occlude()
-                            .on_mouse_down_out(
-                                cx.listener(|view, _, window, cx| view.close_finder(window, cx)),
-                            )
-                            .child(finder),
-                    ),
-            )
-            .with_priority(2)
-        }))
+                            .absolute()
+                            .top(px(64.))
+                            .left_0()
+                            .right_0()
+                            .px_4()
+                            .flex()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .occlude()
+                                    .on_mouse_down_out(cx.listener(|view, _, window, cx| {
+                                        view.close_finder(window, cx)
+                                    }))
+                                    .child(finder),
+                            ),
+                    )
+                    .with_priority(2)
+                }),
+        )
     }
 }

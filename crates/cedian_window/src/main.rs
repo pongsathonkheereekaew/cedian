@@ -4,6 +4,7 @@ mod block_drag;
 mod block_header;
 mod block_keys;
 mod composer;
+mod content_search;
 mod daemon_client;
 mod density;
 mod desktop;
@@ -123,6 +124,11 @@ const STOP_KEY: &str = "ctrl-.";
 const FIND_FILE_KEY: &str = "cmd-p";
 #[cfg(not(target_os = "macos"))]
 const FIND_FILE_KEY: &str = "ctrl-p";
+/// Searches the files' contents, as in Zed and VS Code.
+#[cfg(target_os = "macos")]
+const SEARCH_CONTENTS_KEY: &str = "cmd-shift-f";
+#[cfg(not(target_os = "macos"))]
+const SEARCH_CONTENTS_KEY: &str = "ctrl-shift-f";
 #[cfg(target_os = "macos")]
 const SEARCH_KEY: &str = "cmd-k";
 #[cfg(not(target_os = "macos"))]
@@ -182,6 +188,23 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         KeyBinding::new("up", file_finder::Previous, Some("FileFinder > Editor")),
         KeyBinding::new("down", file_finder::Next, Some("FileFinder > Editor")),
         KeyBinding::new("enter", file_finder::Pick, Some("FileFinder > Editor")),
+        KeyBinding::new(SEARCH_CONTENTS_KEY, content_search::SearchContents, None),
+        KeyBinding::new(
+            SEARCH_CONTENTS_KEY,
+            content_search::SearchContents,
+            Some("Composer > Editor"),
+        ),
+        KeyBinding::new(
+            "up",
+            content_search::Previous,
+            Some("ContentSearch > Editor"),
+        ),
+        KeyBinding::new("down", content_search::Next, Some("ContentSearch > Editor")),
+        KeyBinding::new(
+            "enter",
+            content_search::Pick,
+            Some("ContentSearch > Editor"),
+        ),
         KeyBinding::new(
             SEARCH_KEY,
             thread_search::FocusSearch,
@@ -223,6 +246,11 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
             Some("CommandList > Editor"),
         ),
         KeyBinding::new("escape", file_finder::Close, Some("FileFinder > Editor")),
+        KeyBinding::new(
+            "escape",
+            content_search::Close,
+            Some("ContentSearch > Editor"),
+        ),
     ]);
     // Bound in the composer too, where Zed's keymap would otherwise take some of these keys.
     let (new_tab, close_tab, pick) = TAB_KEYS;
