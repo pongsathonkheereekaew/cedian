@@ -27,6 +27,7 @@ use crate::{
     desktop::Desktop,
     dock,
     file_tree::{FileTree, FileTreeEvent},
+    git_pane::{GitEvent, GitPane},
     layout::Layout,
     line_breaks,
     project::{self, Project},
@@ -41,8 +42,8 @@ use crate::{
     thread_details::{self, Details},
     thread_list::{self, Group},
     tool_rail::{
-        self, DividerDrag, HideTools, ToggleDetails, ToggleEditor, ToggleFiles, ToggleReview,
-        ToggleTerminal, Tool,
+        self, DividerDrag, HideTools, ToggleDetails, ToggleEditor, ToggleFiles, ToggleGit,
+        ToggleReview, ToggleTerminal, Tool,
     },
     toolbar::{FocusOmnibox, Found, Toolbar, ToolbarEvent},
     view_mode::ViewMode,
@@ -78,9 +79,10 @@ pub struct RootView {
     agent: Entity<AgentPane>,
     composer: Entity<Composer>,
     editor: Entity<Editor>,
-    /// The file the Editor shows, read only, when Files opened one.
-    editor_file: Option<PathBuf>,
+    /// What the Editor shows, read only, when Files or Git put something in it.
+    editor_shows: Option<SharedString>,
     files: Entity<FileTree>,
+    git: Entity<GitPane>,
     toolbar: Entity<Toolbar>,
     review: Entity<ReviewPane>,
     /// The tools open in the panel, in rail order.
@@ -253,6 +255,11 @@ impl RootView {
             FileTreeEvent::Open(path) => view.show_file(path.clone(), window, cx),
         })
         .detach();
+        let git = cx.new(|_| GitPane::default());
+        cx.subscribe_in(&git, window, |view, _, event, window, cx| match event {
+            GitEvent::Show { name, text } => view.show_text(name.into(), text.clone(), window, cx),
+        })
+        .detach();
         let settings = cx.new(|_| SettingsView::default());
         cx.subscribe(&settings, |view, _, event, _| match event {
             SettingsEvent::Set { key, value } => view.request(Request::SetDesktop {
@@ -295,8 +302,9 @@ impl RootView {
             agent,
             composer,
             editor,
-            editor_file: None,
+            editor_shows: None,
             files,
+            git,
             toolbar,
             review,
             tools: Layout::default().tools,
@@ -449,6 +457,7 @@ impl RootView {
                     // A run that ended may have added or removed files.
                     if status != Status::Working {
                         self.files.update(cx, |files, cx| files.refresh(cx));
+                        self.git.update(cx, |git, cx| git.refresh(cx));
                     }
                 }
             }
@@ -516,6 +525,7 @@ impl RootView {
         let name = project.name();
         self.files
             .update(cx, |files, cx| files.set_root(dir.clone(), cx));
+        self.git.update(cx, |git, cx| git.set_dir(dir.clone(), cx));
         let header = Header {
             title: title.into(),
             status: project.status,
@@ -811,15 +821,27 @@ impl RootView {
             Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
             Err(error) => format!("reading {}: {error}", path.display()),
         };
+        let name = path
+            .strip_prefix(self.project().shell_dir())
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        self.show_text(name.into(), text, window, cx);
+    }
+
+    /// Puts `text` in the Editor, read only, under `name`, and opens the Editor if it is closed.
+    fn show_text(
+        &mut self,
+        name: SharedString,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.editor.update(cx, |editor, cx| {
             editor.set_read_only(true);
             editor.set_text(text, window, cx);
         });
-        let shown = path
-            .strip_prefix(self.project().shell_dir())
-            .map(Path::to_path_buf)
-            .unwrap_or(path);
-        self.editor_file = Some(shown);
+        self.editor_shows = Some(name);
         if !self.tools.contains(&Tool::Editor) {
             self.toggle_tool(Tool::Editor, cx);
         }
@@ -976,6 +998,7 @@ impl RootView {
                 },
                 Tool::Review => self.review.clone().into_any_element(),
                 Tool::Files => self.files.clone().into_any_element(),
+                Tool::Git => self.git.clone().into_any_element(),
                 Tool::Details => div()
                     .id("details")
                     .size_full()
@@ -1002,49 +1025,48 @@ impl RootView {
                         .on_drag(DividerDrag(n - 1), |drag, _, _, cx| cx.new(|_| *drag)),
                 );
             }
-            panel = panel.child(
-                div()
-                    .flex_basis(px(0.))
-                    .flex_grow(self.layout.tool_size(tool))
-                    .min_h(px(60.))
-                    .flex()
-                    .flex_col()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .h(px(28.))
-                            .flex_none()
-                            .px_3()
-                            .flex()
-                            .items_center()
-                            .bg(colors.panel_background)
-                            .text_size(px(11.))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(colors.text_muted)
-                            .child(div().flex_grow(1.).min_w_0().truncate().child(
-                                match (tool, &self.editor_file) {
-                                    (Tool::Editor, Some(file)) => {
-                                        SharedString::from(format!("Editor · {}", file.display()))
-                                    }
-                                    _ => tool.label().into(),
-                                },
-                            ))
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!("close-{}", tool.key())))
-                                    .px_1()
-                                    .cursor_pointer()
-                                    .hover(|c| c.text_color(colors.text))
-                                    .on_click(
-                                        cx.listener(move |view, _, _, cx| {
+            panel =
+                panel.child(
+                    div()
+                        .flex_basis(px(0.))
+                        .flex_grow(self.layout.tool_size(tool))
+                        .min_h(px(60.))
+                        .flex()
+                        .flex_col()
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .h(px(28.))
+                                .flex_none()
+                                .px_3()
+                                .flex()
+                                .items_center()
+                                .bg(colors.panel_background)
+                                .text_size(px(11.))
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(colors.text_muted)
+                                .child(div().flex_grow(1.).min_w_0().truncate().child(
+                                    match (tool, &self.editor_shows) {
+                                        (Tool::Editor, Some(name)) => {
+                                            SharedString::from(format!("Editor · {name}"))
+                                        }
+                                        _ => tool.label().into(),
+                                    },
+                                ))
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!("close-{}", tool.key())))
+                                        .px_1()
+                                        .cursor_pointer()
+                                        .hover(|c| c.text_color(colors.text))
+                                        .on_click(cx.listener(move |view, _, _, cx| {
                                             view.toggle_tool(tool, cx)
-                                        }),
-                                    )
-                                    .child("×"),
-                            ),
-                    )
-                    .child(div().flex_1().min_h_0().child(body)),
-            );
+                                        }))
+                                        .child("×"),
+                                ),
+                        )
+                        .child(div().flex_1().min_h_0().child(body)),
+                );
         }
         let dragged = shown.clone();
         let panel = panel.on_drag_move(cx.listener(
@@ -1520,6 +1542,7 @@ impl Render for RootView {
             .on_action(
                 cx.listener(|view, _: &ToggleFiles, _, cx| view.toggle_tool(Tool::Files, cx)),
             )
+            .on_action(cx.listener(|view, _: &ToggleGit, _, cx| view.toggle_tool(Tool::Git, cx)))
             .on_action(
                 cx.listener(|view, _: &ToggleDetails, _, cx| view.toggle_tool(Tool::Details, cx)),
             )

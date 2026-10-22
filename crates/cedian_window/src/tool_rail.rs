@@ -1,6 +1,7 @@
 //! The tool panel's rail (Interface, Layout: tool panel and rail): one button per tool down the
 //! right edge, 48 px wide. A click toggles a tool; the open ones stack in the panel in rail
-//! order. `⌘⌥1`–`⌘⌥5` toggle them and `⌘⌥0` closes them all.
+//! order. `⌘⌥1`–`⌘⌥7` toggle them by their place in the spec's rail (Browser, not built yet,
+//! keeps `⌘⌥5`) and `⌘⌥0` closes them all.
 
 use gpui::{
     App, ClickEvent, Context, Div, InteractiveElement as _, IntoElement, ParentElement as _,
@@ -19,6 +20,7 @@ actions!(
         ToggleTerminal,
         ToggleReview,
         ToggleFiles,
+        ToggleGit,
         ToggleDetails,
         HideTools
     ]
@@ -34,17 +36,20 @@ pub enum Tool {
     Review,
     /// The open thread's directory as a tree.
     Files,
+    /// The directory's branch, changes and latest commits, read only.
+    Git,
     /// Thread details: where it runs, its sessions, cost and context.
     Details,
 }
 
 impl Tool {
     /// Rail order, which is also the order open tools stack in.
-    pub const ALL: [Tool; 5] = [
+    pub const ALL: [Tool; 6] = [
         Tool::Editor,
         Tool::Terminal,
         Tool::Review,
         Tool::Files,
+        Tool::Git,
         Tool::Details,
     ];
 
@@ -55,6 +60,7 @@ impl Tool {
             Tool::Terminal => "terminal",
             Tool::Review => "review",
             Tool::Files => "files",
+            Tool::Git => "git",
             Tool::Details => "details",
         }
     }
@@ -69,6 +75,7 @@ impl Tool {
             Tool::Terminal => "Terminal",
             Tool::Review => "Review",
             Tool::Files => "Files",
+            Tool::Git => "Git",
             Tool::Details => "รายละเอียด thread",
         }
     }
@@ -79,6 +86,7 @@ impl Tool {
             Tool::Terminal => "icons/terminal.svg",
             Tool::Review => "icons/file_diff.svg",
             Tool::Files => "icons/file_tree.svg",
+            Tool::Git => "icons/git_branch.svg",
             Tool::Details => "icons/info.svg",
         }
     }
