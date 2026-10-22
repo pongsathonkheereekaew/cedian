@@ -26,6 +26,19 @@ impl AgentPane {
         }
     }
 
+    /// Empties the pane for another thread.
+    pub fn reset(&mut self, title: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.title = title.into();
+        self.transcript = Transcript::default();
+        self.list.reset(0);
+        cx.notify();
+    }
+
+    pub fn set_title(&mut self, title: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.title = title.into();
+        cx.notify();
+    }
+
     pub fn apply(&mut self, line: &Line, cx: &mut Context<Self>) {
         self.transcript.apply(line);
         let Some(from) = self.transcript.take_changed_from() else {

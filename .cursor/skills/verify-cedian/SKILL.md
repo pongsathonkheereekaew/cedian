@@ -9,11 +9,11 @@ description: >
 
 # Verify cedian
 
-cedian is the native macOS desktop for cedia. The window is a viewer. The daemon owns the threads and runs one cedia process per prompt. The design source is `docs/ARCHITECTURE.md`. The README status is phase A: the workspace builds a `cedian` binary whose agent pane replays recorded cedia runs (`--replay`), with no daemon yet.
+cedian is the native macOS desktop for cedia. The window is a viewer. The daemon owns the threads and runs one cedia process per prompt. The design source is `docs/ARCHITECTURE.md`. The README status is phase B: the workspace builds `cedian` (the window, which also replays recorded runs with `--replay`) and `cedian-daemon`. The window starts the daemon when nobody answers on its socket. The scripts below do not drive them yet.
 
 You drive the scripts in this skill. You do not start a binary that would write `~/.cedia`. That directory is the owner's settings and cedia's thread files. This skill never creates it, never reads `settings.json`, and never points a data directory at it.
 
-Two runs stay apart by using different `CEDIAN_DATA_DIR` values. Both stay under `/tmp/verify-cedian/`. There is no socket in this checkout, so there is nothing else to keep from colliding.
+Two runs stay apart by using different `CEDIAN_DATA_DIR` values. Both stay under `/tmp/verify-cedian/`. A run that starts the window or the daemon also sets `CEDIAN_STATE_DIR` (the daemon's socket and log) and `CEDIA_HOME` (cedia's threads and sessions) under the same directory, so it never meets the owner's daemon or `~/.cedia`. `crates/cedian_daemon/tests/fake/cedia`, pointed at by `CEDIAN_CEDIA_BIN`, plays a recorded fixture instead of calling a model.
 
 cedia itself is checked out by `.cursor/install.sh` to `/home/ubuntu/cedia` when the agent token can read `github.com/pongsathonkheereekaew/cedia`. This skill does not clone it and does not run it. Running cedia directly would skip the desktop.
 
