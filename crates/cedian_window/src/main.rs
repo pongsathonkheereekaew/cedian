@@ -18,6 +18,7 @@ mod root_view;
 mod settings_view;
 mod settings_window;
 mod shell_pane;
+mod sound;
 mod status_bar;
 mod tab_strip;
 mod thread_details;

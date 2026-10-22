@@ -15,7 +15,7 @@ use gpui::{
     AnyElement, AppContext as _, Context, DragMoveEvent, Entity, EntityInputHandler as _,
     InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Task, Window, WindowControlArea, WindowHandle,
-    div, prelude::FluentBuilder as _, px,
+    div, prelude::FluentBuilder as _, px, svg,
 };
 use settings::Settings as _;
 use theme::ActiveTheme as _;
@@ -35,6 +35,7 @@ use crate::{
     settings_view::{SettingsEvent, SettingsView},
     settings_window::SettingsWindow,
     shell_pane::{AttachSelection, ShellEvent, ShellPane},
+    sound::{self, Sound},
     status_bar::{self, StatusLine},
     tab_strip::{
         self, ActivateTab, CloseTab, NewTab, NextTab, PreviousTab, ProjectTab, TabClick, TabDrag,
@@ -98,6 +99,8 @@ pub struct RootView {
     saving_layout: Option<Task<()>>,
     /// A press on the tab strip that moves the window once the mouse moves.
     should_move: bool,
+    /// Whether a run that ends plays a sound (`desktop.sound`).
+    sound: Sound,
     /// The count last put on the Dock icon.
     dock_badge: Option<usize>,
 }
@@ -315,6 +318,7 @@ impl RootView {
             layout: Layout::default(),
             saving_layout: None,
             should_move: false,
+            sound: Sound::Off,
             dock_badge: None,
         }
     }
@@ -363,6 +367,7 @@ impl RootView {
             Notice::Settings { path, desktop } => {
                 let settings = Desktop::from_value(&desktop);
                 settings.apply(cx);
+                self.sound = settings.sound;
                 self.agent.update(cx, |agent, cx| {
                     agent.set_view_mode(settings.view_mode, cx);
                     agent.set_density(settings.density, cx);
@@ -375,7 +380,10 @@ impl RootView {
                     return;
                 };
                 let project = &mut self.projects[n];
-                project.set_threads(threads);
+                // Threads in other tabs get no state notices, only lists: their runs ring here.
+                for ending in project.set_threads(threads) {
+                    self.sound.play(ending);
+                }
                 if std::mem::take(&mut project.first_list)
                     && project.current.is_none()
                     && !project.awaiting_thread
@@ -445,6 +453,9 @@ impl RootView {
             Notice::Status { thread, status } => {
                 for project in &mut self.projects {
                     if let Some(info) = project.threads.iter_mut().find(|t| t.thread.id == thread) {
+                        if let Some(ending) = sound::ending(Some(info.status), status) {
+                            self.sound.play(ending);
+                        }
                         info.status = status;
                     }
                     if project.current.as_ref() == Some(&thread) {
@@ -1116,7 +1127,7 @@ impl RootView {
                 .project()
                 .threads
                 .iter()
-                .filter(|t| Group::of(t) == group)
+                .filter(|t| Group::of(t, self.is_pinned(&t.thread.id)) == group)
             {
                 let id = info.thread.id.clone();
                 let selected = self.project().current.as_ref() == Some(&id);
@@ -1160,6 +1171,18 @@ impl RootView {
             }
         }
         rail.into_any_element()
+    }
+
+    fn is_pinned(&self, thread: &str) -> bool {
+        self.layout
+            .is_pinned(&self.project().cwd.display().to_string(), thread)
+    }
+
+    fn toggle_pin(&mut self, thread: &str, cx: &mut Context<Self>) {
+        let cwd = self.project().cwd.display().to_string();
+        self.layout.toggle_pin(&cwd, thread);
+        self.save_layout(cx);
+        cx.notify();
     }
 
     fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -1232,7 +1255,7 @@ impl RootView {
                 .project()
                 .threads
                 .iter()
-                .filter(|t| Group::of(t) == group)
+                .filter(|t| Group::of(t, self.is_pinned(&t.thread.id)) == group)
                 .collect();
             if members.is_empty() {
                 continue;
@@ -1259,6 +1282,8 @@ impl RootView {
             );
             for info in members {
                 let id = info.thread.id.clone();
+                let pin_id = id.clone();
+                let pinned = self.is_pinned(&id);
                 let selected = self.project().current.as_ref() == Some(&id);
                 let word = thread_list::state_word(info.status);
                 let when = match info.status {
@@ -1280,6 +1305,7 @@ impl RootView {
                         .py(px(6.))
                         .rounded(px(8.))
                         .cursor_pointer()
+                        .group("thread-row")
                         .when(selected, |row| row.bg(colors.element_selected))
                         .hover(|row| row.bg(colors.element_hover))
                         .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
@@ -1310,6 +1336,35 @@ impl RootView {
                                             colors.text_muted
                                         })
                                         .child(meta),
+                                ),
+                        )
+                        // Shown on a pinned row, and on any row under the pointer.
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("pin-{pin_id}")))
+                                .flex_none()
+                                .p_1()
+                                .rounded(px(4.))
+                                .opacity(if pinned { 1. } else { 0. })
+                                .group_hover("thread-row", |pin| pin.opacity(1.))
+                                .hover(|pin| pin.bg(colors.element_selected))
+                                .on_click(cx.listener(move |view, _, _, cx| {
+                                    cx.stop_propagation();
+                                    view.toggle_pin(&pin_id, cx)
+                                }))
+                                .child(
+                                    svg()
+                                        .path(if pinned {
+                                            "icons/unpin.svg"
+                                        } else {
+                                            "icons/pin.svg"
+                                        })
+                                        .size(px(12.))
+                                        .text_color(if pinned {
+                                            colors.text
+                                        } else {
+                                            colors.text_muted
+                                        }),
                                 ),
                         )
                         .when(info.needs_you, |row| {

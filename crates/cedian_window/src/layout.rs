@@ -20,6 +20,8 @@ pub struct Layout {
     pub tool_sizes: BTreeMap<String, f32>,
     /// The sidebar folded to its rail of dots (`⌘B`).
     pub sidebar_folded: bool,
+    /// The threads pinned to the sidebar's ปักหมุด group, by project directory.
+    pub pinned: BTreeMap<String, Vec<String>>,
     /// The project tabs' directories, in tab order.
     pub projects: Vec<String>,
     /// The tab in front.
@@ -34,6 +36,7 @@ impl Default for Layout {
             open: BTreeMap::new(),
             tool_sizes: BTreeMap::new(),
             sidebar_folded: false,
+            pinned: BTreeMap::new(),
             projects: Vec::new(),
             project: None,
         }
@@ -104,6 +107,23 @@ impl Layout {
             open,
             tool_sizes,
             sidebar_folded: layout.get("sidebar").and_then(Value::as_str) == Some("folded"),
+            pinned: layout
+                .get("pinned")
+                .and_then(Value::as_object)
+                .map(|pinned| {
+                    pinned
+                        .iter()
+                        .filter_map(|(cwd, ids)| {
+                            let ids: Vec<String> = ids
+                                .as_array()?
+                                .iter()
+                                .filter_map(|id| Some(id.as_str()?.to_owned()))
+                                .collect();
+                            (!ids.is_empty()).then(|| (cwd.clone(), ids))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             projects: layout
                 .get("projects")
                 .and_then(Value::as_array)
@@ -152,6 +172,27 @@ impl Layout {
         (tabs, front)
     }
 
+    /// Whether `thread` of the project at `cwd` is pinned.
+    pub fn is_pinned(&self, cwd: &str, thread: &str) -> bool {
+        self.pinned
+            .get(cwd)
+            .is_some_and(|ids| ids.iter().any(|id| id == thread))
+    }
+
+    /// Pins `thread` when it is not pinned, and unpins it when it is.
+    pub fn toggle_pin(&mut self, cwd: &str, thread: &str) {
+        let ids = self.pinned.entry(cwd.to_owned()).or_default();
+        match ids.iter().position(|id| id == thread) {
+            Some(n) => {
+                ids.remove(n);
+            }
+            None => ids.push(thread.to_owned()),
+        }
+        if ids.is_empty() {
+            self.pinned.remove(cwd);
+        }
+    }
+
     /// The share of the panel `tool` takes.
     pub fn tool_size(&self, tool: Tool) -> f32 {
         self.tool_sizes.get(tool.key()).copied().unwrap_or(1.)
@@ -164,6 +205,9 @@ impl Layout {
             "sidebar": if self.sidebar_folded { "folded" } else { "open" },
             "projects": self.projects,
         });
+        if !self.pinned.is_empty() {
+            layout["pinned"] = json!(self.pinned);
+        }
         if let Some(project) = &self.project {
             layout["project"] = project.as_str().into();
         }
@@ -219,6 +263,7 @@ mod tests {
             open: BTreeMap::from([("/repo".to_owned(), "t-1".to_owned())]),
             tool_sizes: BTreeMap::from([("review".to_owned(), 1.25)]),
             sidebar_folded: true,
+            pinned: BTreeMap::from([("/repo".to_owned(), vec!["t-2".to_owned()])]),
             projects: vec!["/repo".to_owned(), "/other".to_owned()],
             project: Some("/other".to_owned()),
         };
