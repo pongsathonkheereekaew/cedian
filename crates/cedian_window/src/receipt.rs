@@ -9,6 +9,7 @@ use gpui::{
 };
 use theme::ActiveTheme as _;
 
+use crate::type_scale::TypeScale as _;
 use crate::{
     agent_pane::{AgentEvent, Emit},
     line_breaks::wrapped,
@@ -77,8 +78,7 @@ impl Receipt<'_> {
             .child(
                 badge
                     .flex_none()
-                    .text_size(px(11.))
-                    .line_height(px(16.))
+                    .text_label()
                     .font_weight(FontWeight::SEMIBOLD),
             )
             .child(
@@ -91,7 +91,7 @@ impl Receipt<'_> {
                 div()
                     .flex_none()
                     .font(tokens::code_font())
-                    .text_size(px(12.))
+                    .text_meta()
                     .text_color(colors.text_muted)
                     .child(figures.join(" · ")),
             );
@@ -100,23 +100,17 @@ impl Receipt<'_> {
             .flex_col()
             .gap_2()
             .p_4()
-            .rounded(px(12.))
+            .rounded(px(16.))
             .border_1()
             .border_color(colors.text_accent)
             .bg(colors.editor_background)
-            .text_size(px(13.))
-            .line_height(px(20.))
+            .text_ui()
             .child(header);
         if let Some(text) = self.text {
-            card = card.child(
-                div()
-                    .text_size(px(14.))
-                    .line_height(px(24.))
-                    .child(wrapped(text)),
-            );
+            card = card.child(div().text_message().child(wrapped(text)));
         }
         if let Some(evidence) = self.evidence {
-            let mut lines = div().flex().flex_col().gap_1().text_size(px(12.));
+            let mut lines = div().flex().flex_col().gap_1().text_meta();
             for check in &evidence.checks {
                 let passed = check.exit_code == 0.;
                 let origin = match check.thread.as_deref() {
@@ -191,7 +185,7 @@ impl Actions {
                 .border_1()
                 .border_color(colors.border)
                 .bg(colors.element_background)
-                .text_size(px(13.))
+                .text_ui()
                 .cursor_pointer()
                 .hover(|b| b.bg(colors.element_hover))
         };

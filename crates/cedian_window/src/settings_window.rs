@@ -10,6 +10,7 @@ use gpui::{
 use settings::Settings as _;
 use theme::ActiveTheme as _;
 
+use crate::type_scale::TypeScale as _;
 use crate::{settings_view::SettingsView, tokens::Tokens};
 
 pub struct SettingsWindow {
@@ -79,7 +80,7 @@ impl Render for SettingsWindow {
             .items_center()
             .justify_center()
             .bg(Tokens::of(cx).frame)
-            .text_size(px(13.))
+            .text_ui()
             .text_color(colors.text_muted)
             .child("Settings")
             .window_control_area(WindowControlArea::Drag)

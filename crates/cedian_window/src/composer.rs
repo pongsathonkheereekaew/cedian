@@ -1,12 +1,13 @@
-//! Where the person types to the thread: Enter sends, Shift-Enter starts a new line. Messages
-//! the running thread has not seen yet sit above the text as chips, to edit or take back
-//! (Interface, Agent pane: Composer).
+//! Where the person types to the thread: Enter or the send button sends, Shift-Enter starts a
+//! new line. Messages the running thread has not seen yet sit inside it above the text as
+//! rows, to edit or take back (Interface, Polish: composer).
 
+use crate::type_scale::TypeScale as _;
 use editor::Editor;
 use gpui::{
     AppContext as _, Context, Entity, EventEmitter, Focusable as _, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window, actions, div, px,
+    StatefulInteractiveElement as _, Styled as _, Window, actions, div, px, svg,
 };
 use theme::ActiveTheme as _;
 
@@ -122,14 +123,13 @@ impl Render for Composer {
                 .gap_2()
                 .px_2()
                 .py_1()
-                .rounded(px(8.))
-                .bg(colors.element_background)
-                .text_size(px(12.))
-                .line_height(px(18.))
+                .rounded(px(10.))
+                .bg(colors.element_hover)
+                .text_meta()
                 .child(
                     div()
                         .flex_none()
-                        .text_size(px(11.))
+                        .text_label()
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(working)
                         .child("ส่งที่ turn ถัดไป"),
@@ -153,24 +153,58 @@ impl Render for Composer {
                         .on_click(cx.listener(move |view, _, _, cx| view.remove(n, cx))),
                 )
         });
+        let send = div()
+            .id("send")
+            .flex_none()
+            .size(px(32.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(9.))
+            .bg(colors.text_accent)
+            .cursor_pointer()
+            .hover(|b| b.opacity(0.9))
+            .on_click(cx.listener(|view, _, window, cx| view.submit(&Submit, window, cx)))
+            .child(
+                svg()
+                    .path("icons/arrow_up.svg")
+                    .size(px(16.))
+                    .text_color(colors.background),
+            );
         div()
             .key_context("Composer")
             .on_action(cx.listener(Self::submit))
             .px_4()
             .pt_1()
-            .pb_3()
+            .pb_2()
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .p_2()
-                    .rounded(px(12.))
+                    .p(px(10.))
+                    .rounded(px(20.))
                     .border_1()
-                    .border_color(colors.border)
-                    .bg(colors.editor_background)
+                    .border_color(colors.border_selected)
+                    .bg(colors.elevated_surface_background)
+                    .shadow_md()
                     .children(queue)
-                    .child(div().px_1().py(px(2.)).child(self.editor.clone())),
+                    .child(
+                        div()
+                            .flex()
+                            .items_end()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_grow(1.)
+                                    .min_w_0()
+                                    .min_h(px(32.))
+                                    .pl_1()
+                                    .py(px(6.))
+                                    .child(self.editor.clone()),
+                            )
+                            .child(send),
+                    ),
             )
     }
 }

@@ -20,6 +20,7 @@ use gpui::{
 use settings::Settings as _;
 use theme::ActiveTheme as _;
 
+use crate::type_scale::TypeScale as _;
 use crate::{
     agent_pane::{AgentEvent, AgentPane, Header, StopRun},
     composer::{Composer, ComposerEvent, Queued},
@@ -30,25 +31,27 @@ use crate::{
     git_pane::{GitEvent, GitPane},
     layout::Layout,
     line_breaks,
-    project::{self, Project},
+    project::Project,
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
     settings_window::SettingsWindow,
+    sheet_header::{self, HeaderLine},
     shell_pane::{AttachSelection, ShellEvent, ShellPane},
+    sidebar_foot::{self, StatusLine},
     sound::{self, Sound},
-    status_bar::{self, StatusLine},
     tab_strip::{
         self, ActivateTab, CloseTab, NewTab, NextTab, PreviousTab, ProjectTab, TabClick, TabDrag,
     },
     thread_details::{self, Details},
     thread_list::{self, Group},
     thread_search::{FocusSearch, Found, SearchEvent, ThreadSearch},
+    tokens,
     tool_rail::{
         self, DividerDrag, HideTools, ToggleDetails, ToggleEditor, ToggleFiles, ToggleGit,
         ToggleReview, ToggleTerminal, Tool,
     },
-    toolbar::{Toolbar, ToolbarEvent},
     view_mode::ViewMode,
+    workplace::Workplace,
 };
 
 gpui::actions!(sidebar, [ToggleSidebar]);
@@ -56,6 +59,11 @@ gpui::actions!(sidebar, [ToggleSidebar]);
 /// The sidebar's width, open and folded to its rail of dots.
 const SIDEBAR_WIDTH: f32 = 264.;
 const SIDEBAR_FOLDED: f32 = 56.;
+/// Sheets' corners, and the space between them and around them (Interface, Polish).
+const SHEET_RADIUS: f32 = 12.;
+const SHEET_GAP: f32 = 8.;
+/// The conversation's 700 px column with the composer's own margins.
+const COMPOSER_WIDTH: f32 = 732.;
 /// Files larger than this are named in the Editor, not shown.
 const MAX_SHOWN: usize = 2 * 1024 * 1024;
 
@@ -85,7 +93,7 @@ pub struct RootView {
     editor_shows: Option<SharedString>,
     files: Entity<FileTree>,
     git: Entity<GitPane>,
-    toolbar: Entity<Toolbar>,
+    workplace: Entity<Workplace>,
     search: Entity<ThreadSearch>,
     review: Entity<ReviewPane>,
     /// The tools open in the panel, in rail order.
@@ -194,16 +202,7 @@ impl RootView {
             tabs
         };
         let active = active.min(tabs.len() - 1);
-        let project = project::name_of(&tabs[active]);
-        let toolbar = cx.new(|_| Toolbar::new(project));
-        cx.subscribe_in(&toolbar, window, |view, _, event, window, cx| match event {
-            ToolbarEvent::NewThread => {
-                view.new_thread(cx);
-                view.composer
-                    .update(cx, |composer, cx| composer.focus(window, cx));
-            }
-        })
-        .detach();
+        let workplace = cx.new(|_| Workplace::new());
         let search = cx.new(|cx| ThreadSearch::new(window, cx));
         cx.subscribe_in(&search, window, |view, _, event, window, cx| match event {
             SearchEvent::Open { cwd, thread } => {
@@ -240,7 +239,6 @@ impl RootView {
         })
         .detach();
         cx.subscribe(&agent, |view, agent, event, cx| match event {
-            AgentEvent::Stop => view.stop(cx),
             AgentEvent::Rate(rating) => {
                 if let Some(thread) = view.project().current.clone() {
                     view.request(Request::Rate {
@@ -316,7 +314,7 @@ impl RootView {
             editor_shows: None,
             files,
             git,
-            toolbar,
+            workplace,
             search,
             review,
             tools: Layout::default().tools,
@@ -545,23 +543,20 @@ impl RootView {
             })
             .collect();
         let dir = project.shell_dir();
-        let name = project.name();
         self.files
             .update(cx, |files, cx| files.set_root(dir.clone(), cx));
         self.git.update(cx, |git, cx| git.set_dir(dir.clone(), cx));
         let header = Header {
             title: title.clone().into(),
             status: project.status,
-            cwd: info.and_then(|t| t.cwd.clone()),
             rating: info.and_then(|t| t.thread.rating),
         };
         self.agent
             .update(cx, |agent, cx| agent.set_header(header, cx));
         let queue = info.map(queued).unwrap_or_default();
-        let crumb = title.clone().into();
         self.search.update(cx, |search, cx| search.set(found, cx));
-        self.toolbar
-            .update(cx, |toolbar, cx| toolbar.set(name, crumb, branch, dir, cx));
+        self.workplace
+            .update(cx, |workplace, cx| workplace.set(branch, dir, cx));
         self.composer
             .update(cx, |composer, cx| composer.set_queue(queue, cx));
     }
@@ -940,7 +935,7 @@ impl RootView {
                     .rounded(px(7.))
                     .border_1()
                     .cursor_pointer()
-                    .text_size(px(13.))
+                    .text_ui()
                     .map(|button| {
                         if recommended {
                             button
@@ -977,21 +972,20 @@ impl RootView {
             .text_color(colors.text)
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_label()
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(colors.text_accent)
                     .child("ถามคุณ"),
             )
             .child(
                 div()
-                    .text_size(px(14.))
-                    .line_height(px(24.))
+                    .text_message()
                     .child(line_breaks::wrapped(&question.question)),
             )
             .child(options)
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_meta()
                     .text_color(colors.text_muted)
                     .child("หรือพิมพ์คำตอบอื่นด้านล่าง"),
             )
@@ -1024,8 +1018,9 @@ impl RootView {
         }
     }
 
-    /// The panel's open tools stacked in rail order, beside the rail.
-    fn render_tools(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// The panel's open tools stacked in rail order, as a sheet beside the main one; none when
+    /// no tool is open.
+    fn render_tools(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let colors = cx.theme().colors().clone();
         let live = !matches!(self.connection, Connection::Replay);
         // A widened review sits in the main area, so the panel keeps the rest.
@@ -1039,14 +1034,20 @@ impl RootView {
             .contains(&Tool::Details)
             .then(|| Details::of(self.agent.read(cx).transcript()));
         let info = self.project().info();
+        if shown.is_empty() {
+            return None;
+        }
         let mut panel = div()
             .w(px(tool_rail::PANEL_WIDTH))
             .flex_none()
             .h_full()
             .flex()
             .flex_col()
-            .border_l_1()
-            .border_color(colors.border);
+            .rounded(px(SHEET_RADIUS))
+            .border_1()
+            .border_color(colors.border)
+            .bg(colors.editor_background)
+            .overflow_hidden();
         for (n, tool) in shown.iter().enumerate() {
             let body: AnyElement = match tool {
                 Tool::Editor => div()
@@ -1087,7 +1088,7 @@ impl RootView {
                                     .border_1()
                                     .border_color(colors.border)
                                     .cursor_pointer()
-                                    .text_size(px(12.))
+                                    .text_meta()
                                     .hover(|b| b.bg(colors.element_hover))
                                     .on_click(cx.listener(|view, _, _, cx| view.export_thread(cx)))
                                     .child("ส่งออกเป็น Markdown"),
@@ -1128,7 +1129,7 @@ impl RootView {
                                 .flex()
                                 .items_center()
                                 .bg(colors.panel_background)
-                                .text_size(px(11.))
+                                .text_label()
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .text_color(colors.text_muted)
                                 .child(div().flex_grow(1.).min_w_0().truncate().child(
@@ -1165,16 +1166,7 @@ impl RootView {
                 }
             },
         ));
-        let rail = tool_rail::rail(&self.tools, self.waiting_hunks, cx, |tool| {
-            Box::new(cx.listener(move |view, _, _, cx| view.toggle_tool(tool, cx)))
-        });
-        div()
-            .flex_none()
-            .h_full()
-            .flex()
-            .when(!shown.is_empty(), |row| row.child(panel))
-            .child(rail)
-            .into_any_element()
+        Some(panel.into_any_element())
     }
 
     /// The sidebar folded (`⌘B`): each thread as its first letter over its state dot, in the
@@ -1237,7 +1229,7 @@ impl RootView {
                         .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
                         .child(
                             div()
-                                .text_size(px(12.))
+                                .text_meta()
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .child(initial),
                         )
@@ -1373,6 +1365,7 @@ impl RootView {
             return self.render_folded_threads(cx);
         }
         let archived = self.render_archived(cx);
+        let foot = self.render_foot(cx);
         let searching = self.search.read(cx).searching(cx);
         let colors = cx.theme().colors();
         let status_colors = cx.theme().status();
@@ -1407,12 +1400,21 @@ impl RootView {
                     .px_2()
                     .pt_3()
                     .pb_1()
-                    .text_size(px(11.))
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(colors.text_muted)
+                    .text_label()
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(colors.text_placeholder)
                     .child(group.label())
                     .when(counted > 0, |header| {
-                        header.child(thread_list::badge(counted, failed, cx))
+                        header.child(
+                            div()
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(if failed {
+                                    status_colors.error
+                                } else {
+                                    colors.text_accent
+                                })
+                                .child(counted.to_string()),
+                        )
                     }),
             );
             for info in members {
@@ -1422,15 +1424,16 @@ impl RootView {
                 let archivable = info.status != Status::Working;
                 let pinned = self.is_pinned(&id);
                 let selected = self.project().current.as_ref() == Some(&id);
-                let word = thread_list::state_word(info.status);
-                let when = match info.status {
-                    Status::Working => String::new(),
-                    _ => thread_list::since(&info.thread.updated_at, now),
-                };
-                let meta = if when.is_empty() {
-                    word.to_owned()
-                } else {
-                    format!("{word} · {when}")
+                // One line: the dot says the state; the meta says what a word must.
+                let (meta, meta_color) = match info.status {
+                    Status::Working => (String::new(), colors.text_muted),
+                    Status::Asking => ("ถาม".to_owned(), colors.text_accent),
+                    Status::Failed => ("ล้มเหลว".to_owned(), status_colors.error),
+                    Status::Interrupted => ("ขาดตอน".to_owned(), status_colors.warning),
+                    Status::Done | Status::Stopped => (
+                        thread_list::since(&info.thread.updated_at, now),
+                        colors.text_placeholder,
+                    ),
                 };
                 list = list.child(
                     div()
@@ -1438,8 +1441,10 @@ impl RootView {
                         .flex()
                         .items_center()
                         .gap_2()
+                        .relative()
+                        .h(px(32.))
+                        .flex_none()
                         .px_2()
-                        .py(px(6.))
                         .rounded(px(8.))
                         .cursor_pointer()
                         .group("thread-row")
@@ -1451,82 +1456,80 @@ impl RootView {
                             div()
                                 .flex_grow(1.)
                                 .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .child(
-                                    div()
-                                        .text_size(px(13.))
-                                        .line_height(px(20.))
-                                        .truncate()
-                                        .when(info.needs_you, |title| {
-                                            title.font_weight(gpui::FontWeight::SEMIBOLD)
-                                        })
-                                        .child(info.thread.title.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(px(12.))
-                                        .line_height(px(18.))
-                                        .text_color(if info.status == Status::Asking {
-                                            colors.text_accent
-                                        } else {
-                                            colors.text_muted
-                                        })
-                                        .child(meta),
-                                ),
+                                .text_ui()
+                                .truncate()
+                                .when(info.needs_you, |title| {
+                                    title.font_weight(gpui::FontWeight::SEMIBOLD)
+                                })
+                                .child(info.thread.title.clone()),
                         )
-                        // Shown on a pinned row, and on any row under the pointer.
-                        .child(
-                            div()
-                                .id(SharedString::from(format!("pin-{pin_id}")))
-                                .flex_none()
-                                .p_1()
-                                .rounded(px(4.))
-                                .opacity(if pinned { 1. } else { 0. })
-                                .group_hover("thread-row", |pin| pin.opacity(1.))
-                                .hover(|pin| pin.bg(colors.element_selected))
-                                .on_click(cx.listener(move |view, _, _, cx| {
-                                    cx.stop_propagation();
-                                    view.toggle_pin(&pin_id, cx)
-                                }))
-                                .child(
-                                    svg()
-                                        .path(if pinned {
-                                            "icons/unpin.svg"
-                                        } else {
-                                            "icons/pin.svg"
-                                        })
-                                        .size(px(12.))
-                                        .text_color(if pinned {
-                                            colors.text
-                                        } else {
-                                            colors.text_muted
-                                        }),
-                                ),
-                        )
-                        // A working thread is not archived from here: stop it first.
-                        .when(archivable, |row| {
+                        .when(!meta.is_empty(), |row| {
                             row.child(
                                 div()
-                                    .id(SharedString::from(format!("archive-{archive_id}")))
                                     .flex_none()
-                                    .p_1()
-                                    .rounded(px(4.))
-                                    .opacity(0.)
-                                    .group_hover("thread-row", |b| b.opacity(1.))
-                                    .hover(|b| b.bg(colors.element_selected))
-                                    .on_click(cx.listener(move |view, _, _, cx| {
-                                        cx.stop_propagation();
-                                        view.archive(&archive_id, cx)
-                                    }))
-                                    .child(
-                                        svg()
-                                            .path("icons/archive.svg")
-                                            .size(px(12.))
-                                            .text_color(colors.text_muted),
-                                    ),
+                                    .font(tokens::code_font())
+                                    .text_label()
+                                    .text_color(meta_color)
+                                    .child(meta),
                             )
                         })
+                        // Pin and archive, over the meta while the pointer is on the row.
+                        .child(
+                            div()
+                                .absolute()
+                                .right(px(4.))
+                                .top_0()
+                                .h_full()
+                                .pl_1()
+                                .flex()
+                                .items_center()
+                                .gap_0p5()
+                                .bg(colors.background)
+                                .rounded(px(6.))
+                                .opacity(0.)
+                                .group_hover("thread-row", |b| b.opacity(1.))
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!("pin-{pin_id}")))
+                                        .p_1()
+                                        .rounded(px(4.))
+                                        .hover(|pin| pin.bg(colors.element_selected))
+                                        .on_click(cx.listener(move |view, _, _, cx| {
+                                            cx.stop_propagation();
+                                            view.toggle_pin(&pin_id, cx)
+                                        }))
+                                        .child(
+                                            svg()
+                                                .path(if pinned {
+                                                    "icons/unpin.svg"
+                                                } else {
+                                                    "icons/pin.svg"
+                                                })
+                                                .size(px(12.))
+                                                .text_color(colors.text_muted),
+                                        ),
+                                )
+                                // A working thread is not archived from here: stop it first.
+                                .when(archivable, |actions| {
+                                    actions.child(
+                                        div()
+                                            .id(SharedString::from(format!("archive-{archive_id}")))
+                                            .p_1()
+                                            .rounded(px(4.))
+                                            .hover(|b| b.bg(colors.element_selected))
+                                            .on_click(cx.listener(move |view, _, _, cx| {
+                                                cx.stop_propagation();
+                                                view.archive(&archive_id, cx)
+                                            }))
+                                            .child(
+                                                svg()
+                                                    .path("icons/archive.svg")
+                                                    .size(px(12.))
+                                                    .text_color(colors.text_muted),
+                                            ),
+                                    )
+                                }),
+                        )
                         .when(info.needs_you, |row| {
                             row.child(div().flex_none().size(px(6.)).rounded_full().bg(
                                 if info.status == Status::Failed {
@@ -1545,11 +1548,39 @@ impl RootView {
             .h_full()
             .flex()
             .flex_col()
-            .border_r_1()
-            .border_color(colors.border)
-            .bg(colors.panel_background)
             .text_color(colors.text)
-            .child(self.search.clone())
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_end()
+                    .child(div().flex_grow(1.).min_w_0().child(self.search.clone()))
+                    .child(
+                        // Until the project chat opens threads, the only way to start one.
+                        div()
+                            .id("new-thread")
+                            .flex_none()
+                            .mr_2()
+                            .size(px(30.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(8.))
+                            .cursor_pointer()
+                            .hover(|b| b.bg(colors.element_hover))
+                            .on_click(cx.listener(|view, _, window, cx| {
+                                view.new_thread(cx);
+                                view.composer
+                                    .update(cx, |composer, cx| composer.focus(window, cx));
+                            }))
+                            .child(
+                                svg()
+                                    .path("icons/pencil.svg")
+                                    .size(px(15.))
+                                    .text_color(colors.text_muted),
+                            ),
+                    ),
+            )
             .map(|sidebar| {
                 if searching {
                     sidebar.child(div().flex_grow(1.))
@@ -1558,6 +1589,7 @@ impl RootView {
                 }
             })
             .child(archived)
+            .child(foot)
             .when_some(self.archived.as_ref(), |sidebar, archived| {
                 sidebar.child(
                     div()
@@ -1571,7 +1603,7 @@ impl RootView {
                         .gap_2()
                         .rounded(px(8.))
                         .bg(colors.element_background)
-                        .text_size(px(12.))
+                        .text_meta()
                         .child(
                             div()
                                 .flex_grow(1.)
@@ -1595,6 +1627,31 @@ impl RootView {
 }
 
 impl RootView {
+    /// The sidebar's last line: the daemon, the runs and Settings.
+    fn render_foot(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let (daemon, connected, cedia): (SharedString, bool, Option<SharedString>) =
+            match &self.connection {
+                Connection::Replay => ("replay".into(), false, None),
+                Connection::Connecting => ("กำลังต่อ daemon".into(), false, None),
+                Connection::Connected { cedia } => ("daemon".into(), true, Some(cedia.clone())),
+                Connection::Failed(_) => ("ต่อ daemon ไม่ได้".into(), false, None),
+            };
+        sidebar_foot::foot(
+            StatusLine {
+                daemon,
+                connected,
+                cedia,
+                working: self.projects.iter().map(Project::working).sum(),
+                waiting: self.projects.iter().map(Project::waiting).sum(),
+            },
+            div()
+                .id("open-settings")
+                .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx)))
+                .child("Settings"),
+            cx,
+        )
+    }
+
     /// The foot of the sidebar: how many threads are archived, and when opened, each with a way
     /// to bring it back.
     fn render_archived(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -1640,16 +1697,14 @@ impl RootView {
                                         .flex_col()
                                         .child(
                                             div()
-                                                .text_size(px(13.))
-                                                .line_height(px(20.))
+                                                .text_ui()
                                                 .truncate()
                                                 .text_color(colors.text_muted)
                                                 .child(info.thread.title.clone()),
                                         )
                                         .child(
                                             div()
-                                                .text_size(px(12.))
-                                                .line_height(px(18.))
+                                                .text_meta()
                                                 .text_color(colors.text_placeholder)
                                                 .child(thread_list::since(
                                                     &info.thread.updated_at,
@@ -1664,7 +1719,7 @@ impl RootView {
                                         .px_1()
                                         .rounded(px(4.))
                                         .cursor_pointer()
-                                        .text_size(px(12.))
+                                        .text_meta()
                                         .text_color(colors.text_accent)
                                         .opacity(0.)
                                         .group_hover("archived-row", |b| b.opacity(1.))
@@ -1689,7 +1744,7 @@ impl RootView {
                         .h(px(28.))
                         .rounded(px(8.))
                         .cursor_pointer()
-                        .text_size(px(12.))
+                        .text_meta()
                         .text_color(colors.text_muted)
                         .hover(|b| b.bg(colors.element_hover))
                         .on_click(cx.listener(|view, _, _, cx| {
@@ -1782,7 +1837,7 @@ impl Render for RootView {
             .and_then(|t| t.thread.question.clone())
             .map(|question| self.render_question(question, cx));
         let colors = cx.theme().colors();
-        let status_colors = cx.theme().status();
+        let error_color = cx.theme().status().error;
         let failure = match &self.connection {
             Connection::Failed(error) => Some(error.clone()),
             _ => None,
@@ -1791,89 +1846,110 @@ impl Render for RootView {
         let background = colors.background;
         let text = colors.text;
         let wide = self.review_wide;
+        let agent = self.agent.read(cx);
+        let line = HeaderLine {
+            title: agent.header().title.clone(),
+            status: agent.header().status,
+            cost: agent.cost(),
+        };
+        let chips = agent.chips(&self.agent.downgrade(), cx);
+        let toggles = tool_rail::toggles(&self.tools, self.waiting_hunks, cx, |tool| {
+            Box::new(cx.listener(move |view, _, _, cx| view.toggle_tool(tool, cx)))
+        });
+        let header = sheet_header::header(
+            line,
+            toggles,
+            Box::new(cx.listener(|view, _, _, cx| view.stop(cx))),
+            cx,
+        );
+        let tools = live.then(|| self.render_tools(cx)).flatten();
+        let colors = cx.theme().colors();
+        let main = div()
+            .flex_grow(1.)
+            .min_w_0()
+            .h_full()
+            .flex()
+            .flex_col()
+            .rounded(px(SHEET_RADIUS))
+            .border_1()
+            .border_color(colors.border)
+            .bg(colors.editor_background)
+            .overflow_hidden()
+            .child(header)
+            .child(div().flex_grow(1.).min_h_0().map(|main| {
+                if wide {
+                    main.child(self.review.clone())
+                } else {
+                    main.child(self.agent.clone())
+                }
+            }))
+            .when_some(notice, |column, notice| {
+                column.child(
+                    div()
+                        .px_4()
+                        .py_1()
+                        .text_meta()
+                        .text_color(error_color)
+                        .child(notice),
+                )
+            })
+            .when(!wide, |column| column.children(question))
+            .when(!wide && live, |column| {
+                let worktree = self.project().current.is_none().then(|| {
+                    let word = if self.use_worktree {
+                        "worktree ใหม่: เปิด"
+                    } else {
+                        "worktree ใหม่: ปิด"
+                    };
+                    div()
+                        .id("worktree")
+                        .flex_none()
+                        .cursor_pointer()
+                        .text_meta()
+                        .text_color(colors.text_muted)
+                        .hover(|w| w.text_color(colors.text))
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.use_worktree = !view.use_worktree;
+                            cx.notify();
+                        }))
+                        .child(word)
+                });
+                // Under the conversation's column, as wide as it with its margins.
+                column.child(
+                    div().w_full().flex().justify_center().child(
+                        div()
+                            .w_full()
+                            .max_w(px(COMPOSER_WIDTH))
+                            .child(self.composer.clone())
+                            .child(
+                                // The composer's bottom row: where the thread runs, then the
+                                // context and the view mode.
+                                div()
+                                    .flex_none()
+                                    .px_4()
+                                    .pb_3()
+                                    .flex()
+                                    .items_center()
+                                    .gap_1p5()
+                                    .child(self.workplace.clone())
+                                    .children(worktree)
+                                    .child(div().flex_grow(1.).min_w_0().child(chips)),
+                            ),
+                    ),
+                )
+            });
         let body = div()
             .flex_grow(1.)
             .min_h_0()
             .w_full()
             .flex()
+            .gap(px(SHEET_GAP))
+            .pr(px(SHEET_GAP))
+            .pb(px(SHEET_GAP))
+            .when(!live, |body| body.pl(px(SHEET_GAP)))
             .children(threads)
-            .child(
-                div()
-                    .flex_grow(1.)
-                    .min_w_0()
-                    .h_full()
-                    .flex()
-                    .flex_col()
-                    .border_r_1()
-                    .border_color(colors.border)
-                    .child(div().flex_grow(1.).min_h_0().map(|main| {
-                        if wide {
-                            main.child(self.review.clone())
-                        } else {
-                            main.child(self.agent.clone())
-                        }
-                    }))
-                    .when_some(notice, |column, notice| {
-                        column.child(
-                            div()
-                                .px_3()
-                                .py_1()
-                                .text_xs()
-                                .text_color(status_colors.error)
-                                .child(notice),
-                        )
-                    })
-                    .when(!wide, |column| column.children(question))
-                    .when(
-                        !wide && live && self.project().current.is_none(),
-                        |column| {
-                            let word = if self.use_worktree {
-                                "In a new worktree: on"
-                            } else {
-                                "In a new worktree: off"
-                            };
-                            column.child(
-                                div()
-                                    .id("worktree")
-                                    .px_3()
-                                    .py_1()
-                                    .text_xs()
-                                    .cursor_pointer()
-                                    .text_color(colors.text_muted)
-                                    .on_click(cx.listener(|view, _, _, cx| {
-                                        view.use_worktree = !view.use_worktree;
-                                        cx.notify();
-                                    }))
-                                    .child(word),
-                            )
-                        },
-                    )
-                    .when(!wide && live, |column| column.child(self.composer.clone())),
-            )
-            // A widened review leaves the panel the other tools, and the rail.
-            .when(live, |body| body.child(self.render_tools(cx)));
-        let (daemon, connected, cedia): (SharedString, bool, Option<SharedString>) =
-            match &self.connection {
-                Connection::Replay => ("replay".into(), false, None),
-                Connection::Connecting => ("กำลังต่อ daemon".into(), false, None),
-                Connection::Connected { cedia } => ("daemon".into(), true, Some(cedia.clone())),
-                Connection::Failed(_) => ("ต่อ daemon ไม่ได้".into(), false, None),
-            };
-        let working = self.projects.iter().map(Project::working).sum();
-        let status = status_bar::bar(
-            StatusLine {
-                daemon,
-                connected,
-                cedia,
-                working,
-                waiting,
-            },
-            div()
-                .id("open-settings")
-                .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx)))
-                .child("Settings"),
-            cx,
-        );
+            .child(main)
+            .children(tools);
         let tabs: Vec<ProjectTab> = self.projects.iter().map(Project::tab).collect();
         let strip =
             tab_strip::strip(
@@ -1969,8 +2045,6 @@ impl Render for RootView {
             .bg(background)
             .text_color(text)
             .child(strip)
-            .when(live, |root| root.child(self.toolbar.clone()))
             .child(body)
-            .when(live, |root| root.child(status))
     }
 }

@@ -10,6 +10,7 @@ use gpui::{
 use theme::ActiveTheme as _;
 
 use crate::tokens;
+use crate::type_scale::TypeScale as _;
 
 /// Lines of a failure's output or an edit's diff shown before the rest is cut.
 const BODY_LINES: usize = 12;
@@ -75,7 +76,7 @@ pub fn card(call: &ToolCall, cx: &App) -> Div {
     let mut card = div()
         .flex()
         .flex_col()
-        .rounded(px(8.))
+        .rounded(px(12.))
         .border_1()
         .border_color(if failed {
             status.error.opacity(0.4)
@@ -89,8 +90,7 @@ pub fn card(call: &ToolCall, cx: &App) -> Div {
         } else {
             colors.editor_background
         })
-        .text_size(px(12.))
-        .line_height(px(18.))
+        .text_meta()
         .overflow_hidden()
         .child(header);
     if let Some(permission) = call.permission.as_ref().filter(|p| !p.allowed) {
@@ -139,8 +139,7 @@ fn body(lines: impl Iterator<Item = (String, Option<bool>)>, cx: &App) -> Div {
         .bg(tint.code)
         .py_1()
         .font(tokens::code_font())
-        .text_size(px(12.5))
-        .line_height(px(20.))
+        .text_code()
         .children(shown.into_iter().map(|(text, added)| {
             let row = div().px_2().whitespace_nowrap().overflow_hidden();
             match added {
@@ -172,24 +171,21 @@ pub fn chip(calls: &[&ToolCall], open: bool, cx: &App) -> Div {
     let failed = calls.iter().any(|call| call.failed());
     let running = calls.iter().any(|call| call.state == ToolState::Running);
     div()
-        .h(px(26.))
-        .px_2()
+        .w_full()
+        .h(px(38.))
+        .px_3()
         .flex()
         .items_center()
         .gap_2()
-        .rounded(px(7.))
+        .rounded(px(10.))
         .border_1()
         .border_color(if failed {
             status.error.opacity(0.4)
         } else {
             colors.border
         })
-        .bg(if running {
-            status.info.opacity(0.1)
-        } else {
-            colors.element_background
-        })
-        .text_size(px(12.))
+        .when(running, |chip| chip.bg(status.info.opacity(0.08)))
+        .text_meta()
         .text_color(colors.text_muted)
         .cursor_pointer()
         .hover(|chip| chip.bg(colors.element_hover))

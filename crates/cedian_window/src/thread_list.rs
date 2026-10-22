@@ -2,6 +2,7 @@
 //! state dot, the title and a line with the state and when (Interface, Layout and Thread
 //! states as drawn).
 
+use crate::type_scale::TypeScale as _;
 use cedian_wire::{Status, ThreadInfo};
 use chrono::{DateTime, Utc};
 use gpui::{App, Div, Hsla, ParentElement as _, Styled as _, div, px};
@@ -116,7 +117,7 @@ pub fn badge(count: usize, failed: bool, cx: &App) -> Div {
         .justify_center()
         .bg(fill)
         .text_color(colors.background)
-        .text_size(px(11.))
+        .text_label()
         .font_weight(gpui::FontWeight::SEMIBOLD)
         .child(count.to_string())
 }

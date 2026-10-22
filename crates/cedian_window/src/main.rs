@@ -18,9 +18,10 @@ mod review_pane;
 mod root_view;
 mod settings_view;
 mod settings_window;
+mod sheet_header;
 mod shell_pane;
+mod sidebar_foot;
 mod sound;
-mod status_bar;
 mod tab_strip;
 mod thread_details;
 mod thread_list;
@@ -28,8 +29,9 @@ mod thread_search;
 mod tokens;
 mod tool_card;
 mod tool_rail;
-mod toolbar;
+mod type_scale;
 mod view_mode;
+mod workplace;
 
 use std::path::PathBuf;
 

@@ -4,10 +4,11 @@
 
 use cedian_agent::{Block, Transcript};
 use cedian_wire::ThreadInfo;
-use gpui::{App, Div, FontWeight, ParentElement as _, Styled as _, div, px};
+use gpui::{App, Div, FontWeight, ParentElement as _, Styled as _, div};
 use theme::ActiveTheme as _;
 
 use crate::tokens;
+use crate::type_scale::TypeScale as _;
 
 /// What the details show, read from the transcript.
 #[derive(Debug, Default, PartialEq)]
@@ -56,7 +57,7 @@ pub fn render(info: Option<&ThreadInfo>, details: &Details, cx: &App) -> Div {
     let label = |text: &'static str| {
         div()
             .pt_2()
-            .text_size(px(11.))
+            .text_label()
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(colors.text_muted)
             .child(text)
@@ -68,8 +69,7 @@ pub fn render(info: Option<&ThreadInfo>, details: &Details, cx: &App) -> Div {
         .flex_col()
         .gap_1()
         .p_3()
-        .text_size(px(12.))
-        .line_height(px(18.))
+        .text_meta()
         .bg(colors.panel_background)
         .text_color(colors.text);
     let Some(info) = info else {
@@ -82,7 +82,7 @@ pub fn render(info: Option<&ThreadInfo>, details: &Details, cx: &App) -> Div {
     column = column
         .child(
             div()
-                .text_size(px(13.))
+                .text_ui()
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(info.thread.title.clone()),
         )

@@ -7,38 +7,37 @@ use cedian_agent::{Block, ToolCall, Transcript};
 use cedian_protocol::{Line, Rating};
 use cedian_wire::Status;
 use gpui::{
-    AnyElement, App, Context, Div, EventEmitter, FontWeight, InteractiveElement as _, IntoElement,
+    AnyElement, App, Context, Div, EventEmitter, InteractiveElement as _, IntoElement,
     ListAlignment, ListState, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, WeakEntity, Window, actions, div, list,
-    prelude::FluentBuilder as _, px, relative, svg,
+    prelude::FluentBuilder as _, px, relative,
 };
 use theme::ActiveTheme as _;
 
+use crate::type_scale::TypeScale as _;
 use crate::{
     density::Density,
     line_breaks::wrapped,
     receipt::{Actions, Receipt},
-    thread_list, tokens, tool_card,
+    tokens, tool_card,
     view_mode::ViewMode,
 };
 
 actions!(agent_pane, [StopRun]);
 
 /// The widest an answer runs, for reading.
-const ANSWER_WIDTH: f32 = 680.;
+/// The conversation's column, centred in the sheet (Interface, Polish).
+const COLUMN_WIDTH: f32 = 700.;
 
 /// What the window tells the pane about the open thread, beyond its blocks.
 #[derive(Clone, Debug, Default)]
 pub struct Header {
     pub title: SharedString,
     pub status: Option<Status>,
-    /// Where the thread's latest session ran, for the branch chip.
-    pub cwd: Option<std::path::PathBuf>,
     pub rating: Option<Rating>,
 }
 
 pub enum AgentEvent {
-    Stop,
     Rate(Rating),
     ViewMode(ViewMode),
     /// Open the thread's review.
@@ -176,6 +175,15 @@ impl AgentPane {
         cx.notify();
     }
 
+    /// Opens or folds one block, a thinking line.
+    fn toggle_block(&mut self, index: usize, cx: &mut Context<Self>) {
+        if !self.unfolded.remove(&index) {
+            self.unfolded.insert(index);
+        }
+        self.list.splice(index..index + 1, 1);
+        cx.notify();
+    }
+
     fn run_end(&self, start: usize) -> usize {
         let blocks = self.transcript.blocks();
         let mut end = start;
@@ -204,7 +212,7 @@ impl AgentPane {
                 .flex()
                 .items_center()
                 .gap_3()
-                .text_size(px(12.))
+                .text_meta()
                 .text_color(colors.text_muted)
                 .child(div().flex_grow(1.).h(px(1.)).bg(colors.border))
                 .child(format!("session {role} · {model}"))
@@ -212,19 +220,16 @@ impl AgentPane {
             Block::User { text } => div().flex().justify_end().child(
                 div()
                     .max_w(relative(0.8))
-                    .px_3()
-                    .py_2()
-                    .rounded(px(12.))
+                    .px_4()
+                    .py(px(10.))
+                    .rounded(px(18.))
                     .bg(tokens.user_bubble)
-                    .text_size(px(14.))
-                    .line_height(px(24.))
+                    .text_message()
                     .child(wrapped(text)),
             ),
             Block::Text { text, streaming } => div()
-                .max_w(px(ANSWER_WIDTH))
                 .font(tokens::answer_font())
-                .text_size(px(15.5))
-                .line_height(px(26.))
+                .text_answer()
                 // A caret while the text streams.
                 .child(wrapped(&if *streaming {
                     format!("{text}▍")
@@ -232,28 +237,44 @@ impl AgentPane {
                     text.clone()
                 })),
             Block::Thinking { .. } if !self.view_mode.shows_thinking() => div(),
-            Block::Thinking { text, .. } => div().max_w(px(ANSWER_WIDTH)).child(
+            Block::Thinking { text, .. } => {
+                // One quiet line that opens to the thinking. How long it took waits for cedia
+                // to log when a thinking block starts and ends.
+                let open = self.unfolded.contains(&index);
+                let pane = pane.clone();
                 div()
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .px_3()
-                    .py_2()
-                    .rounded(px(8.))
-                    .border_1()
-                    .border_dashed()
-                    .border_color(colors.border)
-                    .text_size(px(13.))
-                    .line_height(px(21.))
-                    .text_color(colors.text_muted)
                     .child(
                         div()
-                            .text_size(px(11.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("ความคิด"),
+                            .id(("thinking", index))
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .text_meta()
+                            .text_color(colors.text_placeholder)
+                            .cursor_pointer()
+                            .hover(|line| line.text_color(colors.text_muted))
+                            .on_click(move |_, _, cx| {
+                                pane.update(cx, |pane, cx| pane.toggle_block(index, cx))
+                                    .ok();
+                            })
+                            .child("ความคิด")
+                            .child(if open { "⌄" } else { "›" }),
                     )
-                    .child(wrapped(text)),
-            ),
+                    .when(open, |thinking| {
+                        thinking.child(
+                            div()
+                                .pl_3()
+                                .border_l_2()
+                                .border_color(colors.border)
+                                .text_ui()
+                                .text_color(colors.text_muted)
+                                .child(wrapped(text)),
+                        )
+                    })
+            }
             Block::Tool(call) => return self.render_tool(index, call, pane, cx),
             Block::Result {
                 subtype,
@@ -271,7 +292,7 @@ impl AgentPane {
                 let latest = !blocks[index + 1..]
                     .iter()
                     .any(|b| matches!(b, Block::Result { .. }));
-                div().max_w(px(ANSWER_WIDTH)).child(
+                div().child(
                     Receipt {
                         subtype: *subtype,
                         text: (!said && !text.is_empty()).then_some(text.as_str()),
@@ -290,11 +311,7 @@ impl AgentPane {
                 )
             }
         };
-        div()
-            .px_4()
-            .py(self.density.block_gap())
-            .child(body)
-            .into_any_element()
+        column(body.py(self.density.block_gap())).into_any_element()
     }
 
     fn render_tool(
@@ -307,27 +324,18 @@ impl AgentPane {
         let start = self.run_start(index);
         let open = self.unfolded.contains(&start);
         if !self.view_mode.folds_tools() || open {
-            // The list gives an item its full width, so the cap goes on a child.
-            let column = div().max_w(px(ANSWER_WIDTH)).flex().flex_col().gap_1();
-            let column = if open && index == start {
-                column.child(self.fold_chip(start, true, pane, cx))
+            let cards = div().py(px(3.)).flex().flex_col().gap_1();
+            let cards = if open && index == start {
+                cards.child(self.fold_chip(start, true, pane, cx))
             } else {
-                column
+                cards
             };
-            return div()
-                .px_4()
-                .py(px(3.))
-                .child(column.child(tool_card::card(call, cx)))
-                .into_any_element();
+            return column(cards.child(tool_card::card(call, cx))).into_any_element();
         }
         if index != start {
             return div().into_any_element();
         }
-        div()
-            .px_4()
-            .py_1()
-            .child(self.fold_chip(start, false, pane, cx))
-            .into_any_element()
+        column(div().py_1().child(self.fold_chip(start, false, pane, cx))).into_any_element()
     }
 
     fn fold_chip(
@@ -347,23 +355,15 @@ impl AgentPane {
         let pane = pane.clone();
         div()
             .id(("tools", start))
-            .flex()
+            .w_full()
             .child(tool_card::chip(&calls, open, cx))
             .on_click(move |_, _, cx| {
                 pane.update(cx, |pane, cx| pane.toggle_run(start, cx)).ok();
             })
     }
 
-    /// The model and role of the latest session.
-    fn session(&self) -> Option<(&str, &str)> {
-        self.transcript.blocks().iter().rev().find_map(|b| match b {
-            Block::Session { model, role } => Some((model.as_str(), role.as_str())),
-            _ => None,
-        })
-    }
-
     /// What the thread's runs cost so far.
-    fn cost(&self) -> Option<f64> {
+    pub fn cost(&self) -> Option<f64> {
         let mut total = None;
         for block in self.transcript.blocks() {
             if let Block::Result { cost_usd, .. } = block {
@@ -373,81 +373,16 @@ impl AgentPane {
         total
     }
 
-    fn render_header(&self, cx: &mut Context<Self>) -> Div {
+    /// The thread's title, state and cost, which the sheet's header shows.
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
+    /// The context the latest turn held and the view mode: the composer's bottom row
+    /// (Interface, Polish). The session's model and role are on its divider.
+    pub fn chips(&self, pane: &WeakEntity<Self>, cx: &App) -> Div {
         let colors = cx.theme().colors();
-        let working = self.header.status == Some(Status::Working);
-        let pane = cx.entity().downgrade();
-        let emit = Self::emitter(&pane);
-        let title_row = div()
-            .h(px(44.))
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(
-                div()
-                    .flex_grow(1.)
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_size(px(16.))
-                    .line_height(px(24.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(self.header.title.clone()),
-            )
-            .children(self.header.status.map(|status| {
-                div()
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .gap_1p5()
-                    .text_size(px(12.))
-                    .text_color(colors.text_muted)
-                    .child(thread_list::dot(status, cx))
-                    .child(thread_list::state_word(status))
-            }))
-            .children(self.cost().map(|cost| {
-                div()
-                    .flex_none()
-                    .font(tokens::code_font())
-                    .text_size(px(12.))
-                    .text_color(colors.text_muted)
-                    .child(format!("${cost:.4}"))
-            }))
-            .when(working, |row| {
-                let emit = emit.clone();
-                row.child(
-                    div()
-                        .id("stop")
-                        .flex_none()
-                        .h(px(30.))
-                        .px_3()
-                        .flex()
-                        .items_center()
-                        .gap_1p5()
-                        .rounded(px(7.))
-                        .border_1()
-                        .border_color(colors.border)
-                        .bg(colors.element_background)
-                        .hover(|b| b.bg(colors.element_hover))
-                        .cursor_pointer()
-                        .text_size(px(13.))
-                        .child(
-                            svg()
-                                .path("icons/stop.svg")
-                                .size(px(12.))
-                                .text_color(colors.text),
-                        )
-                        .child("หยุด")
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(colors.text_muted)
-                                .child(STOP_KEY),
-                        )
-                        .on_click(move |_, _, cx| emit(AgentEvent::Stop, cx)),
-                )
-            });
+        let emit = Self::emitter(pane);
         let chip = || {
             div()
                 .flex_none()
@@ -459,25 +394,10 @@ impl AgentPane {
                 .rounded(px(6.))
                 .border_1()
                 .border_color(colors.border)
-                .text_size(px(12.))
+                .text_meta()
                 .text_color(colors.text_muted)
         };
-        let mut chips = div().flex().items_center().gap_1p5().pb_2();
-        if let Some(branch) = self.header.cwd.as_deref().and_then(branch_of) {
-            chips = chips.child(
-                chip()
-                    .child(
-                        svg()
-                            .path("icons/git_branch.svg")
-                            .size(px(12.))
-                            .text_color(colors.text_muted),
-                    )
-                    .child(div().font(tokens::code_font()).child(branch)),
-            );
-        }
-        if let Some((model, role)) = self.session() {
-            chips = chips.child(chip().child(format!("{model} · {role}")));
-        }
+        let mut chips = div().min_w_0().flex().items_center().gap_1p5();
         if let Some(context) = self.transcript.context() {
             chips = chips.child(
                 chip()
@@ -493,7 +413,7 @@ impl AgentPane {
             .border_1()
             .border_color(colors.border)
             .overflow_hidden()
-            .text_size(px(12.));
+            .text_meta();
         for (mode, key, label) in ViewMode::ALL {
             let on = mode == self.view_mode;
             let emit = emit.clone();
@@ -515,21 +435,14 @@ impl AgentPane {
                     .child(label),
             );
         }
-        chips = chips.child(div().flex_grow(1.)).child(modes);
-        div()
-            .flex_none()
-            .px_4()
-            .border_b_1()
-            .border_color(colors.border)
-            .child(title_row)
-            .child(chips)
+        chips.child(div().flex_grow(1.)).child(modes)
     }
 }
 
 #[cfg(target_os = "macos")]
-const STOP_KEY: &str = "⌘.";
+pub const STOP_KEY: &str = "⌘.";
 #[cfg(not(target_os = "macos"))]
-const STOP_KEY: &str = "Ctrl+.";
+pub const STOP_KEY: &str = "Ctrl+.";
 
 /// The branch of a worktree the daemon made: `.cedian/worktrees/<name>` is on `cedian/<name>`.
 pub(crate) fn branch_of(cwd: &Path) -> Option<String> {
@@ -537,6 +450,17 @@ pub(crate) fn branch_of(cwd: &Path) -> Option<String> {
     let parent = cwd.parent()?;
     (parent.file_name()? == "worktrees" && parent.parent()?.file_name()? == ".cedian")
         .then(|| format!("cedian/{name}"))
+}
+
+/// A block in the conversation's column: at most `COLUMN_WIDTH` wide, centred in the sheet.
+/// The list gives an item its full width, so the cap goes on a child.
+fn column(body: Div) -> Div {
+    div()
+        .w_full()
+        .px_6()
+        .flex()
+        .justify_center()
+        .child(div().w_full().max_w(px(COLUMN_WIDTH)).child(body))
 }
 
 /// `76k`, `1.2M`: tokens at a glance.
@@ -556,9 +480,7 @@ impl Render for AgentPane {
             .size_full()
             .flex()
             .flex_col()
-            .bg(colors.panel_background)
             .text_color(colors.text)
-            .child(self.render_header(cx))
             .child(
                 list(self.list.clone(), move |index, _window, cx| {
                     match pane.upgrade() {
