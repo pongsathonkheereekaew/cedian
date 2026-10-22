@@ -1149,6 +1149,7 @@ dependencies = [
  "anyhow",
  "cedian_index",
  "cedian_protocol",
+ "cedian_review",
  "cedian_wire",
  "futures",
  "libc",
@@ -1186,12 +1187,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cedian_review"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
 name = "cedian_window"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "assets",
  "cedian_agent",
+ "cedian_index",
  "cedian_protocol",
  "cedian_wire",
  "collections",
@@ -1219,6 +1230,7 @@ dependencies = [
  "anyhow",
  "cedian_index",
  "cedian_protocol",
+ "cedian_review",
  "serde",
  "serde_json",
 ]

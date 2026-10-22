@@ -8,16 +8,19 @@ use std::{
 };
 
 use cedian_index::{
-    list_threads, project_key, read_thread, session_lines, session_path, threads_dir,
+    ThreadSummary, list_threads, project_key, read_thread, session_cwd, session_lines,
+    session_path, threads_dir,
 };
 use cedian_protocol::{Line, SessionEvent, VersionInfo};
 use cedian_wire::{Notice, Request, Status, ThreadInfo};
 
 use crate::{
     Cedia,
+    desktop_settings::{read_desktop, set_desktop_key, settings_path},
     follow::{Offsets, follow},
     keep_awake::KeepAwake,
     ledger::{Ledger, RunRecord, still_running},
+    review::{Changes, DecisionStore, decide},
     run::{Run, RunId, watch},
 };
 
@@ -49,6 +52,7 @@ pub struct Daemon {
     by_thread: HashMap<String, RunId>,
     keep_awake: KeepAwake,
     ledger: Ledger,
+    decisions: DecisionStore,
     next_id: u64,
 }
 
@@ -68,6 +72,7 @@ impl Daemon {
             by_thread: HashMap::new(),
             keep_awake: KeepAwake::default(),
             ledger: Ledger::new(state_dir),
+            decisions: DecisionStore::new(state_dir),
             next_id: 1,
         }
     }
@@ -90,6 +95,7 @@ impl Daemon {
             daemon.runs.insert(
                 id,
                 Run {
+                    asked_in: record.cwd.clone(),
                     cwd: record.cwd,
                     slug: record.slug,
                     thread: Some(record.thread.clone()),
@@ -251,9 +257,22 @@ impl Daemon {
             .into_iter()
             .map(|thread| ThreadInfo {
                 status: Status::of(thread.state, self.running(&thread.id)),
+                cwd: self.thread_cwd(slug, &thread),
                 thread,
             })
             .collect())
+    }
+
+    /// The directory the thread's latest session ran in, if it is still there.
+    fn thread_cwd(&self, slug: &str, thread: &ThreadSummary) -> Option<PathBuf> {
+        let session = thread.sessions.last()?;
+        let path = session_path(
+            &self.home,
+            slug,
+            &session.session_id,
+            session.path.as_deref(),
+        );
+        session_cwd(&path).filter(|cwd| cwd.is_dir())
     }
 
     fn status(&self, slug: &str, thread: &str) -> Status {
@@ -320,18 +339,107 @@ impl Daemon {
                     c.open.remove(&thread);
                 }
             }
-            Request::Prompt { cwd, text, thread } => {
+            Request::Prompt {
+                cwd,
+                text,
+                thread,
+                worktree,
+            } => {
                 let running = thread.as_deref().is_some_and(|t| lock(shared).running(t));
                 match thread {
                     // A run is already working on it: the text joins at its next turn.
                     Some(thread) if running => Self::message(shared, client, &cwd, &thread, &text),
-                    thread => Self::prompt(shared, client, cwd, &text, thread),
+                    None if worktree => Self::prompt_in_worktree(shared, client, cwd, &text),
+                    thread => Self::prompt(shared, client, cwd.clone(), cwd, &text, thread),
                 }
             }
             Request::Send { cwd, thread, text } => {
                 Self::message(shared, client, &cwd, &thread, &text)
             }
             Request::Stop { thread } => lock(shared).stop(client, &thread),
+            Request::Settings => lock(shared).settings(client),
+            Request::SetDesktop { key, value } => lock(shared).set_desktop(client, &key, value),
+            Request::Review { cwd, thread } => {
+                lock(shared).review(client, &cwd, &thread, None);
+            }
+            Request::Decide {
+                cwd,
+                thread,
+                hunk,
+                decision,
+            } => {
+                let told = lock(shared).review(client, &cwd, &thread, Some((&hunk, &decision)));
+                if let Some((work_tree, text)) = told {
+                    Self::message(shared, client, &work_tree, &thread, &text);
+                }
+            }
+        }
+    }
+
+    fn settings(&mut self, client: ClientId) {
+        let path = settings_path(&self.home);
+        match read_desktop(&path) {
+            Ok(desktop) => self.send(client, Notice::Settings { path, desktop }),
+            Err(error) => self.error(client, format!("{error:#}")),
+        }
+    }
+
+    fn set_desktop(&mut self, client: ClientId, key: &str, value: serde_json::Value) {
+        let path = settings_path(&self.home);
+        match set_desktop_key(&path, key, value) {
+            Ok(desktop) => {
+                let clients: Vec<ClientId> = self.clients.keys().copied().collect();
+                for id in clients {
+                    let notice = Notice::Settings {
+                        path: path.clone(),
+                        desktop: desktop.clone(),
+                    };
+                    self.send(id, notice);
+                }
+            }
+            Err(error) => self.error(client, format!("{error:#}")),
+        }
+    }
+
+    /// Sends the thread's review, after applying a decision if there is one. A reject returns
+    /// the worktree and the message for the thread.
+    fn review(
+        &mut self,
+        client: ClientId,
+        cwd: &Path,
+        thread: &str,
+        decision: Option<(&str, &cedian_wire::Decision)>,
+    ) -> Option<(PathBuf, String)> {
+        let slug = project_key(cwd);
+        let result = (|| {
+            let summary = read_thread(&threads_dir(&self.home, &slug), thread)?;
+            let changes = Changes::of(&self.home, &slug, &summary)?;
+            let mut decisions = self.decisions.load(thread);
+            let mut review = changes.review(&self.home, &decisions)?;
+            let mut told = None;
+            if let Some((hunk, decision)) = decision {
+                let text = decide(&review, &changes.work_tree, &mut decisions, hunk, decision)?;
+                self.decisions.save(thread, &decisions)?;
+                told = text.map(|text| (changes.work_tree.clone(), text));
+                review = changes.review(&self.home, &decisions)?;
+            }
+            anyhow::Ok((review, told))
+        })();
+        match result {
+            Ok((review, told)) => {
+                self.send(
+                    client,
+                    Notice::Review {
+                        thread: thread.to_owned(),
+                        review,
+                    },
+                );
+                told
+            }
+            Err(error) => {
+                self.error(client, format!("{error:#}"));
+                None
+            }
         }
     }
 
@@ -389,15 +497,54 @@ impl Daemon {
         }
     }
 
-    fn prompt(shared: &Shared, client: ClientId, cwd: PathBuf, text: &str, thread: Option<String>) {
+    /// A new thread in a new worktree. Creating it runs git, so the daemon is not locked
+    /// meanwhile.
+    fn prompt_in_worktree(shared: &Shared, client: ClientId, asked_in: PathBuf, text: &str) {
+        lock(shared).send(
+            client,
+            Notice::Preparing {
+                cwd: asked_in.clone(),
+                step: "creating a worktree".into(),
+            },
+        );
+        match crate::worktree::create(&asked_in, text) {
+            Ok((dir, branch)) => {
+                log::info!("worktree {} on {branch}", dir.display());
+                lock(shared).send(
+                    client,
+                    Notice::Preparing {
+                        cwd: asked_in.clone(),
+                        step: format!("starting on {branch}"),
+                    },
+                );
+                Self::prompt(shared, client, asked_in, dir, text, None);
+            }
+            Err(error) => lock(shared).error(client, format!("{error:#}")),
+        }
+    }
+
+    /// One run. `asked_in` is the window's project directory, which notices name; the run
+    /// itself goes in `cwd`, or in a resumed thread's own directory.
+    fn prompt(
+        shared: &Shared,
+        client: ClientId,
+        asked_in: PathBuf,
+        cwd: PathBuf,
+        text: &str,
+        thread: Option<String>,
+    ) {
         let mut daemon = lock(shared);
         let slug = project_key(&cwd);
-        let before = match &thread {
+        let (before, cwd) = match &thread {
             Some(thread) => match read_thread(&threads_dir(&daemon.home, &slug), thread) {
-                Ok(summary) => summary.sessions.into_iter().map(|s| s.session_id).collect(),
+                Ok(summary) => {
+                    let own = daemon.thread_cwd(&slug, &summary).unwrap_or(cwd);
+                    let before = summary.sessions.into_iter().map(|s| s.session_id).collect();
+                    (before, own)
+                }
                 Err(error) => return daemon.error(client, format!("{error:#}")),
             },
-            None => HashSet::new(),
+            None => (HashSet::new(), cwd),
         };
         let child = match daemon.cedia.prompt(&cwd, text, thread.as_deref()) {
             Ok(child) => child,
@@ -408,6 +555,7 @@ impl Daemon {
         daemon.runs.insert(
             id,
             Run {
+                asked_in,
                 cwd,
                 slug,
                 thread: None,
@@ -441,7 +589,7 @@ impl Daemon {
         };
         run.thread = Some(thread.clone());
         let requester = run.requester;
-        let cwd = run.cwd.clone();
+        let cwd = run.asked_in.clone();
         let slug = run.slug.clone();
         self.save_ledger();
         if let Some(requester) = requester
