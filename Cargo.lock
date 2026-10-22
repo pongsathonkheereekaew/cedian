@@ -1220,6 +1220,7 @@ dependencies = [
  "collections",
  "editor",
  "futures",
+ "fuzzy",
  "gpui",
  "gpui_platform",
  "icu_segmenter",

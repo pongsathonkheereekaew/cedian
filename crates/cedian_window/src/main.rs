@@ -9,6 +9,7 @@ mod density;
 mod desktop;
 mod dock;
 mod export;
+mod file_finder;
 mod file_tree;
 mod git_pane;
 mod layout;
@@ -117,6 +118,11 @@ fn mode() -> anyhow::Result<Mode> {
 const STOP_KEY: &str = "cmd-.";
 #[cfg(not(target_os = "macos"))]
 const STOP_KEY: &str = "ctrl-.";
+/// Finds a file by name, as in Zed and VS Code.
+#[cfg(target_os = "macos")]
+const FIND_FILE_KEY: &str = "cmd-p";
+#[cfg(not(target_os = "macos"))]
+const FIND_FILE_KEY: &str = "ctrl-p";
 #[cfg(target_os = "macos")]
 const SEARCH_KEY: &str = "cmd-k";
 #[cfg(not(target_os = "macos"))]
@@ -167,6 +173,15 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         KeyBinding::new(STOP_KEY, agent_pane::StopRun, None),
         KeyBinding::new(STOP_KEY, agent_pane::StopRun, Some("Composer > Editor")),
         KeyBinding::new(SEARCH_KEY, thread_search::FocusSearch, None),
+        KeyBinding::new(FIND_FILE_KEY, file_finder::FindFile, None),
+        KeyBinding::new(
+            FIND_FILE_KEY,
+            file_finder::FindFile,
+            Some("Composer > Editor"),
+        ),
+        KeyBinding::new("up", file_finder::Previous, Some("FileFinder > Editor")),
+        KeyBinding::new("down", file_finder::Next, Some("FileFinder > Editor")),
+        KeyBinding::new("enter", file_finder::Pick, Some("FileFinder > Editor")),
         KeyBinding::new(
             SEARCH_KEY,
             thread_search::FocusSearch,
@@ -201,11 +216,14 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     ]);
     cx.bind_keys(block_keys::bindings());
     // After the block keys' window-wide Escape, which would otherwise take it first.
-    cx.bind_keys([KeyBinding::new(
-        "escape",
-        composer::CommandDismiss,
-        Some("CommandList > Editor"),
-    )]);
+    cx.bind_keys([
+        KeyBinding::new(
+            "escape",
+            composer::CommandDismiss,
+            Some("CommandList > Editor"),
+        ),
+        KeyBinding::new("escape", file_finder::Close, Some("FileFinder > Editor")),
+    ]);
     // Bound in the composer too, where Zed's keymap would otherwise take some of these keys.
     let (new_tab, close_tab, pick) = TAB_KEYS;
     for context in [None, Some("Composer > Editor")] {

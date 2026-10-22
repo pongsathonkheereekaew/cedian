@@ -8,7 +8,8 @@ use std::path::PathBuf;
 use cedian_protocol::Line;
 use cedian_wire::Notice;
 use gpui::{
-    AppContext as _, Bounds, Pixels, TestAppContext, TestDispatcher, VisualTestContext, px, size,
+    AppContext as _, Bounds, Focusable as _, Pixels, TestAppContext, TestDispatcher,
+    VisualTestContext, px, size,
 };
 
 use super::{Kind, RootView};
@@ -214,4 +215,41 @@ fn a_cut_label_shows_its_whole_text_on_hover_and_one_that_fits_does_not() {
         cx.notify();
     });
     assert!(hover_model(cx), "the long model name is cut");
+}
+
+#[test]
+fn the_file_finder_matches_letters_in_order_and_opens_the_best() {
+    use crate::file_finder::{FileFinder, FinderEvent, Pick};
+    let mut app = app();
+    let files: Vec<PathBuf> = [
+        "README.md",
+        "crates/cedian_window/src/root_view.rs",
+        "crates/cedian_window/src/root_view/blocks.rs",
+        "crates/cedian_layout/src/block.rs",
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .collect();
+    let (finder, cx) = app
+        .add_window_view(|window, cx| FileFinder::new(PathBuf::from("/repo"), &files, window, cx));
+    let opened = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let seen = opened.clone();
+    cx.update(|window, cx| {
+        window.focus(&finder.focus_handle(cx), cx);
+        cx.subscribe(&finder, move |_, event, _| {
+            if let FinderEvent::Open(path) = event {
+                *seen.borrow_mut() = Some(path.clone());
+            }
+        })
+        .detach();
+    });
+    cx.simulate_input("rvblk");
+    cx.run_until_parked();
+    cx.dispatch_action(Pick);
+    assert_eq!(
+        opened.borrow().as_deref(),
+        Some(std::path::Path::new(
+            "/repo/crates/cedian_window/src/root_view/blocks.rs"
+        ))
+    );
 }
