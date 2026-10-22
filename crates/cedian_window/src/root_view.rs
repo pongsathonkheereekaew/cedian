@@ -1724,7 +1724,13 @@ impl RootView {
             _ => None,
         };
         let notice = failure.or_else(|| self.error.clone());
-        let chips = self.agent.read(cx).chips(&self.agent.downgrade(), cx);
+        let window = self
+            .writer_model(cx)
+            .and_then(|model| self.choices.context_window(&model));
+        let chips = self
+            .agent
+            .read(cx)
+            .chips(&self.agent.downgrade(), window, cx);
         let working = self.project().status == Some(Status::Working);
         let colors = cx.theme().colors().clone();
         div()

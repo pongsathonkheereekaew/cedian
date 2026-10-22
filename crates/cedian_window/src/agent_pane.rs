@@ -432,7 +432,9 @@ impl AgentPane {
 
     /// The context the latest turn held and the view mode: the composer's bottom row
     /// (Interface, Polish). The session's model and role are on its divider.
-    pub fn chips(&self, pane: &WeakEntity<Self>, cx: &App) -> Div {
+    /// The composer row's context meter and view modes. `window`: the writer model's context
+    /// window, when cedia lists the model (`cedia models`).
+    pub fn chips(&self, pane: &WeakEntity<Self>, window: Option<u64>, cx: &App) -> Div {
         let colors = cx.theme().colors();
         let emit = Self::emitter(pane);
         let chip = || {
@@ -451,11 +453,46 @@ impl AgentPane {
         };
         let mut chips = div().min_w_0().flex().items_center().gap_1p5();
         if let Some(context) = self.transcript.context() {
-            chips = chips.child(
-                chip()
+            let meter = match window.filter(|w| *w > 0) {
+                Some(window) => {
+                    let used = (context as f32 / window as f32).clamp(0., 1.);
+                    let status = cx.theme().status();
+                    // Near the window a handoff or compaction comes soon.
+                    let fill = if used >= 0.9 {
+                        status.error
+                    } else if used >= 0.75 {
+                        status.warning
+                    } else {
+                        colors.text_muted
+                    };
+                    chip()
+                        .font(tokens::numeric_font())
+                        .child(
+                            div()
+                                .flex_none()
+                                .w(px(METER_WIDTH))
+                                .h(px(4.))
+                                .rounded_full()
+                                .bg(colors.element_selected)
+                                .child(
+                                    div()
+                                        .h_full()
+                                        .w(px((METER_WIDTH * used).max(2.)))
+                                        .rounded_full()
+                                        .bg(fill),
+                                ),
+                        )
+                        .child(format!(
+                            "{} / {}",
+                            short_tokens(context),
+                            short_tokens(window)
+                        ))
+                }
+                None => chip()
                     .font(tokens::numeric_font())
                     .child(format!("{} context", short_tokens(context))),
-            );
+            };
+            chips = chips.child(meter);
         }
         let mut modes = div()
             .flex_none()
@@ -516,10 +553,14 @@ fn column(body: Div) -> Div {
 }
 
 /// `76k`, `1.2M`: tokens at a glance.
+/// The context meter's bar.
+const METER_WIDTH: f32 = 28.;
+
 fn short_tokens(n: u64) -> String {
     match n {
         ..1_000 => n.to_string(),
         1_000..1_000_000 => format!("{}k", n / 1_000),
+        _ if n.is_multiple_of(1_000_000) => format!("{}M", n / 1_000_000),
         _ => format!("{:.1}M", n as f64 / 1_000_000.),
     }
 }
@@ -564,5 +605,6 @@ mod tests {
         assert_eq!(short_tokens(812), "812");
         assert_eq!(short_tokens(76_400), "76k");
         assert_eq!(short_tokens(1_250_000), "1.2M");
+        assert_eq!(short_tokens(1_000_000), "1M");
     }
 }

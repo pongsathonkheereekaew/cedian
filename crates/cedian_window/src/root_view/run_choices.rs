@@ -102,6 +102,11 @@ impl RunChoices {
         (model, permission.map(|p| p.to_string()))
     }
 
+    /// The context window of the listed model a ref or alias names.
+    pub(super) fn context_window(&self, name: &str) -> Option<u64> {
+        self.entry(name).map(|m| m.context_window as u64)
+    }
+
     /// The listed model a ref or alias names.
     fn entry(&self, name: &str) -> Option<&ModelEntry> {
         self.models

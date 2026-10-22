@@ -1092,7 +1092,12 @@ impl RootView {
             Kind::Files => self.files.clone().into_any_element(),
             Kind::Git => self.git.clone().into_any_element(),
             Kind::Session => {
-                let details = Details::of(self.agent.read(cx).transcript());
+                let details = Details {
+                    context_window: self
+                        .writer_model(cx)
+                        .and_then(|model| self.choices.context_window(&model)),
+                    ..Details::of(self.agent.read(cx).transcript())
+                };
                 let info = self.project().info();
                 div()
                     .id("details")
