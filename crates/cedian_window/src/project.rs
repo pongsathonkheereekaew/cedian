@@ -17,6 +17,8 @@ use crate::{
 pub struct Project {
     pub cwd: PathBuf,
     pub threads: Vec<ThreadInfo>,
+    /// The top-level threads archived, last changed first, which the sidebar can bring back.
+    pub archived: Vec<ThreadInfo>,
     /// The thread the tab shows, if it has one yet.
     pub current: Option<String>,
     pub status: Option<Status>,
@@ -35,6 +37,7 @@ impl Project {
         Self {
             cwd,
             threads: Vec::new(),
+            archived: Vec::new(),
             current: None,
             status: None,
             awaiting_thread: false,
@@ -54,13 +57,17 @@ impl Project {
         self.threads.iter().find(|t| &t.thread.id == id)
     }
 
-    /// The top-level threads still in use: archived ones and sub-threads stay out of the list.
-    /// Returns how each run that was working in the last list ended, for the sound.
+    /// The top-level threads still in use, and apart from them the archived ones; sub-threads
+    /// stay out of both. Returns how each run that was working in the last list ended, for the
+    /// sound.
     pub fn set_threads(&mut self, threads: Vec<ThreadInfo>) -> Vec<Ending> {
-        let threads: Vec<ThreadInfo> = threads
+        let (mut archived, threads): (Vec<ThreadInfo>, Vec<ThreadInfo>) = threads
             .into_iter()
-            .filter(|t| !t.thread.archived && t.thread.parent.is_none())
-            .collect();
+            .filter(|t| t.thread.parent.is_none())
+            .partition(|t| t.thread.archived);
+        // RFC 3339 times from one clock sort as text.
+        archived.sort_by(|a, b| b.thread.updated_at.cmp(&a.thread.updated_at));
+        self.archived = archived;
         let endings = threads
             .iter()
             .filter_map(|t| {
@@ -113,4 +120,38 @@ pub fn name_of(cwd: &std::path::Path) -> SharedString {
     cwd.file_name()
         .map_or_else(|| "cedian".to_owned(), |n| n.to_string_lossy().into_owned())
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn info(id: &str, archived: bool, parent: Option<&str>, at: &str) -> ThreadInfo {
+        ThreadInfo {
+            thread: serde_json::from_value(serde_json::json!({
+                "id": id, "title": id, "task": id, "state": "done", "result": null,
+                "parent": parent, "archived": archived, "sessions": [], "messages": [],
+                "pending": [], "updated_at": at
+            }))
+            .expect("summary"),
+            status: Status::Done,
+            cwd: None,
+            needs_you: false,
+        }
+    }
+
+    #[test]
+    fn archived_threads_are_kept_apart_newest_first() {
+        let mut project = Project::new(PathBuf::from("/repo"));
+        project.set_threads(vec![
+            info("a", false, None, "2026-10-22T01:00:00.000Z"),
+            info("b", true, None, "2026-10-22T02:00:00.000Z"),
+            info("c", true, None, "2026-10-22T03:00:00.000Z"),
+            info("d", true, Some("a"), "2026-10-22T04:00:00.000Z"),
+        ]);
+        let ids =
+            |list: &[ThreadInfo]| list.iter().map(|t| t.thread.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&project.threads), ["a"]);
+        assert_eq!(ids(&project.archived), ["c", "b"]);
+    }
 }

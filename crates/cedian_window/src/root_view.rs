@@ -101,6 +101,8 @@ pub struct RootView {
     should_move: bool,
     /// The thread archived last, while the sidebar offers to bring it back.
     archived: Option<Archived>,
+    /// Whether the sidebar lists the tab's archived threads.
+    show_archived: bool,
     /// Whether a run that ends plays a sound (`desktop.sound`).
     sound: Sound,
     /// The count last put on the Dock icon.
@@ -321,6 +323,7 @@ impl RootView {
             saving_layout: None,
             should_move: false,
             archived: None,
+            show_archived: false,
             sound: Sound::Off,
             dock_badge: None,
         }
@@ -1213,12 +1216,24 @@ impl RootView {
 
     fn unarchive(&mut self, cx: &mut Context<Self>) {
         if let Some(archived) = self.archived.take() {
-            self.request(Request::Archive {
-                cwd: archived.cwd,
-                thread: archived.thread,
-                archived: false,
-            });
+            self.bring_back(archived.cwd, archived.thread, cx);
         }
+    }
+
+    /// Takes a thread out of the archive, so it is listed with the rest again.
+    fn bring_back(&mut self, cwd: PathBuf, thread: String, cx: &mut Context<Self>) {
+        if self
+            .archived
+            .as_ref()
+            .is_some_and(|archived| archived.thread == thread)
+        {
+            self.archived = None;
+        }
+        self.request(Request::Archive {
+            cwd,
+            thread,
+            archived: false,
+        });
         cx.notify();
     }
 
@@ -1288,6 +1303,7 @@ impl RootView {
         if self.layout.sidebar_folded {
             return self.render_folded_threads(cx);
         }
+        let archived = self.render_archived(cx);
         let colors = cx.theme().colors();
         let status_colors = cx.theme().status();
         let now = chrono::Utc::now();
@@ -1464,6 +1480,7 @@ impl RootView {
             .bg(colors.panel_background)
             .text_color(colors.text)
             .child(list)
+            .child(archived)
             .when_some(self.archived.as_ref(), |sidebar, archived| {
                 sidebar.child(
                     div()
@@ -1497,6 +1514,125 @@ impl RootView {
                 )
             })
             .into_any_element()
+    }
+}
+
+impl RootView {
+    /// The foot of the sidebar: how many threads are archived, and when opened, each with a way
+    /// to bring it back.
+    fn render_archived(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let colors = cx.theme().colors().clone();
+        let archived = &self.project().archived;
+        let now = chrono::Utc::now();
+        let open = self.show_archived && !archived.is_empty();
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .px_2()
+            .pb_2()
+            .when(!archived.is_empty(), |foot| {
+                foot.border_t_1().border_color(colors.border)
+            })
+            .when(open, |foot| {
+                foot.child(
+                    div()
+                        .id("archived-threads")
+                        .max_h(px(240.))
+                        .overflow_y_scroll()
+                        .flex()
+                        .flex_col()
+                        .children(archived.iter().map(|info| {
+                            let cwd = self.project().cwd.clone();
+                            let id = info.thread.id.clone();
+                            div()
+                                .id(SharedString::from(format!("archived-{id}")))
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .px_2()
+                                .py(px(5.))
+                                .rounded(px(8.))
+                                .group("archived-row")
+                                .hover(|row| row.bg(colors.element_hover))
+                                .child(
+                                    div()
+                                        .flex_grow(1.)
+                                        .min_w_0()
+                                        .flex()
+                                        .flex_col()
+                                        .child(
+                                            div()
+                                                .text_size(px(13.))
+                                                .line_height(px(20.))
+                                                .truncate()
+                                                .text_color(colors.text_muted)
+                                                .child(info.thread.title.clone()),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(px(12.))
+                                                .line_height(px(18.))
+                                                .text_color(colors.text_placeholder)
+                                                .child(thread_list::since(
+                                                    &info.thread.updated_at,
+                                                    now,
+                                                )),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!("bring-back-{id}")))
+                                        .flex_none()
+                                        .px_1()
+                                        .rounded(px(4.))
+                                        .cursor_pointer()
+                                        .text_size(px(12.))
+                                        .text_color(colors.text_accent)
+                                        .opacity(0.)
+                                        .group_hover("archived-row", |b| b.opacity(1.))
+                                        .hover(|b| b.bg(colors.element_selected))
+                                        .on_click(cx.listener(move |view, _, _, cx| {
+                                            view.bring_back(cwd.clone(), id.clone(), cx)
+                                        }))
+                                        .child("เอากลับ"),
+                                )
+                        })),
+                )
+            })
+            .when(!archived.is_empty(), |foot| {
+                foot.child(
+                    div()
+                        .id("show-archived")
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .mt_1()
+                        .px_2()
+                        .h(px(28.))
+                        .rounded(px(8.))
+                        .cursor_pointer()
+                        .text_size(px(12.))
+                        .text_color(colors.text_muted)
+                        .hover(|b| b.bg(colors.element_hover))
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.show_archived = !view.show_archived;
+                            cx.notify();
+                        }))
+                        .child(
+                            svg()
+                                .path("icons/archive.svg")
+                                .size(px(12.))
+                                .text_color(colors.text_muted),
+                        )
+                        .child(
+                            div()
+                                .flex_grow(1.)
+                                .child(format!("เก็บแล้ว {}", archived.len())),
+                        )
+                        .child(if open { "ซ่อน" } else { "ดู" }),
+                )
+            })
     }
 }
 
