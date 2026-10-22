@@ -26,6 +26,8 @@ pub struct Transcript {
     streaming_for: Option<String>,
     /// The first block changed since the last `take_changed_from`.
     changed_from: Option<usize>,
+    /// Tokens the latest turn held: its prompt and its answer.
+    context: Option<u64>,
 }
 
 impl Transcript {
@@ -45,6 +47,11 @@ impl Transcript {
     fn push(&mut self, block: Block) {
         self.changed(self.blocks.len());
         self.blocks.push(block);
+    }
+
+    /// Tokens in the context after the latest turn, for the header's meter.
+    pub fn context(&self) -> Option<u64> {
+        self.context
     }
 
     /// This transcript's thread id, once its first session event has arrived.
@@ -87,6 +94,7 @@ impl Transcript {
             text: result.result.clone(),
             cost_usd: result.cost_usd,
             turns: result.num_turns as u32,
+            wall_ms: result.timing.as_ref().map(|t| t.wall_ms),
             evidence: result.evidence.clone(),
         });
     }
@@ -161,7 +169,10 @@ impl Transcript {
             }),
             SessionEvent::User { text, .. } => self.push(Block::User { text: text.clone() }),
             SessionEvent::Result { result, .. } => self.push_result(result),
-            SessionEvent::Assistant { blocks, .. } => {
+            SessionEvent::Assistant { blocks, usage, .. } => {
+                self.context = Some(
+                    (usage.uncached + usage.cache_read + usage.cache_write + usage.output) as u64,
+                );
                 if let Some(start) = self.streaming_from.take() {
                     self.blocks.truncate(start);
                     self.changed(start);
@@ -186,20 +197,28 @@ impl Transcript {
                     });
                 }
             }
-            SessionEvent::ToolIntent { call_id, .. } => {
+            SessionEvent::ToolIntent { call_id, at, .. } => {
                 if let Some(call) = self.tool_mut(call_id) {
                     call.state = ToolState::Running;
+                    call.started_at = Some(at.clone());
                 }
             }
             SessionEvent::ToolResult {
                 call_id,
                 status,
                 output,
+                at,
                 ..
             } => {
                 if let Some(call) = self.tool_mut(call_id) {
                     call.state = ToolState::Done(*status);
                     call.output = Some(output.text.clone());
+                    call.is_error = output.is_error;
+                    call.exit_code = output.exit_code;
+                    call.ms = call
+                        .started_at
+                        .as_deref()
+                        .and_then(|start| millis(start, at));
                 }
             }
             _ => {}
@@ -242,7 +261,18 @@ fn final_block(block: &AssistantBlock) -> Option<Block> {
             permission: None,
             state: ToolState::Requested,
             output: None,
+            is_error: false,
+            exit_code: None,
+            started_at: None,
+            ms: None,
         })),
         _ => None,
     }
+}
+
+/// Milliseconds between two of cedia's RFC 3339 times.
+fn millis(from: &str, to: &str) -> Option<i64> {
+    let from = chrono::DateTime::parse_from_rfc3339(from).ok()?;
+    let to = chrono::DateTime::parse_from_rfc3339(to).ok()?;
+    Some((to - from).num_milliseconds())
 }

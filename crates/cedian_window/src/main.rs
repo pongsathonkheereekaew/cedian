@@ -6,6 +6,7 @@ mod desktop;
 mod dock;
 mod layout;
 mod line_breaks;
+mod receipt;
 mod replay;
 mod review_pane;
 mod root_view;
@@ -16,6 +17,8 @@ mod spike_view;
 mod tab_strip;
 mod thread_list;
 mod tokens;
+mod tool_card;
+mod view_mode;
 
 use std::path::PathBuf;
 
@@ -91,6 +94,11 @@ fn mode() -> anyhow::Result<Mode> {
     }))
 }
 
+#[cfg(target_os = "macos")]
+const STOP_KEY: &str = "cmd-.";
+#[cfg(not(target_os = "macos"))]
+const STOP_KEY: &str = "ctrl-.";
+
 fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     crate::assets::Assets
         .load_fonts(cx)
@@ -115,6 +123,10 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
             Some("RejectReason > Editor"),
         ),
         KeyBinding::new("escape", review_pane::Cancel, Some("RejectReason > Editor")),
+        // Stop works from anywhere in the window, the composer too, where Zed's keymap gives
+        // the key to code actions.
+        KeyBinding::new(STOP_KEY, agent_pane::StopRun, None),
+        KeyBinding::new(STOP_KEY, agent_pane::StopRun, Some("Composer > Editor")),
     ]);
     // Zed's keymap binds cmd-q (ctrl-q on Linux) to zed::Quit; the app menu gives macOS its
     // Quit item. Quitting the window never stops a thread: the daemon runs on.
@@ -136,7 +148,9 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     .detach();
 
     let desktop = desktop::read_at_launch();
-    desktop::Desktop::from_value(&desktop).apply(cx);
+    let settings = desktop::Desktop::from_value(&desktop);
+    settings.apply(cx);
+    let view_mode = settings.view_mode;
     let layout = layout::Layout::from_desktop(&desktop);
     let saved = match &mode {
         Mode::Live { .. } => layout.bounds_on_screen(cx),
@@ -158,10 +172,10 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         ..Default::default()
     };
     cx.open_window(options, |window, cx| match mode {
-        Mode::Live { cwd } => cx.new(|cx| RootView::live(cwd, layout, window, cx)),
+        Mode::Live { cwd } => cx.new(|cx| RootView::live(cwd, layout, view_mode, window, cx)),
         Mode::Replay(replay) => {
             let title = format!("replay {}", replay.path.display());
-            let agent = cx.new(|_| AgentPane::new(title));
+            let agent = cx.new(|_| AgentPane::new(title).with_view_mode(view_mode));
             replay::play(replay, agent.clone(), cx);
             cx.new(|cx| RootView::replay(agent, window, cx))
         }

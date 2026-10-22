@@ -3,5 +3,5 @@
 mod block;
 mod transcript;
 
-pub use block::{Block, Permission, ToolCall, ToolState};
+pub use block::{Block, DiffLine, Permission, ToolCall, ToolState};
 pub use transcript::Transcript;

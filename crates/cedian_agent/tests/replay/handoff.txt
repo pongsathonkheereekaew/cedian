@@ -1,10 +1,10 @@
 session code on faux/scripted
 user: make f.txt say good
-tool bash [c1] allowed by mode:workspace: completed: 1
+tool bash [c1] allowed by mode:workspace: completed exit 0: 1
 text: Wrote f.txt. Next: run the check.
 session code on faux/scripted
 user: make f.txt say good
-tool bash [c2] allowed by effect:read: completed: (no output)
+tool bash [c2] allowed by effect:read: completed exit 0: (no output)
 text: done
 result success after 4 turns, verified: done
   check `grep -q good f.txt` exit 0 in t-00000001

@@ -197,6 +197,32 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
 }
 
 #[test]
+fn a_rating_reaches_the_thread_and_the_list() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    window.ask(Request::Prompt {
+        cwd: harness.cwd.clone(),
+        text: "make f.txt say good".into(),
+        thread: None,
+        worktree: false,
+    });
+    window.until(status_is(Status::Done));
+    window.ask(Request::Rate {
+        cwd: harness.cwd.clone(),
+        thread: "t-00000001".into(),
+        rating: cedian_protocol::Rating::Up,
+    });
+    // The thread watch sees the file change and sends the list again.
+    window.until(|n| {
+        matches!(n, Notice::Threads { threads, .. }
+            if threads.first().is_some_and(|t| t.thread.rating == Some(cedian_protocol::Rating::Up)))
+    });
+}
+
+#[test]
 fn a_thread_left_working_reads_as_interrupted() {
     let harness = start("edit-and-check");
     std::fs::create_dir_all(&harness.threads).expect("threads dir");

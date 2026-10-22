@@ -1,5 +1,5 @@
 session code on faux/scripted
 user: make f.txt say good or great
-tool bash [c1] allowed by mode:workspace: completed: (no output)
+tool bash [c1] allowed by mode:workspace: completed exit 0: (no output)
 tool ask_user [a1] allowed by effect:read: completed: Asked. This run ends after this turn; the owner's answer will arrive as the next message of this thread.
 result asked after 2 turns: Should f.txt say good or great? The task allows both; I wrote good.

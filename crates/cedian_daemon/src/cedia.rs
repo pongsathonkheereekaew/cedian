@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Context as _;
-use cedian_protocol::VersionInfo;
+use cedian_protocol::{Rating, VersionInfo};
 
 /// How the daemon starts cedia: which binary, with which environment.
 #[derive(Clone, Debug)]
@@ -91,16 +91,31 @@ impl Cedia {
 
     /// `cedia threads send <id> -- <text>`: the thread sees it at its next turn.
     pub fn send(&self, cwd: &Path, thread: &str, text: &str) -> anyhow::Result<()> {
+        self.threads(cwd, &["send", thread, "--", text])
+    }
+
+    /// `cedia threads rate <id> up|down`.
+    pub fn rate(&self, cwd: &Path, thread: &str, rating: Rating) -> anyhow::Result<()> {
+        let word = match rating {
+            Rating::Up => "up",
+            Rating::Down => "down",
+        };
+        self.threads(cwd, &["rate", thread, word])
+    }
+
+    /// `cedia threads --cwd <cwd> <args>`, which writes one event to a thread's file.
+    fn threads(&self, cwd: &Path, args: &[&str]) -> anyhow::Result<()> {
         let output = self
             .command(cwd)
             .args(["threads", "--cwd"])
             .arg(cwd)
-            .args(["send", thread, "--", text])
+            .args(args)
             .output()
             .with_context(|| format!("running {}", self.bin.display()))?;
         anyhow::ensure!(
             output.status.success(),
-            "cedia threads send exited with {}: {}",
+            "cedia threads {} exited with {}: {}",
+            args.first().copied().unwrap_or_default(),
             output.status,
             String::from_utf8_lossy(&output.stderr).trim()
         );

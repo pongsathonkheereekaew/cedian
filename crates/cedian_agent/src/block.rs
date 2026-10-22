@@ -28,6 +28,8 @@ pub enum Block {
         text: String,
         cost_usd: f64,
         turns: u32,
+        /// How long the run took, from its timing.
+        wall_ms: Option<f64>,
         evidence: Option<Evidence>,
     },
 }
@@ -54,6 +56,68 @@ pub struct ToolCall {
     pub permission: Option<Permission>,
     pub state: ToolState,
     pub output: Option<String>,
+    pub is_error: bool,
+    pub exit_code: Option<f64>,
+    /// When the tool started, from its intent event, until the result gives `ms`.
+    pub started_at: Option<String>,
+    /// From the start to the result.
+    pub ms: Option<i64>,
+}
+
+impl ToolCall {
+    /// It ran and failed, was refused, or never finished.
+    pub fn failed(&self) -> bool {
+        self.is_error
+            || matches!(self.state, ToolState::Done(status) if status != EffectStatus::Completed)
+            || self.permission.as_ref().is_some_and(|p| !p.allowed)
+    }
+
+    /// What an `edit` or `write` call changes, read from its input: the old lines and the
+    /// new. `None` for any other tool.
+    pub fn diff(&self) -> Option<Vec<DiffLine>> {
+        let text =
+            |value: Option<&serde_json::Value>| value.and_then(|v| v.as_str()).map(str::to_owned);
+        let mut lines = Vec::new();
+        let mut hunk = |old: &str, new: &str| {
+            lines.extend(old.lines().map(|l| DiffLine::Removed(l.to_owned())));
+            lines.extend(new.lines().map(|l| DiffLine::Added(l.to_owned())));
+        };
+        match self.name.as_str() {
+            "write" => hunk("", &text(self.input.get("content"))?),
+            "edit" => match self.input.get("edits") {
+                Some(serde_json::Value::Array(edits)) => {
+                    for edit in edits {
+                        let old = text(edit.get("old_text")).unwrap_or_default();
+                        let new = text(edit.get("new_text")).unwrap_or_default();
+                        hunk(&old, &new);
+                    }
+                }
+                // The shape models send by mistake, which cedia takes too.
+                _ => hunk(
+                    &text(self.input.get("old_text"))?,
+                    &text(self.input.get("new_text"))?,
+                ),
+            },
+            _ => return None,
+        }
+        Some(lines)
+    }
+
+    /// Lines added and removed, as `+n −n` shows them.
+    pub fn counts(&self) -> Option<(usize, usize)> {
+        let diff = self.diff()?;
+        let added = diff
+            .iter()
+            .filter(|l| matches!(l, DiffLine::Added(_)))
+            .count();
+        Some((added, diff.len() - added))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DiffLine {
+    Removed(String),
+    Added(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]

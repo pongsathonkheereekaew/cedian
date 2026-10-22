@@ -7,4 +7,5 @@ license-file.workspace = true
 
 [dependencies]
 cedian_protocol = { path = "../cedian_protocol" }
+chrono.workspace = true
 serde_json.workspace = true

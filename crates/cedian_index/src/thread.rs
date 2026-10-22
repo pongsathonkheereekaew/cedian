@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
-use cedian_protocol::{ThreadEvent, ThreadState};
+use cedian_protocol::{Rating, ThreadEvent, ThreadState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -25,6 +25,9 @@ pub struct ThreadSummary {
     /// What the thread asked the person, while it waits in `asking` for the answer.
     #[serde(default)]
     pub question: Option<ThreadQuestion>,
+    /// The person's latest 👍 or 👎 on the thread (`cedia threads rate`).
+    #[serde(default)]
+    pub rating: Option<Rating>,
     pub updated_at: String,
 }
 
@@ -67,6 +70,7 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
         messages: Vec::new(),
         pending: Vec::new(),
         question: None,
+        rating: None,
         updated_at: String::new(),
     };
     let mut delivered = std::collections::HashSet::new();
@@ -143,9 +147,11 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 thread.archived = *archived;
                 thread.updated_at = at.clone();
             }
-            ThreadEvent::Handoff { at, .. } | ThreadEvent::Rate { at, .. } => {
+            ThreadEvent::Rate { rating, at, .. } => {
+                thread.rating = Some(*rating);
                 thread.updated_at = at.clone();
             }
+            ThreadEvent::Handoff { at, .. } => thread.updated_at = at.clone(),
         }
     }
     thread.pending = thread

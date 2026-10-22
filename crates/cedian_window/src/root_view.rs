@@ -16,7 +16,7 @@ use settings::Settings as _;
 use theme::ActiveTheme as _;
 
 use crate::{
-    agent_pane::AgentPane,
+    agent_pane::{AgentEvent, AgentPane, Header, StopRun},
     composer::{Composer, ComposerEvent},
     daemon_client::DaemonClient,
     desktop::Desktop,
@@ -29,6 +29,7 @@ use crate::{
     spike_view::SpikeView,
     tab_strip::{self, ProjectTab},
     thread_list::{self, Group},
+    view_mode::ViewMode,
 };
 
 enum Connection {
@@ -83,8 +84,14 @@ impl RootView {
     }
 
     /// Connects to the daemon in the background and shows `cwd`'s threads.
-    pub fn live(cwd: PathBuf, layout: Layout, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let agent = cx.new(|_| AgentPane::new("new thread"));
+    pub fn live(
+        cwd: PathBuf,
+        layout: Layout,
+        view_mode: ViewMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let agent = cx.new(|_| AgentPane::new("new thread").with_view_mode(view_mode));
         let mut view = Self::new(cwd, agent, window, cx);
         view.showing_review = layout.showing_review;
         view.layout = layout;
@@ -146,6 +153,28 @@ impl RootView {
         let composer = cx.new(|cx| Composer::new(window, cx));
         cx.subscribe(&composer, |view, _, event, cx| match event {
             ComposerEvent::Submit(text) => view.submit(text.clone(), cx),
+        })
+        .detach();
+        cx.subscribe(&agent, |view, agent, event, cx| match event {
+            AgentEvent::Stop => view.stop(cx),
+            AgentEvent::Rate(rating) => {
+                if let Some(thread) = view.current.clone() {
+                    view.request(Request::Rate {
+                        cwd: view.cwd.clone(),
+                        thread,
+                        rating: *rating,
+                    });
+                }
+            }
+            AgentEvent::ViewMode(mode) => {
+                let mode = *mode;
+                agent.update(cx, |agent, cx| agent.set_view_mode(mode, cx));
+                view.request(Request::SetDesktop {
+                    key: "view_mode".into(),
+                    value: mode.key().into(),
+                });
+            }
+            AgentEvent::Review => view.show_review(true, cx),
         })
         .detach();
         let settings = cx.new(|_| SettingsView::default());
@@ -228,7 +257,10 @@ impl RootView {
                 self.request(Request::Settings);
             }
             Notice::Settings { path, desktop } => {
-                Desktop::from_value(&desktop).apply(cx);
+                let settings = Desktop::from_value(&desktop);
+                settings.apply(cx);
+                self.agent
+                    .update(cx, |agent, cx| agent.set_view_mode(settings.view_mode, cx));
                 self.settings
                     .update(cx, |view, cx| view.set(path, desktop, cx));
             }
@@ -291,32 +323,42 @@ impl RootView {
                     .update(cx, |pane, cx| pane.set_review(review, cx));
             }
             Notice::Review { .. } => {}
-            Notice::Error { message } => self.error = Some(message.into()),
+            Notice::Error { message } => {
+                // A new thread that could not start: the composer is free again.
+                if self.awaiting_thread {
+                    self.awaiting_thread = false;
+                    self.preparing = None;
+                    self.retitle(cx);
+                }
+                self.error = Some(message.into());
+            }
         }
         cx.notify();
     }
 
     fn retitle(&mut self, cx: &mut Context<Self>) {
+        let info = self
+            .current
+            .as_ref()
+            .and_then(|id| self.threads.iter().find(|t| &t.thread.id == id));
         let title = match &self.current {
-            Some(id) => {
-                let name = self
-                    .threads
-                    .iter()
-                    .find(|t| &t.thread.id == id)
-                    .map_or(id.as_str(), |t| t.thread.title.as_str());
-                match self.status {
-                    Some(status) => format!("{name} · {}", thread_list::state_word(status)),
-                    None => name.to_owned(),
-                }
-            }
+            Some(id) => info
+                .map_or(id.as_str(), |t| t.thread.title.as_str())
+                .to_owned(),
             None if self.awaiting_thread => match &self.preparing {
                 Some(step) => format!("new thread · {step}"),
                 None => "new thread · starting".to_owned(),
             },
             None => "new thread".to_owned(),
         };
+        let header = Header {
+            title: title.into(),
+            status: self.status,
+            cwd: info.and_then(|t| t.cwd.clone()),
+            rating: info.and_then(|t| t.thread.rating),
+        };
         self.agent
-            .update(cx, |agent, cx| agent.set_title(title, cx));
+            .update(cx, |agent, cx| agent.set_header(header, cx));
     }
 
     fn select(&mut self, thread: String, cx: &mut Context<Self>) {
@@ -789,7 +831,6 @@ impl Render for RootView {
             _ => None,
         };
         let notice = failure.or_else(|| self.error.clone());
-        let working = self.status == Some(Status::Working);
         let background = colors.background;
         let text = colors.text;
         let body = div()
@@ -816,19 +857,6 @@ impl Render for RootView {
                                 .text_xs()
                                 .text_color(status_colors.error)
                                 .child(notice),
-                        )
-                    })
-                    .when(working, |column| {
-                        column.child(
-                            div()
-                                .id("stop")
-                                .px_3()
-                                .py_1()
-                                .text_xs()
-                                .cursor_pointer()
-                                .text_color(colors.text_accent)
-                                .on_click(cx.listener(|view, _, _, cx| view.stop(cx)))
-                                .child("Stop the run"),
                         )
                     })
                     .children(question)
@@ -898,6 +926,7 @@ impl Render for RootView {
             .on_action(
                 cx.listener(|view, _: &zed_actions::OpenSettings, _, cx| view.open_settings(cx)),
             )
+            .on_action(cx.listener(|view, _: &StopRun, _, cx| view.stop(cx)))
             .font(
                 theme_settings::ThemeSettings::get_global(cx)
                     .ui_font
