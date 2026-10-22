@@ -19,6 +19,9 @@ pub type RunId = u64;
 const STDERR_TAIL: usize = 40;
 
 pub struct Run {
+    /// The project directory of the window that asked, which notices about the run name.
+    pub asked_in: PathBuf,
+    /// Where the run works: the thread's worktree, or the project itself.
     pub cwd: PathBuf,
     pub slug: String,
     /// Known from the run's first session event.
