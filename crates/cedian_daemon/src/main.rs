@@ -25,7 +25,13 @@ fn main() {
     }
     log::set_logger(&LOGGER).ok();
     log::set_max_level(log::LevelFilter::Info);
+    log_signals("at start");
     let env = login_environment();
+    log_signals("after reading the login environment");
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        log_signals("while serving");
+    });
     let home = env
         .get("CEDIA_HOME")
         .map(PathBuf::from)
@@ -39,6 +45,37 @@ fn main() {
         log::error!("{error:#}");
         std::process::exit(1);
     }
+}
+
+/// How SIGTERM, SIGINT and SIGHUP are handled and whether this thread blocks them, so a
+/// daemon that does not stop on SIGTERM says why in its log.
+fn log_signals(when: &str) {
+    let mut words = Vec::new();
+    for (name, signal) in [
+        ("TERM", libc::SIGTERM),
+        ("INT", libc::SIGINT),
+        ("HUP", libc::SIGHUP),
+    ] {
+        // SAFETY: sigaction with a null new action only reads the current one.
+        let handler = unsafe {
+            let mut old: libc::sigaction = std::mem::zeroed();
+            libc::sigaction(signal, std::ptr::null(), &mut old);
+            old.sa_sigaction
+        };
+        let how = match handler {
+            libc::SIG_DFL => "default",
+            libc::SIG_IGN => "ignored",
+            _ => "caught",
+        };
+        // SAFETY: a null new set only reads this thread's mask.
+        let blocked = unsafe {
+            let mut mask: libc::sigset_t = std::mem::zeroed();
+            libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), &mut mask);
+            libc::sigismember(&mask, signal) == 1
+        };
+        words.push(format!("{name} {how}{}", if blocked { " blocked" } else { "" }));
+    }
+    log::info!("signals {when}: {}", words.join(", "));
 }
 
 fn agent(command: &str) {
