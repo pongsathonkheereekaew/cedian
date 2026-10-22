@@ -5,8 +5,8 @@ use std::time::Duration;
 use collections::HashMap;
 use editor::Editor;
 use gpui::{
-    AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, Styled as _, Window,
-    div,
+    AppContext as _, Context, Entity, FocusHandle, Focusable as _, InteractiveElement as _,
+    IntoElement, KeyDownEvent, MouseButton, ParentElement as _, Render, Styled as _, Window, div,
 };
 use terminal::{Terminal, TerminalBuilder, TerminalMode};
 use theme::ActiveTheme as _;
@@ -16,6 +16,7 @@ pub struct SpikeView {
     editor: Entity<Editor>,
     terminal: Option<Entity<Terminal>>,
     terminal_error: Option<String>,
+    terminal_focus: FocusHandle,
 }
 
 impl SpikeView {
@@ -25,6 +26,7 @@ impl SpikeView {
             editor.set_text("cedian spike: Zed's editor in a GPUI window.\n", window, cx);
             editor
         });
+        window.focus(&editor.focus_handle(cx), cx);
         let window_id = window.window_handle().window_id().as_u64();
         let spawn = TerminalBuilder::new(
             None,
@@ -63,7 +65,24 @@ impl SpikeView {
             editor,
             terminal: None,
             terminal_error: None,
+            terminal_focus: cx.focus_handle(),
         }
+    }
+
+    /// Sends a key to the shell: control and special keys through Zed's escape mapping,
+    /// anything else as the text it types.
+    fn terminal_key(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+        terminal.update(cx, |terminal, _| {
+            if !terminal.try_keystroke(&event.keystroke, false)
+                && let Some(text) = &event.keystroke.key_char
+            {
+                terminal.input(text.clone().into_bytes());
+            }
+        });
+        cx.stop_propagation();
     }
 
     fn terminal_lines(&self, window: &mut Window, cx: &mut Context<Self>) -> Vec<String> {
@@ -111,6 +130,13 @@ impl Render for SpikeView {
             )
             .child(
                 div()
+                    .id("terminal")
+                    .track_focus(&self.terminal_focus)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| window.focus(&this.terminal_focus, cx)),
+                    )
+                    .on_key_down(cx.listener(Self::terminal_key))
                     .h_1_2()
                     .p_2()
                     .font_family("Lilex")
