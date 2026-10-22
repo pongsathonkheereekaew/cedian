@@ -23,6 +23,11 @@ struct Harness {
 }
 
 fn start(fixture: &str) -> Harness {
+    start_with(fixture, "")
+}
+
+/// `caps`: capabilities the fake cedia adds to its version, as JSON strings with commas.
+fn start_with(fixture: &str, caps: &str) -> Harness {
     let dir = tempfile::tempdir().expect("tempdir");
     let home = dir.path().join("home");
     // Canonical, as the window passes it: macOS's temp dir is under the /var -> /private/var
@@ -38,6 +43,7 @@ fn start(fixture: &str) -> Harness {
         ("CEDIA_HOME".to_owned(), home.display().to_string()),
         ("FAKE_FIXTURE".to_owned(), fixture.display().to_string()),
         ("FAKE_THREADS".to_owned(), threads.display().to_string()),
+        ("FAKE_CAPS".to_owned(), caps.to_owned()),
         (
             "FAKE_SESSIONS".to_owned(),
             home.join("sessions").join(&slug).display().to_string(),
@@ -657,4 +663,53 @@ fn an_unverified_thread_stays() {
         Some(Notice::Threads { threads, .. }) => assert!(!threads[0].thread.archived),
         other => panic!("{other:?}"),
     }
+}
+
+#[test]
+fn a_thread_the_coordinator_opened_starts_in_its_own_worktree() {
+    let harness = start_with("edit-and-check", "\"todo\",\"open_thread\"");
+    git(&harness.cwd, &["init", "-q"]);
+    git(
+        &harness.cwd,
+        &["commit", "-q", "--allow-empty", "-m", "start"],
+    );
+    std::fs::create_dir_all(&harness.threads).expect("threads dir");
+    std::fs::write(
+        harness.threads.join("t-0000000q.jsonl"),
+        "{\"at\":\"2026-10-22T03:00:00.000Z\",\"kind\":\"open\",\"title\":\"Fix the login\",\"task\":\"Fix the login form\",\"by\":\"t-0000000c\"}\n",
+    )
+    .expect("thread");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    let (_, seen) =
+        window.until(|n| matches!(n, Notice::Threads { threads, .. } if !threads.is_empty()));
+    match seen.last() {
+        Some(Notice::Threads { threads, .. }) => assert_eq!(threads[0].status, Status::Queued),
+        other => panic!("{other:?}"),
+    }
+    // The daemon starts it once it polls the project: `cedia -p <task> --thread <id>`.
+    let args_file = harness.threads.join("../args");
+    for _ in 0..100 {
+        if std::fs::read_to_string(&args_file).is_ok_and(|a| a.contains("--thread")) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let args = std::fs::read_to_string(&args_file).expect("args");
+    let args: Vec<&str> = args.lines().collect();
+    assert!(args.contains(&"--print=Fix the login form"), "{args:?}");
+    assert!(
+        args.windows(2).any(|w| w == ["--thread", "t-0000000q"]),
+        "{args:?}"
+    );
+    assert!(args.windows(2).any(|w| w == ["--todo", "on"]), "{args:?}");
+    let ran_in = std::fs::read_to_string(harness.threads.join("../cwd")).expect("cwd");
+    let worktree = harness
+        .cwd
+        .canonicalize()
+        .expect("repo")
+        .join(".cedian/worktrees/fix-the-login-form");
+    assert_eq!(Path::new(ran_in.trim()), worktree);
 }

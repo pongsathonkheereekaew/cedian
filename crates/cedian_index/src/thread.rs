@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
-use cedian_protocol::{Rating, ThreadEvent, ThreadState};
+use cedian_protocol::{Rating, ThreadEvent, ThreadState, TodoState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -17,6 +17,16 @@ pub struct ThreadSummary {
     pub result: Option<String>,
     /// The thread that spawned this one as a sub-thread.
     pub parent: Option<String>,
+    /// The thread that opened this one with `open_thread` (the project's coordinator), for a
+    /// client to run: it waits `queued` until its first run.
+    #[serde(default)]
+    pub by: Option<String>,
+    /// The profile its runs take unless another is named.
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// The writer's latest list of steps, whole: the thread's progress.
+    #[serde(default)]
+    pub todo: Vec<Step>,
     pub archived: bool,
     pub sessions: Vec<SessionRef>,
     pub messages: Vec<ThreadMessage>,
@@ -37,6 +47,13 @@ pub struct ThreadSummary {
     #[serde(default)]
     pub last_turn: Option<ThreadTurn>,
     pub updated_at: String,
+}
+
+/// One step of a thread's todo list.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Step {
+    pub text: String,
+    pub state: TodoState,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -82,6 +99,9 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
         state: ThreadState::Working,
         result: None,
         parent: None,
+        by: None,
+        profile: None,
+        todo: Vec::new(),
         archived: false,
         sessions: Vec::new(),
         messages: Vec::new(),
@@ -109,6 +129,8 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 title,
                 task,
                 parent,
+                by,
+                profile,
                 at,
                 ..
             } if !opened => {
@@ -116,6 +138,11 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 thread.title = title.clone();
                 thread.task = task.clone();
                 thread.parent = parent.clone();
+                thread.by = by.clone();
+                thread.profile = profile.clone();
+                if by.is_some() {
+                    thread.state = ThreadState::Queued;
+                }
                 thread.updated_at = at.clone();
             }
             ThreadEvent::Open { at, .. } => thread.updated_at = at.clone(),
@@ -201,9 +228,25 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 });
                 thread.updated_at = at.clone();
             }
-            ThreadEvent::Handoff { at, .. }
-            | ThreadEvent::Run { at, .. }
-            | ThreadEvent::Rewind { at, .. } => thread.updated_at = at.clone(),
+            ThreadEvent::Todo { items, at, .. } => {
+                thread.todo = items
+                    .iter()
+                    .map(|item| Step {
+                        text: item.text.clone(),
+                        state: item.state,
+                    })
+                    .collect();
+                thread.updated_at = at.clone();
+            }
+            ThreadEvent::Run { at, .. } => {
+                if thread.state == ThreadState::Queued {
+                    thread.state = ThreadState::Working;
+                }
+                thread.updated_at = at.clone();
+            }
+            ThreadEvent::Handoff { at, .. } | ThreadEvent::Rewind { at, .. } => {
+                thread.updated_at = at.clone()
+            }
         }
     }
     // The last line's time, as cedia has it, whether or not the fold reads that line.
@@ -284,6 +327,7 @@ fn run_of(event: &ThreadEvent) -> Option<&str> {
         | ThreadEvent::Question { run, .. }
         | ThreadEvent::State { run, .. }
         | ThreadEvent::Turn { run, .. }
+        | ThreadEvent::Todo { run, .. }
         | ThreadEvent::Run { run, .. }
         | ThreadEvent::Archived { run, .. } => run.as_deref(),
         ThreadEvent::Rewind { .. } => None,
@@ -302,6 +346,7 @@ fn at_of(event: &ThreadEvent) -> &str {
         | ThreadEvent::Question { at, .. }
         | ThreadEvent::State { at, .. }
         | ThreadEvent::Turn { at, .. }
+        | ThreadEvent::Todo { at, .. }
         | ThreadEvent::Run { at, .. }
         | ThreadEvent::Rewind { at, .. }
         | ThreadEvent::Archived { at, .. } => at,
@@ -398,6 +443,40 @@ mod tests {
             serde_json::from_str(r#"{"kind":"rewind","run":"r2","at":"10"}"#).expect("event"),
         );
         assert_eq!(fold("t-1", &again).sessions, thread.sessions);
+    }
+
+    #[test]
+    fn an_opened_thread_waits_queued_until_its_first_run_and_keeps_its_todo() {
+        let opened = [
+            r#"{"kind":"open","title":"t","task":"t","by":"t-0","profile":"code","at":"1"}"#,
+            r#"{"kind":"run","id":"r1","prompt":"t","cwd":"/r","at":"2"}"#,
+            r#"{"kind":"todo","items":[{"text":"read","state":"done"},{"text":"fix","state":"doing"}],"at":"3"}"#,
+        ];
+        let queued = fold("t-1", &events(&opened[..1]));
+        assert_eq!(queued.state, ThreadState::Queued);
+        assert_eq!(queued.by.as_deref(), Some("t-0"));
+        assert_eq!(queued.profile.as_deref(), Some("code"));
+        let running = fold("t-1", &events(&opened));
+        assert_eq!(running.state, ThreadState::Working);
+        assert_eq!(
+            running.todo,
+            [
+                Step {
+                    text: "read".into(),
+                    state: TodoState::Done
+                },
+                Step {
+                    text: "fix".into(),
+                    state: TodoState::Doing
+                },
+            ]
+        );
+        // A thread nobody opened for someone else starts working, as before.
+        let own = fold(
+            "t-2",
+            &events(&[r#"{"kind":"open","title":"t","task":"t","at":"1"}"#]),
+        );
+        assert_eq!(own.state, ThreadState::Working);
     }
 
     #[test]

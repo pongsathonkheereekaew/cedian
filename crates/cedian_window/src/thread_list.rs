@@ -29,7 +29,7 @@ impl Group {
     /// person.
     pub fn of(info: &ThreadInfo, pinned: bool) -> Self {
         match info.status {
-            Status::Working => Group::Working,
+            Status::Queued | Status::Working => Group::Working,
             Status::Asking | Status::Failed | Status::Interrupted => Group::NeedsYou,
             Status::Done if info.needs_you => Group::NeedsYou,
             Status::Done | Status::Stopped if pinned => Group::Pinned,
@@ -54,6 +54,7 @@ pub fn badge_count(threads: &[ThreadInfo]) -> usize {
 
 pub fn state_word(status: Status) -> &'static str {
     match status {
+        Status::Queued => "รอเริ่ม",
         Status::Working => "กำลังทำ",
         Status::Done => "เสร็จ",
         Status::Failed => "ล้มเหลว",
@@ -78,11 +79,12 @@ pub fn since(at: &str, now: DateTime<Utc>) -> String {
 }
 
 /// The state's dot, which differs by shape as well as color: solid while working, failed or
-/// stopped, hollow when done or interrupted, a ring when it asks.
+/// stopped, hollow when queued, done or interrupted, a ring when it asks.
 pub fn dot(status: Status, cx: &App) -> Div {
     let colors = cx.theme().colors();
     let state = cx.theme().status();
     let (color, solid): (Hsla, bool) = match status {
+        Status::Queued => (state.info, false),
         Status::Working => (state.info, true),
         Status::Done => (colors.text_placeholder, false),
         Status::Failed => (state.error, true),

@@ -11,7 +11,7 @@ use cedian_index::{
     ThreadSummary, list_threads, project_key, read_thread, session_cwd, session_lines,
     session_path, threads_dir,
 };
-use cedian_protocol::{Line, SessionEvent, VersionInfo};
+use cedian_protocol::{Line, SessionEvent, ThreadState, VersionInfo};
 use cedian_wire::{Notice, Request, Status, ThreadInfo};
 
 use crate::{
@@ -58,6 +58,9 @@ pub struct Daemon {
     /// The threads directories windows show, as last listed.
     prints: Fingerprints,
     seen: Seen,
+    /// Queued threads this daemon has started, by project slug and id, so a slow first run
+    /// is not started twice.
+    started: HashSet<(String, String)>,
     next_id: u64,
 }
 
@@ -80,6 +83,7 @@ impl Daemon {
             decisions: DecisionStore::new(state_dir),
             prints: Fingerprints::default(),
             seen: Seen::new(state_dir),
+            started: HashSet::new(),
             next_id: 1,
         }
     }
@@ -231,6 +235,14 @@ impl Daemon {
         };
         if gone {
             self.disconnect(id);
+        }
+    }
+
+    /// An error for the client that asked, or the log when the daemon asked itself.
+    fn error_to(&mut self, id: Option<ClientId>, message: String) {
+        match id {
+            Some(id) => self.error(id, message),
+            None => log::warn!("{message}"),
         }
     }
 
@@ -397,7 +409,7 @@ impl Daemon {
                     // A run is already working on it: the text joins at its next turn.
                     Some(thread) if running => Self::message(shared, client, &cwd, &thread, &text),
                     None if worktree => Self::prompt_in_worktree(shared, client, cwd, &text),
-                    thread => Self::prompt(shared, client, cwd.clone(), cwd, &text, thread),
+                    thread => Self::prompt(shared, Some(client), cwd.clone(), cwd, &text, thread),
                 }
             }
             Request::Send { cwd, thread, text } => {
@@ -649,6 +661,64 @@ impl Daemon {
 
     /// A new thread in a new worktree. Creating it runs git, so the daemon is not locked
     /// meanwhile.
+    /// Starts each thread the project's coordinator opened (`open_thread`) and that waits
+    /// `queued`, in a worktree of its own: `cedia -p <task> --thread <id>`. Only projects a
+    /// window shows are looked at, and each thread once per daemon.
+    pub fn start_queued(shared: &Shared) {
+        let queued: Vec<(PathBuf, String, String)> = {
+            let mut daemon = lock(shared);
+            if !daemon.version.as_ref().is_ok_and(|v| {
+                v.capabilities
+                    .contains(&cedian_protocol::Capability::OpenThread)
+            }) {
+                return;
+            }
+            let mut projects: Vec<(PathBuf, String)> = daemon
+                .clients
+                .values()
+                .flat_map(|client| {
+                    client
+                        .watching
+                        .iter()
+                        .map(|(cwd, slug)| (cwd.clone(), slug.clone()))
+                })
+                .collect();
+            projects.sort();
+            projects.dedup_by(|a, b| a.1 == b.1);
+            let mut found = Vec::new();
+            for (cwd, slug) in projects {
+                let threads = match list_threads(&threads_dir(&daemon.home, &slug)) {
+                    Ok(threads) => threads,
+                    Err(error) => {
+                        log::warn!("{error:#}");
+                        continue;
+                    }
+                };
+                for thread in threads {
+                    if thread.state == ThreadState::Queued
+                        && thread.by.is_some()
+                        && !thread.archived
+                        && !daemon.running(&thread.id)
+                        && daemon.started.insert((slug.clone(), thread.id.clone()))
+                    {
+                        found.push((cwd.clone(), thread.id, thread.task));
+                    }
+                }
+            }
+            found
+        };
+        for (cwd, thread, task) in queued {
+            log::info!("starting queued {thread}");
+            match crate::worktree::create(&cwd, &task) {
+                Ok((dir, branch)) => {
+                    log::info!("worktree {} on {branch}", dir.display());
+                    Self::prompt(shared, None, cwd, dir, &task, Some(thread));
+                }
+                Err(error) => log::warn!("starting {thread}: {error:#}"),
+            }
+        }
+    }
+
     fn prompt_in_worktree(shared: &Shared, client: ClientId, asked_in: PathBuf, text: &str) {
         lock(shared).send(
             client,
@@ -667,7 +737,7 @@ impl Daemon {
                         step: format!("starting on {branch}"),
                     },
                 );
-                Self::prompt(shared, client, asked_in, dir, text, None);
+                Self::prompt(shared, Some(client), asked_in, dir, text, None);
             }
             Err(error) => lock(shared).error(client, format!("{error:#}")),
         }
@@ -677,7 +747,7 @@ impl Daemon {
     /// itself goes in `cwd`, or in a resumed thread's own directory.
     fn prompt(
         shared: &Shared,
-        client: ClientId,
+        client: Option<ClientId>,
         asked_in: PathBuf,
         cwd: PathBuf,
         text: &str,
@@ -692,17 +762,26 @@ impl Daemon {
                     let before = summary.sessions.into_iter().map(|s| s.session_id).collect();
                     (before, own)
                 }
-                Err(error) => return daemon.error(client, format!("{error:#}")),
+                Err(error) => return daemon.error_to(client, format!("{error:#}")),
             },
             None => (HashSet::new(), cwd),
         };
-        let ask = daemon
-            .version
-            .as_ref()
-            .is_ok_and(|v| v.capabilities.contains(&cedian_protocol::Capability::Ask));
-        let child = match daemon.cedia.prompt(&cwd, text, thread.as_deref(), ask) {
+        let can = |capability| {
+            daemon
+                .version
+                .as_ref()
+                .is_ok_and(|v| v.capabilities.contains(&capability))
+        };
+        let (ask, todo) = (
+            can(cedian_protocol::Capability::Ask),
+            can(cedian_protocol::Capability::Todo),
+        );
+        let child = match daemon
+            .cedia
+            .prompt(&cwd, text, thread.as_deref(), ask, todo)
+        {
             Ok(child) => child,
-            Err(error) => return daemon.error(client, format!("{error:#}")),
+            Err(error) => return daemon.error_to(client, format!("{error:#}")),
         };
         let id = daemon.id();
         log::info!("run {id}: pid {} in {}", child.id(), cwd.display());
@@ -717,7 +796,7 @@ impl Daemon {
                 alive: true,
                 lines: Vec::new(),
                 before,
-                requester: Some(client),
+                requester: client,
                 stderr: Default::default(),
                 followed: None,
             },

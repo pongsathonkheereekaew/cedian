@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use cedian_protocol::Line;
+use cedian_protocol::{Line, TodoState};
 use cedian_wire::{HunkState, Notice, Request, Status, ThreadInfo};
 use editor::Editor;
 use futures::StreamExt as _;
@@ -1426,8 +1426,26 @@ impl RootView {
                 let pinned = self.is_pinned(&id);
                 let selected = self.project().current.as_ref() == Some(&id);
                 // One line: the dot says the state; the meta says what a word must.
+                let done = info
+                    .thread
+                    .todo
+                    .iter()
+                    .filter(|step| step.state == TodoState::Done)
+                    .count();
+                let progress = (!info.thread.todo.is_empty())
+                    .then(|| format!("{done}/{}", info.thread.todo.len()));
                 let (meta, meta_color) = match info.status {
-                    Status::Working => (String::new(), colors.text_muted),
+                    // A todo list gives a thread at work its progress, `2/4`.
+                    Status::Queued | Status::Working => (
+                        progress.unwrap_or_else(|| {
+                            if info.status == Status::Queued {
+                                "รอ".to_owned()
+                            } else {
+                                String::new()
+                            }
+                        }),
+                        colors.text_muted,
+                    ),
                     Status::Asking => ("ถาม".to_owned(), colors.text_accent),
                     Status::Failed => ("ล้มเหลว".to_owned(), status_colors.error),
                     Status::Interrupted => ("ขาดตอน".to_owned(), status_colors.warning),

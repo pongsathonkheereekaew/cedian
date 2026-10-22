@@ -83,7 +83,7 @@ pub fn ending(before: Option<cedian_wire::Status>, after: cedian_wire::Status) -
     match after {
         Status::Done | Status::Asking => Some(Ending::Finished),
         Status::Failed => Some(Ending::Failed),
-        Status::Working | Status::Stopped | Status::Interrupted => None,
+        Status::Queued | Status::Working | Status::Stopped | Status::Interrupted => None,
     }
 }
 
