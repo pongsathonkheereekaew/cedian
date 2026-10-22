@@ -1026,6 +1026,42 @@
           "properties": {
             "kind": {
               "type": "string",
+              "const": "effort"
+            },
+            "effort": {
+              "$ref": "#/definitions/Effort"
+            },
+            "id": {
+              "$ref": "#/definitions/EventId"
+            },
+            "parentId": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/EventId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "effort",
+            "id",
+            "kind",
+            "parentId"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
               "const": "turn_end"
             },
             "reason": {
@@ -1062,6 +1098,42 @@
             "kind",
             "parentId",
             "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "result"
+            },
+            "result": {
+              "$ref": "#/definitions/HeadlessResult"
+            },
+            "id": {
+              "$ref": "#/definitions/EventId"
+            },
+            "parentId": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/EventId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "id",
+            "kind",
+            "parentId",
+            "result"
           ]
         }
       ]

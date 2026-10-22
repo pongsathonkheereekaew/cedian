@@ -4,6 +4,8 @@ use serde::de::DeserializeOwned;
 
 use crate::{HeadlessResult, SessionEvent, StreamEvent};
 
+// A line lives only while it is folded into blocks, so its size does not add up.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum Line {
     /// A session log event: what the model saw or did.

@@ -221,5 +221,8 @@ fn a_socket_path_too_long_fails_with_the_reason() {
         home: PathBuf::from("/nonexistent"),
     };
     let error = serve(config).expect_err("too long");
-    assert!(format!("{error:#}").contains("CEDIAN_STATE_DIR"), "{error:#}");
+    assert!(
+        format!("{error:#}").contains("CEDIAN_STATE_DIR"),
+        "{error:#}"
+    );
 }
