@@ -15,6 +15,7 @@ use gpui::{
 use theme::ActiveTheme as _;
 
 use crate::{
+    density::Density,
     line_breaks::wrapped,
     receipt::{Actions, Receipt},
     thread_list, tokens, tool_card,
@@ -56,6 +57,7 @@ pub struct AgentPane {
     view_mode: ViewMode,
     /// Runs of tool calls opened from their chip, by the index of their first block.
     unfolded: HashSet<usize>,
+    density: Density,
 }
 
 impl AgentPane {
@@ -69,12 +71,18 @@ impl AgentPane {
             list: ListState::new(0, ListAlignment::Bottom, px(512.)),
             view_mode: ViewMode::default(),
             unfolded: HashSet::new(),
+            density: Density::default(),
         }
     }
 
     pub fn with_view_mode(mut self, mode: ViewMode) -> Self {
         self.view_mode = mode;
         self
+    }
+
+    /// The latest receipt's checks, split by whether they ran after `path` was last edited.
+    pub fn file_checks(&self, path: &str) -> cedian_agent::FileChecks {
+        self.transcript.file_checks(path)
     }
 
     /// Empties the pane for another thread.
@@ -97,6 +105,14 @@ impl AgentPane {
             self.relayout(cx);
         }
         cx.notify();
+    }
+
+    /// Lays the blocks out again when the density changed, their heights with it.
+    pub fn set_density(&mut self, density: Density, cx: &mut Context<Self>) {
+        if density != self.density {
+            self.density = density;
+            self.relayout(cx);
+        }
     }
 
     pub fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
@@ -270,7 +286,11 @@ impl AgentPane {
                 )
             }
         };
-        div().px_4().py_1p5().child(body).into_any_element()
+        div()
+            .px_4()
+            .py(self.density.block_gap())
+            .child(body)
+            .into_any_element()
     }
 
     fn render_tool(

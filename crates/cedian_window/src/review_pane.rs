@@ -1,26 +1,42 @@
-//! The thread's changes since its first snapshot, hunk by hunk: accept, undo, or reject with a
-//! reason the thread is told. J and K move between hunks, Y accepts, N rejects.
+//! The thread's changes since its first snapshot, hunk by hunk (Interface, Diff review): accept,
+//! undo, or reject with a reason the thread is told. J and K move between hunks, Y accepts, N
+//! rejects. In the right column the files stack; widened into the main area it has the files
+//! (280 px), the open file's hunks, and the checks that cover that file (280 px).
 
-use cedian_wire::{Decision, Hunk, HunkState, Review};
+use cedian_agent::FileChecks;
+use cedian_wire::{Decision, FileReview, Hunk, HunkState, Review};
 use editor::Editor;
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window, actions, div,
-    prelude::FluentBuilder as _,
+    AnyElement, App, AppContext as _, Context, Div, Entity, EventEmitter, FocusHandle, Focusable,
+    FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
+    Stateful, StatefulInteractiveElement as _, Styled as _, WeakEntity, Window, actions, div,
+    prelude::FluentBuilder as _, px, svg,
 };
 use theme::ActiveTheme as _;
 
-use crate::tokens;
+use crate::{agent_pane::AgentPane, tokens};
 
 actions!(
     review,
     [Next, Previous, Accept, Reject, ConfirmReject, Cancel]
 );
 
+/// The widths of the files and evidence columns when the review fills the main area.
+const SIDE_WIDTH: f32 = 280.;
+
 pub enum ReviewEvent {
-    Decide { hunk: String, decision: Decision },
+    Decide {
+        hunk: String,
+        decision: Decision,
+    },
     Refresh,
+    /// Fill the main area, or go back to the right column.
+    Widen(bool),
+    /// Ask the thread to run a check again, the file having changed after it.
+    Rerun {
+        command: String,
+        path: String,
+    },
 }
 
 pub struct ReviewPane {
@@ -28,15 +44,20 @@ pub struct ReviewPane {
     review: Option<Review>,
     /// Index into every hunk of the review, in file order.
     selected: usize,
+    /// The open file, which follows the selected hunk; a file with no hunks can be opened too.
+    file: usize,
     /// The hunk being rejected and the box its reason goes in.
     rejecting: Option<(String, Entity<Editor>)>,
+    wide: bool,
+    /// The thread's transcript, for the checks that cover a file.
+    agent: Option<WeakEntity<AgentPane>>,
     focus: FocusHandle,
 }
 
 impl EventEmitter<ReviewEvent> for ReviewPane {}
 
 impl Focusable for ReviewPane {
-    fn focus_handle(&self, _: &gpui::App) -> FocusHandle {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
     }
 }
@@ -47,9 +68,28 @@ impl ReviewPane {
             thread: None,
             review: None,
             selected: 0,
+            file: 0,
             rejecting: None,
+            wide: false,
+            agent: None,
             focus: cx.focus_handle(),
         }
+    }
+
+    /// Reads the open file's checks from the agent pane, and draws again when it changes.
+    pub fn set_agent(&mut self, agent: &Entity<AgentPane>, cx: &mut Context<Self>) {
+        self.agent = Some(agent.downgrade());
+        cx.observe(agent, |pane, _, cx| {
+            if pane.wide {
+                cx.notify();
+            }
+        })
+        .detach();
+    }
+
+    pub fn set_wide(&mut self, wide: bool, cx: &mut Context<Self>) {
+        self.wide = wide;
+        cx.notify();
     }
 
     pub fn set_thread(&mut self, thread: Option<String>, cx: &mut Context<Self>) {
@@ -57,6 +97,7 @@ impl ReviewPane {
             self.thread = thread;
             self.review = None;
             self.selected = 0;
+            self.file = 0;
             self.rejecting = None;
             cx.notify();
         }
@@ -65,6 +106,7 @@ impl ReviewPane {
     pub fn set_review(&mut self, review: Review, cx: &mut Context<Self>) {
         let count = hunks(&review).count();
         self.selected = self.selected.min(count.saturating_sub(1));
+        self.file = self.file.min(review.files.len().saturating_sub(1));
         if let Some((id, _)) = &self.rejecting
             && !hunks(&review).any(|h| &h.id == id && rejectable(h))
         {
@@ -78,6 +120,22 @@ impl ReviewPane {
         hunks(self.review.as_ref()?).nth(index)
     }
 
+    fn select(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.selected = index;
+        if let Some(review) = &self.review {
+            self.file = file_of(review, index).unwrap_or(self.file);
+        }
+        cx.notify();
+    }
+
+    fn open_file(&mut self, file: usize, cx: &mut Context<Self>) {
+        self.file = file;
+        if let Some(first) = self.review.as_ref().and_then(|r| first_hunk(r, file)) {
+            self.selected = first;
+        }
+        cx.notify();
+    }
+
     // The reason box sits inside the list, so while it is open J, K, Y and N are text for it.
     fn next(&mut self, _: &Next, _: &mut Window, cx: &mut Context<Self>) {
         if self.rejecting.is_some() {
@@ -85,8 +143,7 @@ impl ReviewPane {
             return;
         }
         if self.hunk(self.selected + 1).is_some() {
-            self.selected += 1;
-            cx.notify();
+            self.select(self.selected + 1, cx);
         }
     }
 
@@ -95,8 +152,7 @@ impl ReviewPane {
             cx.propagate();
             return;
         }
-        self.selected = self.selected.saturating_sub(1);
-        cx.notify();
+        self.select(self.selected.saturating_sub(1), cx);
     }
 
     fn accept(&mut self, _: &Accept, _: &mut Window, cx: &mut Context<Self>) {
@@ -132,13 +188,30 @@ impl ReviewPane {
         });
     }
 
+    /// รับที่เหลือทั้งหมด: accepts every hunk still waiting.
+    fn accept_rest(&mut self, cx: &mut Context<Self>) {
+        let Some(review) = &self.review else {
+            return;
+        };
+        let pending: Vec<String> = hunks(review)
+            .filter(|h| h.state == HunkState::Pending)
+            .map(|h| h.id.clone())
+            .collect();
+        for hunk in pending {
+            cx.emit(ReviewEvent::Decide {
+                hunk,
+                decision: Decision::Accept,
+            });
+        }
+    }
+
     fn start_reject(&mut self, hunk: &Hunk, window: &mut Window, cx: &mut Context<Self>) {
         if !rejectable(hunk) {
             return;
         }
         let editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Why? The thread sees this", window, cx);
+            editor.set_placeholder_text("ทำไม? thread จะเห็นข้อความนี้", window, cx);
             editor
         });
         window.focus(&editor.focus_handle(cx), cx);
@@ -169,58 +242,83 @@ impl ReviewPane {
         let colors = cx.theme().colors();
         let status = cx.theme().status();
         let selected = index == self.selected;
-        let (badge, badge_color) = match hunk.state {
-            HunkState::Pending => ("pending", colors.text_muted),
-            HunkState::Accepted => ("accepted", status.success),
-            HunkState::Rejected => ("rejected", status.error),
-            HunkState::Stale => ("STALE", status.warning),
+        let stale = hunk.state == HunkState::Stale;
+        let badge = match hunk.state {
+            HunkState::Pending => None,
+            HunkState::Accepted => Some(
+                badge("รับแล้ว")
+                    .bg(colors.text_accent)
+                    .text_color(colors.background),
+            ),
+            HunkState::Rejected => Some(
+                badge("ปฏิเสธแล้ว")
+                    .bg(status.error)
+                    .text_color(colors.background),
+            ),
+            HunkState::Stale => Some(
+                badge("STALE")
+                    .border_1()
+                    .border_color(status.warning)
+                    .text_color(status.warning),
+            ),
         };
-        let mut actions = div().flex().gap_3();
-        let action = |id: &str, label: &'static str| {
-            div()
-                .id(SharedString::from(format!("{id}-{}", hunk.id)))
-                .cursor_pointer()
-                .text_color(colors.text_accent)
-                .child(label)
-        };
+        let mut actions = div().flex().gap_1();
         match hunk.state {
             HunkState::Pending => {
                 actions = actions
-                    .child(action("accept", "Accept (Y)").on_click(cx.listener(
-                        move |pane, _, _, cx| {
-                            pane.selected = index;
-                            pane.decide_selected(true, cx);
-                        },
-                    )))
-                    .child(action("reject", "Reject (N)").on_click(cx.listener(
-                        move |pane, _, window, cx| {
-                            pane.selected = index;
+                    .child(
+                        button(cx, ("accept", index), "รับ", Some("Y"))
+                            .border_color(colors.text_accent)
+                            .on_click(cx.listener(move |pane, _, _, cx| {
+                                pane.select(index, cx);
+                                pane.decide_selected(true, cx);
+                            })),
+                    )
+                    .child(button(cx, ("reject", index), "ปฏิเสธ", Some("N")).on_click(
+                        cx.listener(move |pane, _, window, cx| {
+                            pane.select(index, cx);
                             if let Some(hunk) = pane.hunk(index).cloned() {
                                 pane.start_reject(&hunk, window, cx);
                             }
-                        },
-                    )));
+                        }),
+                    ));
             }
             HunkState::Accepted => {
-                actions = actions.child(action("undo", "Undo").on_click(cx.listener(
-                    move |pane, _, _, cx| {
-                        pane.selected = index;
+                actions = actions.child(button(cx, ("undo", index), "ย้อนกลับ", None).on_click(
+                    cx.listener(move |pane, _, _, cx| {
+                        pane.select(index, cx);
                         pane.decide_selected(false, cx);
-                    },
-                )));
+                    }),
+                ));
             }
             HunkState::Stale | HunkState::Rejected => {}
         }
-        let collapsed = matches!(hunk.state, HunkState::Accepted | HunkState::Rejected);
-        let mut body = div().font(tokens::code_font()).text_xs().flex().flex_col();
-        if !collapsed {
+        let folded = matches!(hunk.state, HunkState::Accepted | HunkState::Rejected);
+        let mut body = div()
+            .border_t_1()
+            .border_color(colors.border)
+            .py_1()
+            .font(tokens::code_font())
+            .text_size(px(12.5))
+            .line_height(px(20.))
+            .flex()
+            .flex_col();
+        if !folded {
             for line in &hunk.lines {
-                let color = match line.chars().next() {
-                    Some('+') => status.success,
-                    Some('-') => status.error,
-                    _ => colors.text_muted,
-                };
-                body = body.child(div().px_2().text_color(color).child(line.clone()));
+                let row = div().px_2().whitespace_nowrap().overflow_hidden();
+                body = body.child(match line.chars().next() {
+                    Some('+') => row
+                        .bg(status.success.opacity(0.1))
+                        .text_color(colors.text)
+                        .child(format!("+ {}", &line[1..])),
+                    Some('-') => row
+                        .bg(status.error.opacity(0.1))
+                        .text_color(colors.text)
+                        .child(format!("− {}", &line[1..])),
+                    _ => row
+                        .text_color(colors.text_muted)
+                        .child(format!("  {}", line.get(1..).unwrap_or_default())),
+                });
             }
         }
         let rejecting = self
@@ -232,55 +330,62 @@ impl ReviewPane {
             .id(SharedString::from(format!("hunk-{}", hunk.id)))
             .flex()
             .flex_col()
-            .mx_2()
-            .my_1()
+            .rounded(px(8.))
+            .overflow_hidden()
             .border_1()
             .border_color(if selected {
-                colors.border_focused
+                colors.text_accent
+            } else if stale {
+                status.warning.opacity(0.4)
             } else {
                 colors.border
             })
-            .when(hunk.state == HunkState::Stale, |el| {
-                el.bg(status.warning.opacity(0.08))
+            .bg(if stale {
+                status.warning.opacity(0.08)
+            } else {
+                colors.editor_background
             })
             .on_click(cx.listener(move |pane, _, window, cx| {
-                pane.selected = index;
+                pane.select(index, cx);
                 window.focus(&pane.focus, cx);
-                cx.notify();
             }))
             .child(
                 div()
-                    .flex()
-                    .justify_between()
+                    .min_h(px(30.))
                     .px_2()
                     .py_1()
-                    .text_xs()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_size(px(12.))
                     .child(
                         div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_color(colors.text_muted)
-                                    .child(hunk.header.clone()),
-                            )
-                            .child(div().text_color(badge_color).child(badge)),
+                            .flex_grow(1.)
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .font(tokens::code_font())
+                            .text_color(colors.text_muted)
+                            .child(hunk.header.clone()),
                     )
+                    .children(badge)
                     .child(actions),
             )
-            .when(hunk.state == HunkState::Stale, |el| {
+            .when(stale, |el| {
                 el.child(
                     div()
                         .px_2()
-                        .pb_1()
-                        .text_xs()
-                        .text_color(colors.text_muted)
+                        .pb_2()
+                        .text_size(px(12.))
+                        .text_color(status.warning)
                         .child(
-                            "Edited by hand after the agent wrote it, so it cannot be rejected.",
+                            "ไฟล์นี้ถูกแก้หลังจาก agent เขียน hunk นี้ จึงปฏิเสธไม่ได้: \
+                             การเอาบรรทัดเก่ากลับจะทับสิ่งที่แก้ไว้",
                         ),
                 )
             })
-            .child(body)
+            .when(!folded, |el| el.child(body))
             .when_some(rejecting, |el, editor| {
                 el.child(
                     div()
@@ -289,47 +394,172 @@ impl ReviewPane {
                         .on_action(cx.listener(Self::cancel))
                         .flex()
                         .flex_col()
-                        .gap_1()
+                        .gap_2()
                         .p_2()
                         .border_t_1()
                         .border_color(colors.border)
                         .child(
                             div()
-                                .p_1()
+                                .px_2()
+                                .py_1()
+                                .rounded(px(7.))
                                 .border_1()
                                 .border_color(colors.border)
-                                .bg(colors.editor_background)
+                                .bg(colors.background)
                                 .child(editor),
                         )
                         .child(
                             div()
                                 .flex()
-                                .gap_3()
-                                .text_xs()
+                                .gap_1()
                                 .child(
-                                    div()
-                                        .id("confirm-reject")
-                                        .cursor_pointer()
-                                        .text_color(status.error)
-                                        .on_click(cx.listener(|pane, _, window, cx| {
+                                    button(
+                                        cx,
+                                        ("confirm-reject", index),
+                                        "ปฏิเสธและบอก thread",
+                                        Some("Enter"),
+                                    )
+                                    .border_color(status.error)
+                                    .on_click(cx.listener(
+                                        |pane, _, window, cx| {
                                             pane.confirm_reject(&ConfirmReject, window, cx)
-                                        }))
-                                        .child("Reject and tell the thread (Enter)"),
+                                        },
+                                    )),
                                 )
                                 .child(
-                                    div()
-                                        .id("cancel-reject")
-                                        .cursor_pointer()
-                                        .text_color(colors.text_muted)
+                                    button(cx, ("cancel-reject", index), "ยกเลิก", Some("Esc"))
                                         .on_click(cx.listener(|pane, _, window, cx| {
                                             pane.cancel(&Cancel, window, cx)
-                                        }))
-                                        .child("Cancel (Esc)"),
+                                        })),
                                 ),
                         ),
                 )
             })
             .into_any_element()
+    }
+
+    fn render_file_row(
+        &self,
+        n: usize,
+        file: &FileReview,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let colors = cx.theme().colors();
+        let open = self.wide && n == self.file;
+        div()
+            .id(("file", n))
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_2()
+            .h(px(30.))
+            .rounded(px(7.))
+            .cursor_pointer()
+            .text_size(px(12.))
+            .when(open, |row| row.bg(colors.element_selected))
+            .hover(|row| row.bg(colors.element_hover))
+            .on_click(cx.listener(move |pane, _, _, cx| pane.open_file(n, cx)))
+            .child(
+                div()
+                    .flex_grow(1.)
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .font(tokens::code_font())
+                    .child(file.path.clone()),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .font(tokens::code_font())
+                    .text_color(colors.text_muted)
+                    .child(if file.binary {
+                        "binary".to_owned()
+                    } else {
+                        format!("+{} −{}", file.added, file.removed)
+                    }),
+            )
+            .child(file_tag(file, cx))
+    }
+
+    fn render_evidence(&self, cx: &mut Context<Self>) -> Div {
+        let colors = cx.theme().colors();
+        let status = cx.theme().status();
+        let path = self
+            .review
+            .as_ref()
+            .and_then(|r| r.files.get(self.file))
+            .map(|f| f.path.clone());
+        let checks: FileChecks = match (&path, self.agent.as_ref().and_then(|a| a.upgrade())) {
+            (Some(path), Some(agent)) => agent.read(cx).file_checks(path),
+            _ => FileChecks::default(),
+        };
+        let label = |text: &'static str| {
+            div()
+                .text_size(px(11.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors.text_muted)
+                .child(text)
+        };
+        let mut column = div()
+            .w(px(SIDE_WIDTH))
+            .flex_none()
+            .h_full()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_3()
+            .border_l_1()
+            .border_color(colors.border)
+            .text_size(px(12.))
+            .child(label("หลักฐานของไฟล์นี้"));
+        if checks.covering.is_empty() && checks.outdated.is_empty() {
+            column = column.child(
+                div()
+                    .text_color(colors.text_muted)
+                    .child("ยังไม่มี check ที่ครอบไฟล์นี้"),
+            );
+        }
+        for command in &checks.covering {
+            column = column.child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(div().flex_none().text_color(status.success).child("✓"))
+                    .child(div().font(tokens::code_font()).child(command.clone())),
+            );
+        }
+        if !checks.outdated.is_empty() {
+            column = column.child(label("ถูกแก้ทับหลัง check"));
+        }
+        for (n, command) in checks.outdated.iter().enumerate() {
+            let rerun = (command.clone(), path.clone().unwrap_or_default());
+            column = column.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(div().flex_none().text_color(status.warning).child("!"))
+                            .child(div().font(tokens::code_font()).child(command.clone())),
+                    )
+                    .child(
+                        button(cx, ("rerun", n), "ให้ thread รัน check ใหม่", None).on_click(
+                            cx.listener(move |_, _, _, cx| {
+                                cx.emit(ReviewEvent::Rerun {
+                                    command: rerun.0.clone(),
+                                    path: rerun.1.clone(),
+                                })
+                            }),
+                        ),
+                    ),
+            );
+        }
+        column
     }
 }
 
@@ -337,21 +567,196 @@ fn hunks(review: &Review) -> impl Iterator<Item = &Hunk> {
     review.files.iter().flat_map(|file| &file.hunks)
 }
 
+/// The file the `index`th hunk is in.
+fn file_of(review: &Review, index: usize) -> Option<usize> {
+    let mut seen = 0;
+    for (n, file) in review.files.iter().enumerate() {
+        seen += file.hunks.len();
+        if index < seen {
+            return Some(n);
+        }
+    }
+    None
+}
+
+fn first_hunk(review: &Review, file: usize) -> Option<usize> {
+    let before: usize = review.files.iter().take(file).map(|f| f.hunks.len()).sum();
+    review
+        .files
+        .get(file)
+        .filter(|f| !f.hunks.is_empty())
+        .map(|_| before)
+}
+
 fn rejectable(hunk: &Hunk) -> bool {
     matches!(hunk.state, HunkState::Pending | HunkState::Accepted)
+}
+
+/// รอรีวิว, รับครบ, or `stale n`.
+fn file_tag(file: &FileReview, cx: &App) -> Div {
+    let colors = cx.theme().colors();
+    let status = cx.theme().status();
+    let stale = file
+        .hunks
+        .iter()
+        .filter(|h| h.state == HunkState::Stale)
+        .count();
+    let pending = file.hunks.iter().any(|h| h.state == HunkState::Pending);
+    let all_accepted = file.hunks.iter().all(|h| h.state == HunkState::Accepted);
+    if stale > 0 {
+        badge(&format!("stale {stale}"))
+            .border_1()
+            .border_color(status.warning)
+            .text_color(status.warning)
+    } else if pending {
+        badge("รอรีวิว")
+            .border_1()
+            .border_color(colors.border)
+            .text_color(colors.text_muted)
+    } else if all_accepted {
+        badge("รับครบ").text_color(colors.text_accent)
+    } else {
+        badge("ตัดสินครบ").text_color(colors.text_muted)
+    }
+}
+
+fn badge(text: &str) -> Div {
+    div()
+        .flex_none()
+        .px(px(6.))
+        .rounded(px(4.))
+        .text_size(px(11.))
+        .line_height(px(16.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(text.to_owned())
+}
+
+fn button(
+    cx: &App,
+    id: (&'static str, usize),
+    label: &'static str,
+    key: Option<&'static str>,
+) -> Stateful<Div> {
+    let colors = cx.theme().colors();
+    div()
+        .id(id)
+        .flex_none()
+        .h(px(26.))
+        .px_2()
+        .flex()
+        .items_center()
+        .gap_1p5()
+        .rounded(px(7.))
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.element_background)
+        .hover(|b| b.bg(colors.element_hover))
+        .cursor_pointer()
+        .text_size(px(12.))
+        .text_color(colors.text)
+        .child(label)
+        .children(key.map(|key| {
+            div()
+                .text_size(px(11.))
+                .text_color(colors.text_muted)
+                .child(key)
+        }))
 }
 
 impl Render for ReviewPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors();
-        let (muted, accent, panel, text, border) = (
+        let (muted, panel, text, border) = (
             colors.text_muted,
-            colors.text_accent,
             colors.panel_background,
             colors.text,
             colors.border,
         );
-        let mut list = div()
+        let review = self.review.clone();
+        let (decided, total, pending, added, removed) =
+            review.as_ref().map_or((0, 0, 0, 0, 0), |r| {
+                let all: Vec<&Hunk> = hunks(r).collect();
+                (
+                    all.iter()
+                        .filter(|h| matches!(h.state, HunkState::Accepted | HunkState::Rejected))
+                        .count(),
+                    all.len(),
+                    all.iter().filter(|h| h.state == HunkState::Pending).count(),
+                    r.files.iter().map(|f| f.added).sum::<usize>(),
+                    r.files.iter().map(|f| f.removed).sum::<usize>(),
+                )
+            });
+        let empty: Option<&'static str> = match (&self.thread, &review) {
+            (None, _) => Some("ยังไม่ได้เปิด thread"),
+            (Some(_), None) => Some("กำลังอ่านสิ่งที่ thread เปลี่ยน"),
+            (Some(_), Some(review)) if review.base.is_none() || review.files.is_empty() => {
+                Some("thread นี้ยังไม่ได้แก้ไฟล์ไหน")
+            }
+            _ => None,
+        };
+        let wide = self.wide;
+        let header = div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(border)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(14.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("รีวิว diff"),
+                    )
+                    .when(total > 0, |row| {
+                        row.child(
+                            div()
+                                .font(tokens::code_font())
+                                .text_size(px(12.))
+                                .text_color(muted)
+                                .child(format!("+{added} −{removed} · {decided}/{total} hunk")),
+                        )
+                    })
+                    .child(div().flex_grow(1.))
+                    .when(pending > 0, |row| {
+                        row.child(
+                            button(cx, ("accept-rest", 0), "รับที่เหลือทั้งหมด", None)
+                                .on_click(cx.listener(|pane, _, _, cx| pane.accept_rest(cx))),
+                        )
+                    })
+                    .child(
+                        icon_button(
+                            cx,
+                            "widen",
+                            if wide {
+                                "icons/minimize.svg"
+                            } else {
+                                "icons/maximize.svg"
+                            },
+                        )
+                        .on_click(
+                            cx.listener(move |_, _, _, cx| cx.emit(ReviewEvent::Widen(!wide))),
+                        ),
+                    )
+                    .child(
+                        icon_button(cx, "refresh-review", "icons/rotate_cw.svg")
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ReviewEvent::Refresh))),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(muted)
+                    .child("เทียบกับ snapshot แรกของ thread ไม่ใช่ git HEAD"),
+            );
+        let mut hunk_list = div()
             .id("review")
             .key_context("ReviewList")
             .track_focus(&self.focus)
@@ -361,80 +766,124 @@ impl Render for ReviewPane {
             .on_action(cx.listener(Self::reject))
             .flex()
             .flex_col()
+            .gap_2()
+            .p_3()
             .flex_grow(1.)
+            .min_w_0()
             .min_h_0()
             .overflow_y_scroll();
-        let summary: SharedString = match (&self.thread, &self.review) {
-            (None, _) => "No thread open".into(),
-            (Some(_), None) => "Reading the thread's changes".into(),
-            (Some(_), Some(review)) if review.base.is_none() => {
-                "The thread has not changed any file".into()
-            }
-            (Some(_), Some(review)) => {
-                let all: Vec<&Hunk> = hunks(review).collect();
-                let decided = all
-                    .iter()
-                    .filter(|h| matches!(h.state, HunkState::Accepted | HunkState::Rejected))
-                    .count();
-                format!(
-                    "Against the thread's first snapshot, not git HEAD · {decided}/{} hunks",
-                    all.len()
-                )
-                .into()
-            }
-        };
-        if let Some(review) = self.review.clone() {
+        if let Some(message) = empty {
+            hunk_list = hunk_list.child(div().text_size(px(13.)).text_color(muted).child(message));
+        } else if let Some(review) = &review {
             let mut index = 0;
-            for file in &review.files {
-                list = list.child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .px_2()
-                        .pt_2()
-                        .text_sm()
-                        .child(file.path.clone())
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child(format!("+{} −{}", file.added, file.removed)),
-                        )
-                        .when(file.binary, |el| {
-                            el.child(div().text_xs().text_color(muted).child("binary"))
-                        }),
-                );
+            for (n, file) in review.files.iter().enumerate() {
+                let shown = !wide || n == self.file;
+                if shown && !wide {
+                    hunk_list = hunk_list.child(self.render_file_row(n, file, cx));
+                }
                 for hunk in &file.hunks {
-                    list = list.child(self.render_hunk(index, hunk, cx));
+                    if shown {
+                        hunk_list = hunk_list.child(self.render_hunk(index, hunk, cx));
+                    }
                     index += 1;
                 }
             }
         }
+        let body = if wide && empty.is_none() {
+            let files = review.as_ref().map(|review| {
+                div()
+                    .id("review-files")
+                    .w(px(SIDE_WIDTH))
+                    .flex_none()
+                    .h_full()
+                    .flex()
+                    .flex_col()
+                    .gap_px()
+                    .p_2()
+                    .border_r_1()
+                    .border_color(border)
+                    .overflow_y_scroll()
+                    .children(
+                        review
+                            .files
+                            .iter()
+                            .enumerate()
+                            .map(|(n, file)| self.render_file_row(n, file, cx)),
+                    )
+            });
+            div()
+                .flex()
+                .flex_grow(1.)
+                .min_h_0()
+                .children(files)
+                .child(hunk_list)
+                .child(self.render_evidence(cx))
+        } else {
+            div().flex().flex_grow(1.).min_h_0().child(hunk_list)
+        };
         div()
             .size_full()
             .flex()
             .flex_col()
             .bg(panel)
             .text_color(text)
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .px_2()
-                    .py_1()
-                    .border_b_1()
-                    .border_color(border)
-                    .text_xs()
-                    .child(div().text_color(muted).child(summary))
-                    .child(
-                        div()
-                            .id("refresh-review")
-                            .cursor_pointer()
-                            .text_color(accent)
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ReviewEvent::Refresh)))
-                            .child("Refresh"),
-                    ),
-            )
-            .child(list)
+            .child(header)
+            .child(body)
+    }
+}
+
+fn icon_button(cx: &App, id: &'static str, icon: &'static str) -> Stateful<Div> {
+    let colors = cx.theme().colors();
+    div()
+        .id(id)
+        .flex_none()
+        .size(px(26.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(7.))
+        .cursor_pointer()
+        .hover(|b| b.bg(colors.element_hover))
+        .child(svg().path(icon).size(px(14.)).text_color(colors.text_muted))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(path: &str, hunks: usize) -> FileReview {
+        FileReview {
+            path: path.to_owned(),
+            binary: false,
+            added: 0,
+            removed: 0,
+            hunks: (0..hunks)
+                .map(|n| {
+                    serde_json::from_value(serde_json::json!({
+                        "id": format!("{path}-{n}"),
+                        "path": path,
+                        "header": "@@ -1 +1 @@",
+                        "new_start": 1,
+                        "lines": [],
+                        "state": "pending",
+                    }))
+                    .expect("hunk")
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn hunks_map_to_their_files() {
+        let review = Review {
+            base: Some("t".into()),
+            files: vec![file("a", 2), file("bin", 0), file("c", 1)],
+        };
+        assert_eq!(file_of(&review, 0), Some(0));
+        assert_eq!(file_of(&review, 1), Some(0));
+        assert_eq!(file_of(&review, 2), Some(2));
+        assert_eq!(file_of(&review, 3), None);
+        assert_eq!(first_hunk(&review, 2), Some(2));
+        assert_eq!(first_hunk(&review, 1), None);
     }
 }
