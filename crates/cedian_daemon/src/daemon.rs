@@ -49,6 +49,9 @@ pub struct Daemon {
     cedia: Cedia,
     home: PathBuf,
     version: Result<VersionInfo, String>,
+    /// The models and permission modes this cedia lists, as `Notice::Choices`, sent to each
+    /// window that connects.
+    choices: Notice,
     clients: HashMap<ClientId, Client>,
     runs: HashMap<RunId, Run>,
     /// Each thread's latest run.
@@ -65,6 +68,27 @@ pub struct Daemon {
     next_id: u64,
 }
 
+/// `Notice::Choices` from cedia's `models` and `permissions`, each asked only when this cedia
+/// offers it: an older cedia would read the word as a prompt.
+fn choices(cedia: &Cedia, version: &Result<VersionInfo, String>) -> Notice {
+    let can = |capability| {
+        version
+            .as_ref()
+            .is_ok_and(|v| v.capabilities.contains(&capability))
+    };
+    fn listed<T>(list: Result<T, String>) -> Option<T> {
+        list.inspect_err(|e| log::warn!("{e}")).ok()
+    }
+    Notice::Choices {
+        models: can(cedian_protocol::Capability::Models)
+            .then(|| listed(cedia.models()))
+            .flatten(),
+        permissions: can(cedian_protocol::Capability::Permissions)
+            .then(|| listed(cedia.permissions()))
+            .flatten(),
+    }
+}
+
 impl Daemon {
     pub fn new(cedia: Cedia, home: PathBuf, state_dir: &Path) -> Self {
         let version = cedia.version();
@@ -72,10 +96,12 @@ impl Daemon {
             Ok(version) => log::info!("cedia {} at {}", version.version, cedia.bin.display()),
             Err(error) => log::warn!("{error}"),
         }
+        let choices = choices(&cedia, &version);
         Self {
             cedia,
             home,
             version,
+            choices,
             clients: HashMap::new(),
             runs: HashMap::new(),
             by_thread: HashMap::new(),
@@ -217,6 +243,7 @@ impl Daemon {
                 cedia: self.version.clone(),
             },
         );
+        self.send(id, self.choices.clone());
         id
     }
 
@@ -406,10 +433,12 @@ impl Daemon {
                 worktree,
                 profile,
                 model,
+                permission,
             } => {
                 let with = Flags {
                     profile: profile.as_deref(),
                     model: model.as_deref(),
+                    permission: permission.as_deref(),
                     ..Flags::default()
                 };
                 let running = thread.as_deref().is_some_and(|t| lock(shared).running(t));
@@ -417,15 +446,9 @@ impl Daemon {
                     // A run is already working on it: the text joins at its next turn.
                     Some(thread) if running => Self::message(shared, client, &cwd, &thread, &text),
                     None if worktree => Self::prompt_in_worktree(shared, client, cwd, &text, with),
-                    thread => Self::prompt(
-                        shared,
-                        Some(client),
-                        cwd.clone(),
-                        cwd,
-                        &text,
-                        thread,
-                        with,
-                    ),
+                    thread => {
+                        Self::prompt(shared, Some(client), cwd.clone(), cwd, &text, thread, with)
+                    }
                 }
             }
             Request::Send { cwd, thread, text } => {
@@ -728,7 +751,15 @@ impl Daemon {
             match crate::worktree::create(&cwd, &task) {
                 Ok((dir, branch)) => {
                     log::info!("worktree {} on {branch}", dir.display());
-                    Self::prompt(shared, None, cwd, dir, &task, Some(thread), Flags::default());
+                    Self::prompt(
+                        shared,
+                        None,
+                        cwd,
+                        dir,
+                        &task,
+                        Some(thread),
+                        Flags::default(),
+                    );
                 }
                 Err(error) => log::warn!("starting {thread}: {error:#}"),
             }

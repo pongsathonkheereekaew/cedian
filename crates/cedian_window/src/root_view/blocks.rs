@@ -35,8 +35,9 @@ pub(super) const BLOCK_GAP: f32 = 6.;
 /// Under this width a block compacts itself.
 const NARROW: f32 = 360.;
 const NARROW_LIST: f32 = 220.;
-/// Under this width the composer's chips give way, so send and stop are never clipped.
-const CHIPS_FROM: f32 = 560.;
+/// Under this width the composer's context and view chips give way to the run's model and
+/// mode, so nothing in the row is clipped.
+const CHIPS_FROM: f32 = 760.;
 /// Under this width the thread list's foot leaves out cedia's version.
 pub(super) const FOOT_FULL: f32 = 300.;
 /// The most layout changes `⌘Z` goes back through.

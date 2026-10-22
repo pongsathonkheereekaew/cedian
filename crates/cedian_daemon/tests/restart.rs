@@ -75,6 +75,7 @@ impl Env {
             .expect("timeout");
         let mut reader = BufReader::new(stream.try_clone().expect("clone"));
         assert!(matches!(next(&mut reader), Notice::Welcome { .. }));
+        assert!(matches!(next(&mut reader), Notice::Choices { .. }));
         (stream, reader)
     }
 }
@@ -109,6 +110,7 @@ fn a_new_daemon_follows_a_run_the_old_one_started() {
             worktree: false,
             profile: None,
             model: None,
+            permission: None,
         },
     )
     .expect("prompt");

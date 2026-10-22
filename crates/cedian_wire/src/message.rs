@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
 };
 
-use cedian_protocol::{Rating, VersionInfo};
+use cedian_protocol::{ModelList, PermissionList, Rating, VersionInfo};
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -35,6 +35,10 @@ pub enum Request {
         /// The model this run's writer takes (`cedia -m`); none keeps cedia's choice.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// What the run may do (`cedia --permission`): a mode from `Notice::Choices`; none
+        /// keeps cedia's default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        permission: Option<String>,
     },
     /// A message the running thread sees at its next turn.
     Send {
@@ -140,6 +144,12 @@ pub enum Notice {
         path: PathBuf,
         desktop: serde_json::Value,
     },
+    /// What a run can be given, when this cedia lists it: the models (`cedia models`) and the
+    /// permission modes (`cedia permissions`). Sent after `Welcome`.
+    Choices {
+        models: Option<ModelList>,
+        permissions: Option<PermissionList>,
+    },
     Error {
         message: String,
     },
@@ -176,6 +186,7 @@ mod tests {
             worktree: false,
             profile: None,
             model: None,
+            permission: None,
         };
         let mut buffer = Vec::new();
         write_message(&mut buffer, &request).expect("write");
