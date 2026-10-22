@@ -5,7 +5,8 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use cedian_layout::Workspace;
-use cedian_wire::{Status, ThreadInfo};
+use cedian_protocol::Schedule;
+use cedian_wire::{McpServer, Status, ThreadInfo};
 use gpui::{Entity, SharedString};
 
 use crate::{
@@ -39,6 +40,17 @@ pub struct Project {
     pub chat_open: Option<String>,
     /// A prompt went out from the project chat with no thread yet.
     pub awaiting_chat: bool,
+    /// The sub-threads not archived, which only the Background tasks block lists.
+    pub subthreads: Vec<ThreadInfo>,
+    /// The scheduled runs and MCP servers, once the daemon sent them.
+    pub background: Option<Background>,
+}
+
+/// What the Background tasks block lists beside the threads.
+pub struct Background {
+    /// `None` when this cedia keeps no schedules.
+    pub schedules: Option<Vec<Schedule>>,
+    pub mcp: Vec<McpServer>,
 }
 
 impl Project {
@@ -57,6 +69,8 @@ impl Project {
             undo: Vec::new(),
             chat_open: None,
             awaiting_chat: false,
+            subthreads: Vec::new(),
+            background: None,
         }
     }
 
@@ -102,10 +116,14 @@ impl Project {
     /// stay out of both. Returns how each run that was working in the last list ended, for the
     /// sound.
     pub fn set_threads(&mut self, threads: Vec<ThreadInfo>) -> Vec<Ending> {
-        let (mut archived, threads): (Vec<ThreadInfo>, Vec<ThreadInfo>) = threads
+        let (subthreads, threads): (Vec<ThreadInfo>, Vec<ThreadInfo>) =
+            threads.into_iter().partition(|t| t.thread.parent.is_some());
+        self.subthreads = subthreads
             .into_iter()
-            .filter(|t| t.thread.parent.is_none())
-            .partition(|t| t.thread.archived);
+            .filter(|t| !t.thread.archived)
+            .collect();
+        let (mut archived, threads): (Vec<ThreadInfo>, Vec<ThreadInfo>) =
+            threads.into_iter().partition(|t| t.thread.archived);
         // RFC 3339 times from one clock sort as text.
         archived.sort_by(|a, b| b.thread.updated_at.cmp(&a.thread.updated_at));
         self.archived = archived;

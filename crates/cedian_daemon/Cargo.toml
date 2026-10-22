@@ -15,6 +15,7 @@ cedian_index = { path = "../cedian_index" }
 cedian_protocol = { path = "../cedian_protocol" }
 cedian_review = { path = "../cedian_review" }
 cedian_wire = { path = "../cedian_wire" }
+chrono.workspace = true
 futures.workspace = true
 libc.workspace = true
 log.workspace = true

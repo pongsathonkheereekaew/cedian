@@ -39,6 +39,21 @@ if [[ "${1:-}" == "commands" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "schedules" ]]; then
+  # schedules [due | pause|resume|fire <id>] [--json] --cwd <dir>. The list is
+  # $FAKE_THREADS/../schedules.json; $FAKE_THREADS/../due.json is due once, until fired.
+  state="$FAKE_THREADS/.."
+  mkdir -p "$state"
+  printf '%s\n' "$*" >>"$state/schedule-calls"
+  case "${2:-}" in
+    due) cat "$state/due.json" 2>/dev/null || echo '[]' ;;
+    fire) rm -f "$state/due.json"; echo '[]' ;;
+    pause | resume) echo "${2}d $3" ;;
+    *) cat "$state/schedules.json" 2>/dev/null || echo '[]' ;;
+  esac
+  exit 0
+fi
+
 if [[ "${1:-}" == "threads" && "${4:-}" == "fork" ]]; then
   # threads --cwd <dir> fork <id> <run> --json
   printf '{"at":"2026-10-22T03:00:05.000Z","kind":"open","title":"forked","task":"forked","forkOf":{"thread":"%s","run":"%s"}}\n' "$5" "$6" \

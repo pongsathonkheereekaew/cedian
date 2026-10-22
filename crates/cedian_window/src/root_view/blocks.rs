@@ -1241,7 +1241,8 @@ impl RootView {
                     })
                     .into_any_element()
             }
-            Kind::Browser | Kind::Outputs | Kind::Memory | Kind::Usage | Kind::Background => div()
+            Kind::Background => self.render_background(cx),
+            Kind::Browser | Kind::Outputs | Kind::Memory | Kind::Usage => div()
                 .size_full()
                 .flex()
                 .items_center()
