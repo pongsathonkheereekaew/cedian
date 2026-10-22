@@ -420,6 +420,23 @@ impl Daemon {
                     lock(shared).error(client, format!("{error:#}"));
                 }
             }
+            Request::Archive {
+                cwd,
+                thread,
+                archived,
+            } => {
+                let (cedia, quiet) = {
+                    let daemon = lock(shared);
+                    (daemon.cedia.clone(), !daemon.needs_you(&cwd, &thread))
+                };
+                match cedia.archive(&cwd, &thread, archived) {
+                    // Archiving is the person's own change: a thread that did not need them
+                    // still does not.
+                    Ok(()) if quiet => lock(shared).mark_seen(&cwd, &thread),
+                    Ok(()) => {}
+                    Err(error) => lock(shared).error(client, format!("{error:#}")),
+                }
+            }
             Request::Settings => lock(shared).settings(client),
             Request::SetDesktop { key, value } => lock(shared).set_desktop(client, &key, value),
             Request::Review { cwd, thread } => {
@@ -503,6 +520,26 @@ impl Daemon {
                 self.error(client, format!("{error:#}"));
                 None
             }
+        }
+    }
+
+    /// Whether the thread needs the person now, as the list would say.
+    fn needs_you(&self, cwd: &Path, thread: &str) -> bool {
+        let slug = project_key(cwd);
+        read_thread(&threads_dir(&self.home, &slug), thread).is_ok_and(|summary| {
+            let status = Status::of(summary.state, self.running(thread));
+            self.seen
+                .needs_you(&slug, thread, &summary.updated_at, status)
+        })
+    }
+
+    /// Marks the thread's latest change seen, and sends the list again when that changed it.
+    fn mark_seen(&mut self, cwd: &Path, thread: &str) {
+        let slug = project_key(cwd);
+        if let Ok(summary) = read_thread(&threads_dir(&self.home, &slug), thread)
+            && self.seen.mark(&slug, thread, &summary.updated_at)
+        {
+            self.refresh(&slug);
         }
     }
 

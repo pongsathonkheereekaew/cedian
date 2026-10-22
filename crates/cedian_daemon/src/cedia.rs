@@ -101,6 +101,12 @@ impl Cedia {
         self.threads(cwd, &args)
     }
 
+    /// `cedia threads archive|unarchive <id>`.
+    pub fn archive(&self, cwd: &Path, thread: &str, archived: bool) -> anyhow::Result<()> {
+        let verb = if archived { "archive" } else { "unarchive" };
+        self.threads(cwd, &[verb, thread])
+    }
+
     /// `cedia threads rate <id> up|down`.
     pub fn rate(&self, cwd: &Path, thread: &str, rating: Rating) -> anyhow::Result<()> {
         let word = match rating {

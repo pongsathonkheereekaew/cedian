@@ -49,6 +49,13 @@ pub enum Request {
         thread: String,
         rating: Rating,
     },
+    /// Hides the thread from the list, or brings it back, through `cedia threads
+    /// archive|unarchive`.
+    Archive {
+        cwd: PathBuf,
+        thread: String,
+        archived: bool,
+    },
     /// The thread's changes since its first snapshot, answered with `Notice::Review`.
     Review { cwd: PathBuf, thread: String },
     /// A decision on one hunk of the thread's review, answered with the review again.
