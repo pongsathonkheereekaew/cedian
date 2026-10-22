@@ -1,5 +1,8 @@
 mod agent_pane;
 mod assets;
+mod block_drag;
+mod block_header;
+mod block_keys;
 mod composer;
 mod daemon_client;
 mod density;
@@ -10,7 +13,10 @@ mod file_tree;
 mod git_pane;
 mod layout;
 mod line_breaks;
+mod on_click;
 mod open_in;
+mod overview;
+mod popup_menu;
 mod project;
 mod receipt;
 mod replay;
@@ -18,7 +24,6 @@ mod review_pane;
 mod root_view;
 mod settings_view;
 mod settings_window;
-mod sheet_header;
 mod shell_pane;
 mod sidebar_foot;
 mod sound;
@@ -28,7 +33,7 @@ mod thread_list;
 mod thread_search;
 mod tokens;
 mod tool_card;
-mod tool_rail;
+mod tool_menu;
 mod type_scale;
 mod view_mode;
 mod workplace;
@@ -121,22 +126,13 @@ const SEARCH_KEY: &str = "ctrl-k";
 const ATTACH_KEY: &str = "cmd-l";
 #[cfg(not(target_os = "macos"))]
 const ATTACH_KEY: &str = "ctrl-shift-l";
-/// Folds the sidebar to its rail; `ctrl-b` belongs to the shell on Linux.
+/// The project tabs: `⌘T` opens one, `⌘⇧W` closes it (`⌘W` closes a block), `⌘1`–`⌘9` pick
+/// one, as in Chrome. On Linux the shell keeps `ctrl-t` and `ctrl-w`, so those take the
+/// shifted key.
 #[cfg(target_os = "macos")]
-const SIDEBAR_KEY: &str = "cmd-b";
-#[cfg(not(target_os = "macos"))]
-const SIDEBAR_KEY: &str = "ctrl-shift-b";
-/// The project tabs: `⌘T` opens one, `⌘W` closes it, `⌘1`–`⌘9` pick one, as in Chrome. On
-/// Linux the shell keeps `ctrl-t` and `ctrl-w`, so those take the shifted key.
-#[cfg(target_os = "macos")]
-const TAB_KEYS: (&str, &str, &str) = ("cmd-t", "cmd-w", "cmd");
+const TAB_KEYS: (&str, &str, &str) = ("cmd-t", "cmd-shift-w", "cmd");
 #[cfg(not(target_os = "macos"))]
 const TAB_KEYS: (&str, &str, &str) = ("ctrl-shift-t", "ctrl-shift-w", "ctrl");
-#[cfg(target_os = "macos")]
-const TOOL_KEY: &str = "cmd-alt";
-#[cfg(not(target_os = "macos"))]
-const TOOL_KEY: &str = "ctrl-alt";
-
 fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     crate::assets::Assets
         .load_fonts(cx)
@@ -191,26 +187,14 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
             thread_search::Dismiss,
             Some("ThreadSearch > Editor"),
         ),
-        KeyBinding::new(SIDEBAR_KEY, root_view::ToggleSidebar, None),
-        KeyBinding::new(
-            SIDEBAR_KEY,
-            root_view::ToggleSidebar,
-            Some("Composer > Editor"),
-        ),
         KeyBinding::new(ATTACH_KEY, shell_pane::AttachSelection, Some("Shell")),
         KeyBinding::new(
             ATTACH_KEY,
             shell_pane::AttachSelection,
             Some("ToolEditor > Editor"),
         ),
-        KeyBinding::new(&format!("{TOOL_KEY}-1"), tool_rail::ToggleEditor, None),
-        KeyBinding::new(&format!("{TOOL_KEY}-2"), tool_rail::ToggleTerminal, None),
-        KeyBinding::new(&format!("{TOOL_KEY}-3"), tool_rail::ToggleReview, None),
-        KeyBinding::new(&format!("{TOOL_KEY}-4"), tool_rail::ToggleFiles, None),
-        KeyBinding::new(&format!("{TOOL_KEY}-6"), tool_rail::ToggleGit, None),
-        KeyBinding::new(&format!("{TOOL_KEY}-7"), tool_rail::ToggleDetails, None),
-        KeyBinding::new(&format!("{TOOL_KEY}-0"), tool_rail::HideTools, None),
     ]);
+    cx.bind_keys(block_keys::bindings());
     // Bound in the composer too, where Zed's keymap would otherwise take some of these keys.
     let (new_tab, close_tab, pick) = TAB_KEYS;
     for context in [None, Some("Composer > Editor")] {

@@ -1,46 +1,27 @@
 //! The window's layout, kept in the `layout` key of `desktop` so a window opened after quit
-//! looks the way the last one did: its bounds, the open tools, the project tabs, and the thread
-//! each project had open.
+//! looks the way the last one did: its bounds, the project tabs, the thread each project had
+//! open, and each project's blocks in their named layouts (Interface, Blocks).
 
 use std::{collections::BTreeMap, path::PathBuf};
 
 use gpui::{App, Bounds, Pixels, WindowBounds, point, px, size};
 use serde_json::{Value, json};
 
-use crate::tool_rail::Tool;
+use cedian_layout::Workspace;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Layout {
     pub bounds: Option<WindowBounds>,
-    /// The tools open in the panel, in rail order.
-    pub tools: Vec<Tool>,
     /// The open thread by project directory.
     pub open: BTreeMap<String, String>,
-    /// Each tool's share of the panel's height, by key; a tool not named takes 1.
-    pub tool_sizes: BTreeMap<String, f32>,
-    /// The sidebar folded to its rail of dots (`⌘B`).
-    pub sidebar_folded: bool,
+    /// Each project's blocks and named layouts, by project directory.
+    pub blocks: BTreeMap<String, Workspace>,
     /// The threads pinned to the sidebar's ปักหมุด group, by project directory.
     pub pinned: BTreeMap<String, Vec<String>>,
     /// The project tabs' directories, in tab order.
     pub projects: Vec<String>,
     /// The tab in front.
     pub project: Option<String>,
-}
-
-impl Default for Layout {
-    fn default() -> Self {
-        Self {
-            bounds: None,
-            tools: vec![Tool::Editor, Tool::Terminal],
-            open: BTreeMap::new(),
-            tool_sizes: BTreeMap::new(),
-            sidebar_folded: false,
-            pinned: BTreeMap::new(),
-            projects: Vec::new(),
-            project: None,
-        }
-    }
 }
 
 impl Layout {
@@ -74,39 +55,26 @@ impl Layout {
                     .collect()
             })
             .unwrap_or_default();
-        let tools = match layout.get("tools").and_then(Value::as_array) {
-            Some(tools) => {
-                let mut tools: Vec<Tool> = tools
-                    .iter()
-                    .filter_map(|t| Tool::from_key(t.as_str()?))
-                    .collect();
-                tools.sort();
-                tools.dedup();
-                tools
-            }
-            // Before the rail, the right column had two tabs.
-            None => match layout.get("right").and_then(Value::as_str) {
-                Some("review") => vec![Tool::Review],
-                _ => Self::default().tools,
-            },
-        };
-        let tool_sizes = layout
-            .get("tool_sizes")
+        let blocks = layout
+            .get("blocks")
             .and_then(Value::as_object)
-            .map(|sizes| {
-                sizes
+            .map(|blocks| {
+                blocks
                     .iter()
-                    .filter_map(|(key, n)| Some((key.clone(), n.as_f64()? as f32)))
-                    .filter(|(_, n)| n.is_finite() && *n > 0.)
+                    .filter_map(|(cwd, ws)| {
+                        let mut ws: Workspace = serde_json::from_value(ws.clone())
+                            .inspect_err(|e| log::warn!("the blocks of {cwd}: {e}"))
+                            .ok()?;
+                        ws.tidy();
+                        Some((cwd.clone(), ws))
+                    })
                     .collect()
             })
             .unwrap_or_default();
         Self {
             bounds,
-            tools,
             open,
-            tool_sizes,
-            sidebar_folded: layout.get("sidebar").and_then(Value::as_str) == Some("folded"),
+            blocks,
             pinned: layout
                 .get("pinned")
                 .and_then(Value::as_object)
@@ -193,32 +161,24 @@ impl Layout {
         }
     }
 
-    /// The share of the panel `tool` takes.
-    pub fn tool_size(&self, tool: Tool) -> f32 {
-        self.tool_sizes.get(tool.key()).copied().unwrap_or(1.)
+    /// The blocks of the project at `cwd`, the starting layouts when it has none yet.
+    pub fn workspace(&self, cwd: &str) -> Workspace {
+        self.blocks.get(cwd).cloned().unwrap_or_default()
     }
 
     pub fn to_value(&self) -> Value {
         let mut layout = json!({
-            "tools": self.tools.iter().map(|t| t.key()).collect::<Vec<_>>(),
             "open": self.open,
-            "sidebar": if self.sidebar_folded { "folded" } else { "open" },
             "projects": self.projects,
         });
+        if !self.blocks.is_empty() {
+            layout["blocks"] = json!(self.blocks);
+        }
         if !self.pinned.is_empty() {
             layout["pinned"] = json!(self.pinned);
         }
         if let Some(project) = &self.project {
             layout["project"] = project.as_str().into();
-        }
-        if !self.tool_sizes.is_empty() {
-            // Two decimals keep the file readable; a drag never needs finer.
-            let sizes: BTreeMap<&str, f64> = self
-                .tool_sizes
-                .iter()
-                .map(|(k, n)| (k.as_str(), (f64::from(*n) * 100.).round() / 100.))
-                .collect();
-            layout["tool_sizes"] = json!(sizes);
         }
         if let Some(bounds) = self.bounds {
             let (state, b) = match bounds {
@@ -259,10 +219,8 @@ mod tests {
                 point(px(10.), px(20.)),
                 size(px(1200.), px(700.)),
             ))),
-            tools: vec![Tool::Review, Tool::Details],
             open: BTreeMap::from([("/repo".to_owned(), "t-1".to_owned())]),
-            tool_sizes: BTreeMap::from([("review".to_owned(), 1.25)]),
-            sidebar_folded: true,
+            blocks: BTreeMap::from([("/repo".to_owned(), Workspace::default())]),
             pinned: BTreeMap::from([("/repo".to_owned(), vec!["t-2".to_owned()])]),
             projects: vec!["/repo".to_owned(), "/other".to_owned()],
             project: Some("/other".to_owned()),
@@ -270,8 +228,9 @@ mod tests {
         let desktop = json!({ "layout": layout.to_value() });
         assert_eq!(Layout::from_desktop(&desktop), layout);
         assert_eq!(Layout::from_desktop(&json!({})), Layout::default());
-        let old = json!({ "layout": { "right": "review" } });
-        assert_eq!(Layout::from_desktop(&old).tools, [Tool::Review]);
+        // A project whose blocks do not read starts over with the starting layouts.
+        let broken = json!({ "layout": { "blocks": { "/repo": { "layouts": 3 } } } });
+        assert!(Layout::from_desktop(&broken).blocks.is_empty());
     }
 
     #[test]

@@ -1175,6 +1175,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cedian_layout"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cedian_protocol"
 version = "0.1.0"
 dependencies = [
@@ -1205,6 +1213,7 @@ dependencies = [
  "assets",
  "cedian_agent",
  "cedian_index",
+ "cedian_layout",
  "cedian_protocol",
  "cedian_wire",
  "chrono",
