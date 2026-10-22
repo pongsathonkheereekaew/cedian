@@ -106,7 +106,8 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let tools = cx.new(|cx| SpikeView::new(window, cx));
+        let shell_cwd = (!cwd.as_os_str().is_empty()).then(|| cwd.clone());
+        let tools = cx.new(|cx| SpikeView::new(shell_cwd, window, cx));
         let composer = cx.new(|cx| Composer::new(window, cx));
         cx.subscribe(&composer, |view, _, event, cx| match event {
             ComposerEvent::Submit(text) => view.submit(text.clone(), cx),

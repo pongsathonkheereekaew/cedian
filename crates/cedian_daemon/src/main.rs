@@ -11,6 +11,13 @@ fn main() {
         util::shell_env::print_env();
         return;
     }
+    // A parent that ignored SIGTERM passes that on through exec; launchd, logout and Stop
+    // (which cedia inherits from here) all rely on the default.
+    // SAFETY: setting a signal's disposition to the default before any thread starts.
+    unsafe {
+        libc::signal(libc::SIGTERM, libc::SIG_DFL);
+        libc::signal(libc::SIGINT, libc::SIG_DFL);
+    }
     log::set_logger(&LOGGER).ok();
     log::set_max_level(log::LevelFilter::Info);
     let env = login_environment();

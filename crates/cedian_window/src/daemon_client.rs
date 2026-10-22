@@ -5,7 +5,7 @@ use std::{
     io::BufReader,
     os::unix::{net::UnixStream, process::CommandExt as _},
     path::PathBuf,
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -28,8 +28,8 @@ impl DaemonClient {
         let stream = match UnixStream::connect(&socket) {
             Ok(stream) => stream,
             Err(_) => {
-                start_daemon()?;
-                wait_for(&socket)?
+                let daemon = start_daemon()?;
+                wait_for(&socket, daemon)?
             }
         };
         let reader = stream.try_clone()?;
@@ -89,7 +89,7 @@ fn daemon_bin() -> PathBuf {
 }
 
 /// Starts the daemon in its own process group, logging to `daemon.log` in the state directory.
-fn start_daemon() -> anyhow::Result<()> {
+fn start_daemon() -> anyhow::Result<Child> {
     let dir = state_dir();
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     let log = std::fs::OpenOptions::new()
@@ -103,15 +103,25 @@ fn start_daemon() -> anyhow::Result<()> {
         .stderr(log)
         .process_group(0)
         .spawn()
-        .with_context(|| format!("starting {}", bin.display()))?;
-    Ok(())
+        .with_context(|| format!("starting {}", bin.display()))
 }
 
-fn wait_for(socket: &std::path::Path) -> anyhow::Result<UnixStream> {
+/// The last lines of `daemon.log`, to say why a daemon this window started exited.
+fn log_tail() -> String {
+    let text = std::fs::read_to_string(state_dir().join("daemon.log")).unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(5)..].join("\n")
+}
+
+fn wait_for(socket: &std::path::Path, mut daemon: Child) -> anyhow::Result<UnixStream> {
     let start = Instant::now();
     loop {
         match UnixStream::connect(socket) {
             Ok(stream) => return Ok(stream),
+            // Exit 0 means another daemon won the race to bind; keep connecting.
+            Err(_) if daemon.try_wait()?.is_some_and(|status| !status.success()) => {
+                anyhow::bail!("the daemon exited at start:\n{}", log_tail());
+            }
             Err(error) if start.elapsed() > START_TIMEOUT => {
                 return Err(error).with_context(|| {
                     format!(

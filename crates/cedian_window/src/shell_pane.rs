@@ -2,7 +2,7 @@
 //! the platform input handler, so IME and non-Latin layouts type what the person typed;
 //! control and special keys go through Zed's escape mapping.
 
-use std::{ops::Range, time::Duration};
+use std::{ops::Range, path::PathBuf, time::Duration};
 
 use collections::HashMap;
 use gpui::{
@@ -22,10 +22,11 @@ pub struct ShellPane {
 }
 
 impl ShellPane {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    /// A login shell, started in `cwd` when given.
+    pub fn new(cwd: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let window_id = window.window_handle().window_id().as_u64();
         let spawn = TerminalBuilder::new(
-            None,
+            cwd,
             TerminalMode::interactive(),
             task::Shell::System,
             HashMap::default(),

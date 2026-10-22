@@ -209,3 +209,17 @@ fn a_thread_left_working_reads_as_interrupted() {
         other => panic!("{other:?}"),
     }
 }
+
+#[test]
+fn a_socket_path_too_long_fails_with_the_reason() {
+    let config = Config {
+        socket: PathBuf::from(format!("/tmp/{}/daemon.sock", "x".repeat(120))),
+        cedia: Cedia {
+            bin: PathBuf::from("cedia"),
+            env: HashMap::new(),
+        },
+        home: PathBuf::from("/nonexistent"),
+    };
+    let error = serve(config).expect_err("too long");
+    assert!(format!("{error:#}").contains("CEDIAN_STATE_DIR"), "{error:#}");
+}
