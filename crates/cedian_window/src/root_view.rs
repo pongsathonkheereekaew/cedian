@@ -8,8 +8,9 @@ use cedian_wire::{Notice, Request, Status, ThreadInfo};
 use futures::StreamExt as _;
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, Focusable as _, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Task, Window, WindowHandle, div, prelude::FluentBuilder as _, px,
+    IntoElement, MouseButton, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Task, Window, WindowControlArea, WindowHandle,
+    div, prelude::FluentBuilder as _, px,
 };
 use settings::Settings as _;
 use theme::ActiveTheme as _;
@@ -19,11 +20,14 @@ use crate::{
     composer::{Composer, ComposerEvent},
     daemon_client::DaemonClient,
     desktop::Desktop,
+    dock,
     layout::Layout,
+    line_breaks,
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
     settings_window::SettingsWindow,
     spike_view::SpikeView,
+    tab_strip::{self, ProjectTab},
     thread_list::{self, Group},
 };
 
@@ -65,6 +69,10 @@ pub struct RootView {
     /// What the next window opens with; saved shortly after it changes.
     layout: Layout,
     saving_layout: Option<Task<()>>,
+    /// A press on the tab strip that moves the window once the mouse moves.
+    should_move: bool,
+    /// The count last put on the Dock icon.
+    dock_badge: Option<usize>,
 }
 
 impl RootView {
@@ -184,6 +192,8 @@ impl RootView {
             settings_window: None,
             layout: Layout::default(),
             saving_layout: None,
+            should_move: false,
+            dock_badge: None,
         }
     }
 
@@ -377,26 +387,38 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let colors = cx.theme().colors();
-        let status = cx.theme().status();
         let mut options = div().flex().flex_wrap().gap_2();
         for (n, option) in question.options.into_iter().enumerate() {
             let answer = option.clone();
+            let recommended = n == 0;
             options = options.child(
                 div()
                     .id(("answer", n))
-                    .px_2()
-                    .py_1()
+                    .h(px(28.))
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .rounded(px(7.))
                     .border_1()
-                    .border_color(if n == 0 {
-                        colors.text_accent
-                    } else {
-                        colors.border
-                    })
                     .cursor_pointer()
-                    .text_sm()
+                    .text_size(px(13.))
+                    .map(|button| {
+                        if recommended {
+                            button
+                                .bg(colors.text_accent)
+                                .border_color(colors.text_accent)
+                                .text_color(colors.background)
+                        } else {
+                            button
+                                .bg(colors.element_background)
+                                .border_color(colors.border)
+                                .text_color(colors.text)
+                                .hover(|b| b.bg(colors.element_hover))
+                        }
+                    })
                     .on_click(cx.listener(move |view, _, _, cx| view.submit(answer.clone(), cx)))
-                    .child(if n == 0 {
-                        format!("{option} (recommended)")
+                    .child(if recommended {
+                        format!("{option} · แนะนำ")
                     } else {
                         option
                     }),
@@ -408,22 +430,31 @@ impl RootView {
             .gap_2()
             .mx_3()
             .my_2()
-            .p_2()
+            .p_3()
+            .rounded(px(12.))
             .border_1()
-            .border_color(status.warning)
+            .border_color(colors.text_accent)
+            .bg(colors.element_background)
+            .text_color(colors.text)
             .child(
                 div()
-                    .text_xs()
-                    .text_color(status.warning)
-                    .child("The thread is waiting for your answer"),
+                    .text_size(px(11.))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(colors.text_accent)
+                    .child("ถามคุณ"),
             )
-            .child(div().text_sm().child(question.question))
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .line_height(px(24.))
+                    .child(line_breaks::wrapped(&question.question)),
+            )
             .child(options)
             .child(
                 div()
-                    .text_xs()
+                    .text_size(px(12.))
                     .text_color(colors.text_muted)
-                    .child("Or type another answer below."),
+                    .child("หรือพิมพ์คำตอบอื่นด้านล่าง"),
             )
             .into_any_element()
     }
@@ -736,8 +767,12 @@ impl Render for RootView {
         window.set_window_title(&if waiting > 0 {
             format!("{project} ({waiting})")
         } else {
-            project.into_owned()
+            project.to_string()
         });
+        if self.dock_badge != Some(waiting) {
+            self.dock_badge = Some(waiting);
+            dock::set_badge(waiting);
+        }
         let live = !matches!(self.connection, Connection::Replay);
         let threads = live.then(|| self.render_threads(cx));
         let question = self
@@ -755,18 +790,13 @@ impl Render for RootView {
         };
         let notice = failure.or_else(|| self.error.clone());
         let working = self.status == Some(Status::Working);
-        div()
-            .size_full()
+        let background = colors.background;
+        let text = colors.text;
+        let body = div()
+            .flex_grow(1.)
+            .min_h_0()
+            .w_full()
             .flex()
-            .on_action(
-                cx.listener(|view, _: &zed_actions::OpenSettings, _, cx| view.open_settings(cx)),
-            )
-            .font(
-                theme_settings::ThemeSettings::get_global(cx)
-                    .ui_font
-                    .clone(),
-            )
-            .bg(colors.background)
             .children(threads)
             .child(
                 div()
@@ -825,6 +855,57 @@ impl Render for RootView {
                     })
                     .when(live, |column| column.child(self.composer.clone())),
             )
-            .child(self.render_tools(cx))
+            .child(self.render_tools(cx));
+        let tab = ProjectTab {
+            name: project.into_owned().into(),
+            working: self
+                .threads
+                .iter()
+                .filter(|t| t.status == Status::Working)
+                .count(),
+            waiting,
+            failed: self
+                .threads
+                .iter()
+                .any(|t| t.needs_you && t.status == Status::Failed),
+        };
+        let strip = tab_strip::strip(&tab, cx)
+            .id("tab-strip")
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|view, _, _, _| view.should_move = true),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|view, _, _, _| view.should_move = false),
+            )
+            .on_mouse_down_out(cx.listener(|view, _, _, _| view.should_move = false))
+            .on_mouse_move(cx.listener(|view, _, window, _| {
+                if std::mem::take(&mut view.should_move) {
+                    window.start_window_move();
+                }
+            }))
+            .on_click(|event, window, _| {
+                if event.click_count() == 2 {
+                    window.titlebar_double_click();
+                }
+            });
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .on_action(
+                cx.listener(|view, _: &zed_actions::OpenSettings, _, cx| view.open_settings(cx)),
+            )
+            .font(
+                theme_settings::ThemeSettings::get_global(cx)
+                    .ui_font
+                    .clone(),
+            )
+            .bg(background)
+            .text_color(text)
+            .child(strip)
+            .child(body)
     }
 }

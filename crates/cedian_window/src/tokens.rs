@@ -1,11 +1,13 @@
-//! The Ink & Lime tokens Zed's theme has no key for (Interface, Color; `frame` and the tints
-//! join them with the tab strip and the state rows), and the faces the
+//! The Ink & Lime tokens Zed's theme has no key for (Interface, Color; the tints join them
+//! with the state rows), and the faces the
 //! window draws text in (Interface, Type). The rest come from the cedian themes.
 
 use gpui::{App, Font, FontFallbacks, FontWeight, Hsla};
 use theme::{ActiveTheme as _, Appearance};
 
 pub struct Tokens {
+    /// The tab strip in the title bar, darker than the app.
+    pub frame: Hsla,
     pub user_bubble: Hsla,
     /// Code blocks and tool output.
     pub code: Hsla,
@@ -21,6 +23,7 @@ impl Tokens {
             gpui::rgb(value).into()
         };
         Self {
+            frame: hex(0x060709, 0xDDE1D8),
             user_bubble: hex(0x1A1F26, 0xF0F2ED),
             code: hex(0x0D1013, 0xFCFCFA),
         }
