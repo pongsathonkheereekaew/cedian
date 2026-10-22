@@ -51,6 +51,15 @@ pub fn serve(config: Config) -> anyhow::Result<()> {
 /// The socket, in a directory only this user can enter. A socket file nobody answers on is
 /// left from a daemon that died, and is replaced.
 fn bind(path: &Path) -> anyhow::Result<Option<UnixListener>> {
+    // `sun_path` holds 104 bytes on macOS and 108 on Linux, with the terminating NUL.
+    let limit = if cfg!(target_os = "macos") { 104 } else { 108 };
+    let length = path.as_os_str().len();
+    anyhow::ensure!(
+        length < limit,
+        "the socket path {} is {length} bytes; a Unix socket path must be under {limit}. \
+         Set CEDIAN_STATE_DIR to a shorter directory",
+        path.display()
+    );
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
@@ -58,8 +67,14 @@ fn bind(path: &Path) -> anyhow::Result<Option<UnixListener>> {
     match UnixStream::connect(path) {
         Ok(_) => return Ok(None),
         Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(_) => std::fs::remove_file(path)
-            .with_context(|| format!("removing the stale {}", path.display()))?,
+        Err(_) => match std::fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("removing the stale {}", path.display()));
+            }
+        },
     }
     let listener =
         UnixListener::bind(path).with_context(|| format!("binding {}", path.display()))?;

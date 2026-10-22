@@ -9,10 +9,14 @@ mod spike_view;
 use std::path::PathBuf;
 
 use anyhow::Context as _;
-use gpui::{App, AppContext as _, Bounds, KeyBinding, WindowBounds, WindowOptions, px, size};
+use gpui::{
+    App, AppContext as _, Bounds, KeyBinding, WindowBounds, WindowOptions, actions, px, size,
+};
 use settings::KeymapFile;
 
 use crate::{agent_pane::AgentPane, root_view::RootView};
+
+actions!(cedian, [Quit]);
 
 enum Mode {
     /// The threads of a project, through the daemon.
@@ -86,11 +90,19 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     let bindings = KeymapFile::load_asset_allow_partial_failure(settings::DEFAULT_KEYMAP_PATH, cx)
         .context("loading the default keymap")?;
     cx.bind_keys(bindings);
-    cx.bind_keys([KeyBinding::new(
-        "enter",
-        composer::Submit,
-        Some("Composer > Editor"),
-    )]);
+    cx.bind_keys([
+        KeyBinding::new("enter", composer::Submit, Some("Composer > Editor")),
+        KeyBinding::new("cmd-q", Quit, None),
+        KeyBinding::new("ctrl-q", Quit, None),
+    ]);
+    // Quitting the window never stops a thread: the daemon runs on.
+    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.on_window_closed(|cx, _| {
+        if cx.windows().is_empty() {
+            cx.quit();
+        }
+    })
+    .detach();
 
     let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
     let options = WindowOptions {
