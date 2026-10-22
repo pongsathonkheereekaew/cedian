@@ -46,7 +46,18 @@ pub struct ThreadSummary {
     /// after its last, what `cedia threads diff|undo|redo` call the thread's turn.
     #[serde(default)]
     pub last_turn: Option<ThreadTurn>,
+    /// The thread's runs in order, each with the prompt that started it: where a fork for
+    /// edit and resend goes back to (`cedia threads fork`). A rewind's dropped runs are not
+    /// here.
+    #[serde(default)]
+    pub runs: Vec<RunRef>,
     pub updated_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RunRef {
+    pub id: String,
+    pub prompt: String,
 }
 
 /// One step of a thread's todo list.
@@ -110,6 +121,7 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
         rating: None,
         rewound: Vec::new(),
         last_turn: None,
+        runs: Vec::new(),
         updated_at: String::new(),
     };
     let mut delivered = std::collections::HashSet::new();
@@ -238,7 +250,11 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                     .collect();
                 thread.updated_at = at.clone();
             }
-            ThreadEvent::Run { at, .. } => {
+            ThreadEvent::Run { id, prompt, at, .. } => {
+                thread.runs.push(RunRef {
+                    id: id.clone(),
+                    prompt: prompt.clone(),
+                });
                 if thread.state == ThreadState::Queued {
                     thread.state = ThreadState::Working;
                 }
@@ -434,6 +450,13 @@ mod tests {
             ["s1"]
         );
         assert_eq!(thread.rewound, ["s2"]);
+        assert_eq!(
+            thread.runs,
+            [RunRef {
+                id: "r1".into(),
+                prompt: "a".into()
+            }]
+        );
         assert_eq!(thread.messages.len(), 1);
         assert_eq!(thread.pending, ["m1"]);
         assert_eq!(thread.updated_at, "9");

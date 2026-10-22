@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
 };
 
-use cedian_protocol::{ModelList, PermissionList, Rating, VersionInfo};
+use cedian_protocol::{CommandEntry, ModelList, PermissionList, Rating, VersionInfo};
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -37,6 +37,22 @@ pub enum Request {
         model: Option<String>,
         /// What the run may do (`cedia --permission`): a mode from `Notice::Choices`; none
         /// keeps cedia's default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        permission: Option<String>,
+    },
+    /// The `/` commands a run in the project can take (`cedia commands`), answered with
+    /// `Notice::Commands` when this cedia lists them.
+    Commands { cwd: PathBuf },
+    /// Edit and resend: a new thread whose conversation is `thread`'s just before `run`
+    /// (`cedia threads fork`), then `text` as its next run. The client is sent `Forked`, then
+    /// the run's lines as for an open thread.
+    Fork {
+        cwd: PathBuf,
+        thread: String,
+        run: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         permission: Option<String>,
     },
@@ -149,6 +165,17 @@ pub enum Notice {
     Choices {
         models: Option<ModelList>,
         permissions: Option<PermissionList>,
+    },
+    /// `thread` was forked from `from` and its run is starting.
+    Forked {
+        cwd: PathBuf,
+        from: String,
+        thread: String,
+    },
+    /// The project's `/` commands: its skills and the person's.
+    Commands {
+        cwd: PathBuf,
+        commands: Vec<CommandEntry>,
     },
     Error {
         message: String,

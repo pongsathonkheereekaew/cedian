@@ -42,6 +42,8 @@ pub enum AgentEvent {
     ViewMode(ViewMode),
     /// Open the thread's review.
     Review,
+    /// Edit the person's message with this text and send it again, in a fork.
+    Edit(String),
 }
 
 impl EventEmitter<AgentEvent> for AgentPane {}
@@ -57,6 +59,9 @@ pub struct AgentPane {
     /// Runs of tool calls opened from their chip, by the index of their first block.
     unfolded: HashSet<usize>,
     density: Density,
+    /// The prompts of the thread's runs, when it can be forked at one: a message of the
+    /// person's that started a run offers แก้ไข.
+    editable: Vec<String>,
 }
 
 impl AgentPane {
@@ -71,7 +76,24 @@ impl AgentPane {
             view_mode: ViewMode::default(),
             unfolded: HashSet::new(),
             density: Density::default(),
+            editable: Vec::new(),
         }
+    }
+
+    pub fn set_editable(&mut self, prompts: Vec<String>, cx: &mut Context<Self>) {
+        if prompts != self.editable {
+            self.editable = prompts;
+            // A message that offers แก้ไข is taller.
+            self.list.reset(self.transcript.blocks().len());
+            cx.notify();
+        }
+    }
+
+    /// Whether the message started one of the thread's runs, which a fork can go back to.
+    fn editable(&self, text: &str) -> bool {
+        self.editable
+            .iter()
+            .any(|p| !p.is_empty() && text.starts_with(p.as_str()))
     }
 
     pub fn with_view_mode(mut self, mode: ViewMode) -> Self {
@@ -217,16 +239,46 @@ impl AgentPane {
                 .child(div().flex_grow(1.).h(px(1.)).bg(colors.border))
                 .child(format!("session {role} · {model}"))
                 .child(div().flex_grow(1.).h(px(1.)).bg(colors.border)),
-            Block::User { text } => div().flex().justify_end().child(
+            Block::User { text } => {
+                let group = SharedString::from(format!("user-{index}"));
+                let edit = self.editable(text).then(|| {
+                    let emit = Self::emitter(pane);
+                    let text = text.clone();
+                    // Shown on hover, its room kept so the list does not move.
+                    div()
+                        .id(("edit-message", index))
+                        .h(px(22.))
+                        .px_2()
+                        .flex()
+                        .items_center()
+                        .rounded(px(6.))
+                        .text_meta()
+                        .text_color(colors.text_muted)
+                        .cursor_pointer()
+                        .opacity(0.)
+                        .group_hover(group.clone(), |b| b.opacity(1.))
+                        .hover(|b| b.bg(colors.element_hover).text_color(colors.text))
+                        .on_click(move |_, _, cx| emit(AgentEvent::Edit(text.clone()), cx))
+                        .child("แก้ไข")
+                });
                 div()
-                    .max_w(relative(0.8))
-                    .px_4()
-                    .py(px(10.))
-                    .rounded(px(18.))
-                    .bg(tokens.user_bubble)
-                    .text_message()
-                    .child(wrapped(text)),
-            ),
+                    .group(group)
+                    .flex()
+                    .flex_col()
+                    .items_end()
+                    .gap_1()
+                    .child(
+                        div()
+                            .max_w(relative(0.8))
+                            .px_4()
+                            .py(px(10.))
+                            .rounded(px(18.))
+                            .bg(tokens.user_bubble)
+                            .text_message()
+                            .child(wrapped(text)),
+                    )
+                    .children(edit)
+            }
             Block::Text { text, streaming } => div()
                 .font(tokens::answer_font())
                 .text_answer()

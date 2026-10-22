@@ -78,6 +78,13 @@ impl RunChoices {
         self.picks.insert(thread.to_owned(), pick);
     }
 
+    /// A fork of `from` starts on `from`'s pick.
+    pub(super) fn forked(&mut self, from: &str, thread: &str) {
+        if let Some(pick) = self.picks.get(from).cloned() {
+            self.picks.insert(thread.to_owned(), pick);
+        }
+    }
+
     /// What a run of `thread` sends: the picks, else the writer's model so a thread stays on
     /// the model it shows. A plan run's go-ahead is the next run, so plan gives way to
     /// workspace once it is sent.
