@@ -13,12 +13,13 @@ path = "src/main.rs"
 anyhow.workspace = true
 cedian_index = { path = "../cedian_index" }
 cedian_protocol = { path = "../cedian_protocol" }
+cedian_review = { path = "../cedian_review" }
 cedian_wire = { path = "../cedian_wire" }
 futures.workspace = true
 libc.workspace = true
 log.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
 util.workspace = true
 
 [dev-dependencies]

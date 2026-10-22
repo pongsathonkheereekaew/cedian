@@ -34,4 +34,7 @@ pub struct ThreadInfo {
     #[serde(flatten)]
     pub thread: ThreadSummary,
     pub status: Status,
+    /// Where the thread's latest session ran: its worktree, when it has one.
+    #[serde(default)]
+    pub cwd: Option<std::path::PathBuf>,
 }

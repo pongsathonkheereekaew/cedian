@@ -4,6 +4,7 @@ use std::{
 };
 
 use cedian_protocol::VersionInfo;
+use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{Status, ThreadInfo};
@@ -24,6 +25,9 @@ pub enum Request {
         cwd: PathBuf,
         text: String,
         thread: Option<String>,
+        /// For a new thread: run it in a new git worktree of the project.
+        #[serde(default)]
+        worktree: bool,
     },
     /// A message the running thread sees at its next turn.
     Send {
@@ -33,6 +37,35 @@ pub enum Request {
     },
     /// Ends the thread's run.
     Stop { thread: String },
+    /// The thread's changes since its first snapshot, answered with `Notice::Review`.
+    Review { cwd: PathBuf, thread: String },
+    /// A decision on one hunk of the thread's review, answered with the review again.
+    Decide {
+        cwd: PathBuf,
+        thread: String,
+        hunk: String,
+        decision: Decision,
+    },
+    /// The `desktop` key of cedia's settings file, answered with `Notice::Settings`.
+    Settings,
+    /// Sets one key of `desktop`; `null` removes it. Every window gets `Notice::Settings`.
+    SetDesktop {
+        key: String,
+        value: serde_json::Value,
+    },
+}
+
+/// What the person decided about a hunk.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "decision", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Decision {
+    Accept,
+    /// Takes back an accept.
+    Undo,
+    /// Puts the old lines back in the thread's worktree and tells the thread why.
+    Reject {
+        reason: String,
+    },
 }
 
 /// From the daemon to the window.
@@ -48,6 +81,11 @@ pub enum Notice {
     Threads {
         cwd: PathBuf,
         threads: Vec<ThreadInfo>,
+    },
+    /// A step before a new thread's run starts, such as creating its worktree.
+    Preparing {
+        cwd: PathBuf,
+        step: String,
     },
     /// A prompt with no thread got one.
     Started {
@@ -67,6 +105,14 @@ pub enum Notice {
     Status {
         thread: String,
         status: Status,
+    },
+    Review {
+        thread: String,
+        review: Review,
+    },
+    Settings {
+        path: PathBuf,
+        desktop: serde_json::Value,
     },
     Error {
         message: String,
@@ -101,12 +147,13 @@ mod tests {
             cwd: "/repo".into(),
             text: "fix it".into(),
             thread: None,
+            worktree: false,
         };
         let mut buffer = Vec::new();
         write_message(&mut buffer, &request).expect("write");
         assert_eq!(
             String::from_utf8_lossy(&buffer),
-            "{\"op\":\"prompt\",\"cwd\":\"/repo\",\"text\":\"fix it\",\"thread\":null}\n"
+            "{\"op\":\"prompt\",\"cwd\":\"/repo\",\"text\":\"fix it\",\"thread\":null,\"worktree\":false}\n"
         );
         let back: Request = read_message(&mut buffer.as_slice())
             .expect("read")

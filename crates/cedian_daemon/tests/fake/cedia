@@ -13,6 +13,7 @@ fi
 if [[ "${1:-}" == "threads" ]]; then
   # threads --cwd <dir> send <id> -- <text>
   id="$5" text="$7"
+  printf '%s' "$text" >"$FAKE_THREADS/../sent"
   printf '{"at":"2026-10-22T03:00:00.000Z","kind":"message","id":"m-1","from":"user","text":"%s"}\n' "$text" \
     >>"$FAKE_THREADS/$id.jsonl"
   echo "sent to $id"
@@ -20,6 +21,8 @@ if [[ "${1:-}" == "threads" ]]; then
 fi
 
 mkdir -p "$FAKE_THREADS" "$FAKE_SESSIONS"
+# Where the daemon ran it, for the worktree test.
+pwd >"$FAKE_THREADS/../cwd"
 for f in "$FAKE_FIXTURE"/threads/*.jsonl; do
   # The last line is the final state, written when the run ends.
   head -n -1 "$f" >"$FAKE_THREADS/$(basename "$f")"
