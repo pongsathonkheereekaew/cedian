@@ -225,7 +225,7 @@ impl Actions {
     }
 }
 
-fn verdict(subtype: ResultSubtype) -> &'static str {
+pub fn verdict(subtype: ResultSubtype) -> &'static str {
     match subtype {
         ResultSubtype::Success => "เสร็จ",
         ResultSubtype::ErrorMaxTurns => "ครบจำนวน turn ที่ให้",

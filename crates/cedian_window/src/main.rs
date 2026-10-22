@@ -5,6 +5,7 @@ mod daemon_client;
 mod density;
 mod desktop;
 mod dock;
+mod export;
 mod file_tree;
 mod git_pane;
 mod layout;
