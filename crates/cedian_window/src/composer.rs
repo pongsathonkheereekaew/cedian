@@ -72,6 +72,16 @@ impl Composer {
         }
     }
 
+    /// Puts text the person picked elsewhere (a selection in the editor or the shell) in at
+    /// the cursor as a fenced block, and focuses the field.
+    pub fn attach(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let block = format!("```\n{}\n```\n", text.trim_end_matches('\n'));
+        self.editor.update(cx, |editor, cx| {
+            editor.insert(&block, window, cx);
+            window.focus(&editor.focus_handle(cx), cx);
+        });
+    }
+
     pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.editor.focus_handle(cx), cx);
     }

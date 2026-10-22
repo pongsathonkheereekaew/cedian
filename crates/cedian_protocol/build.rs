@@ -3,6 +3,7 @@
 use std::{env, fs, path::PathBuf};
 
 use anyhow::Context as _;
+use sha2::Digest as _;
 
 fn main() -> anyhow::Result<()> {
     let schema_path = "cedia/protocol.schema.json";
@@ -23,8 +24,14 @@ fn main() -> anyhow::Result<()> {
         .context("turning cedia's schema into Rust types")?;
     let file = syn::parse2::<syn::File>(space.to_stream()).context("parsing generated types")?;
 
-    let out = PathBuf::from(env::var("OUT_DIR")?).join("protocol.rs");
-    fs::write(&out, prettyplease::unparse(&file)).context("writing generated types")?;
+    let out = PathBuf::from(env::var("OUT_DIR")?);
+    fs::write(out.join("protocol.rs"), prettyplease::unparse(&file))
+        .context("writing generated types")?;
+    // cedia's `--version --json` names its schema the same way: the first 16 hex digits of the
+    // sha256 of the file's text.
+    let digest = sha2::Sha256::digest(text.as_bytes());
+    let hash: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+    fs::write(out.join("protocol_hash"), hash).context("writing the schema hash")?;
     Ok(())
 }
 

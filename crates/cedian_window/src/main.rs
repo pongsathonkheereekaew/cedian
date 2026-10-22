@@ -7,6 +7,7 @@ mod desktop;
 mod dock;
 mod layout;
 mod line_breaks;
+mod open_in;
 mod receipt;
 mod replay;
 mod review_pane;
@@ -106,6 +107,12 @@ const STOP_KEY: &str = "ctrl-.";
 const OMNIBOX_KEY: &str = "cmd-k";
 #[cfg(not(target_os = "macos"))]
 const OMNIBOX_KEY: &str = "ctrl-k";
+/// Puts the selection in the editor or the shell into the composer, as Cursor's `⌘L` does;
+/// `ctrl-l` clears a Linux shell, so Linux takes the shifted key.
+#[cfg(target_os = "macos")]
+const ATTACH_KEY: &str = "cmd-l";
+#[cfg(not(target_os = "macos"))]
+const ATTACH_KEY: &str = "ctrl-shift-l";
 #[cfg(target_os = "macos")]
 const TOOL_KEY: &str = "cmd-alt";
 #[cfg(not(target_os = "macos"))]
@@ -149,6 +156,12 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         KeyBinding::new("down", toolbar::SelectNext, Some("Omnibox > Editor")),
         KeyBinding::new("enter", toolbar::Confirm, Some("Omnibox > Editor")),
         KeyBinding::new("escape", toolbar::Dismiss, Some("Omnibox > Editor")),
+        KeyBinding::new(ATTACH_KEY, shell_pane::AttachSelection, Some("Shell")),
+        KeyBinding::new(
+            ATTACH_KEY,
+            shell_pane::AttachSelection,
+            Some("ToolEditor > Editor"),
+        ),
         KeyBinding::new(&format!("{TOOL_KEY}-1"), tool_rail::ToggleEditor, None),
         KeyBinding::new(&format!("{TOOL_KEY}-2"), tool_rail::ToggleTerminal, None),
         KeyBinding::new(&format!("{TOOL_KEY}-3"), tool_rail::ToggleReview, None),

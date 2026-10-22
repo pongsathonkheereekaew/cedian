@@ -12,7 +12,9 @@ use gpui::{
 };
 use theme::ActiveTheme as _;
 
-use crate::{thread_list, tokens};
+use std::path::PathBuf;
+
+use crate::{open_in::OpenIn, thread_list, tokens};
 
 actions!(
     omnibox,
@@ -58,6 +60,10 @@ pub struct Toolbar {
     threads: Vec<Found>,
     omnibox: Entity<Editor>,
     selected: usize,
+    /// The directory เปิดใน opens: the open thread's worktree, else the project.
+    dir: PathBuf,
+    apps: Vec<OpenIn>,
+    menu_open: bool,
 }
 
 impl EventEmitter<ToolbarEvent> for Toolbar {}
@@ -82,15 +88,103 @@ impl Toolbar {
             threads: Vec::new(),
             omnibox,
             selected: 0,
+            dir: PathBuf::new(),
+            apps: crate::open_in::available(),
+            menu_open: false,
         }
     }
 
-    pub fn set(&mut self, threads: Vec<Found>, branch: Option<String>, cx: &mut Context<Self>) {
-        if threads != self.threads || branch != self.branch {
+    pub fn set(
+        &mut self,
+        threads: Vec<Found>,
+        branch: Option<String>,
+        dir: PathBuf,
+        cx: &mut Context<Self>,
+    ) {
+        if threads != self.threads || branch != self.branch || dir != self.dir {
             self.threads = threads;
             self.branch = branch;
+            self.dir = dir;
             cx.notify();
         }
+    }
+
+    /// The เปิดใน button and, while it is open, its menu of apps.
+    fn open_in(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let colors = cx.theme().colors();
+        let mut menu = div()
+            .absolute()
+            .top(px(28.))
+            .left_0()
+            .min_w(px(180.))
+            .flex()
+            .flex_col()
+            .p_1()
+            .rounded(px(8.))
+            .border_1()
+            .border_color(colors.border)
+            .bg(colors.elevated_surface_background)
+            .text_size(px(13.))
+            .text_color(colors.text);
+        for (n, app) in self.apps.iter().enumerate() {
+            menu = menu.child(
+                div()
+                    .id(("open-in", n))
+                    .h(px(28.))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|r| r.bg(colors.element_hover))
+                    .on_click(cx.listener(move |toolbar, _, _, cx| {
+                        toolbar.menu_open = false;
+                        if let Some(app) = toolbar.apps.get(n) {
+                            app.open(&toolbar.dir, cx);
+                        }
+                        cx.notify();
+                    }))
+                    .child(app.label),
+            );
+        }
+        div()
+            .relative()
+            .child(
+                div()
+                    .id("open-in")
+                    .h(px(22.))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .rounded(px(6.))
+                    .border_1()
+                    .border_color(colors.border)
+                    .text_size(px(12.))
+                    .text_color(colors.text_muted)
+                    .cursor_pointer()
+                    .hover(|b| b.text_color(colors.text))
+                    .on_click(cx.listener(|toolbar, _, _, cx| {
+                        toolbar.menu_open = !toolbar.menu_open;
+                        cx.notify();
+                    }))
+                    .child("เปิดใน")
+                    .child(
+                        svg()
+                            .path("icons/chevron_down.svg")
+                            .size(px(10.))
+                            .text_color(colors.text_muted),
+                    ),
+            )
+            .when(self.menu_open, |b| {
+                b.child(
+                    deferred(menu.on_mouse_down_out(cx.listener(|toolbar, _, _, cx| {
+                        toolbar.menu_open = false;
+                        cx.notify();
+                    })))
+                    .with_priority(1),
+                )
+            })
     }
 
     pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -168,6 +262,7 @@ const OMNIBOX_KEY: &str = "Ctrl+K";
 
 impl Render for Toolbar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let open_in = self.open_in(cx);
         let colors = cx.theme().colors();
         let query = self.query(cx);
         let focused = self.omnibox.focus_handle(cx).is_focused(window);
@@ -334,7 +429,8 @@ impl Render for Toolbar {
                                         .unwrap_or_else(|| "main checkout".into()),
                                 ),
                             ),
-                    ),
+                    )
+                    .child(open_in),
             )
             .child(div().flex_grow(1.).flex().justify_center().child(omnibox))
             .child(
