@@ -2,7 +2,10 @@
 //! its composer, the tool panel and its rail, and the status bar. It keeps only what the daemon
 //! can send again.
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use cedian_protocol::Line;
 use cedian_wire::{HunkState, Notice, Request, Status, ThreadInfo};
@@ -25,12 +28,13 @@ use crate::{
     dock,
     layout::Layout,
     line_breaks,
+    project::{self, Project},
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
     settings_window::SettingsWindow,
     shell_pane::{AttachSelection, ShellEvent, ShellPane},
     status_bar::{self, StatusLine},
-    tab_strip::{self, ProjectTab},
+    tab_strip::{self, ActivateTab, CloseTab, NewTab, NextTab, PreviousTab, ProjectTab, TabClick},
     thread_details::{self, Details},
     thread_list::{self, Group},
     tool_rail::{
@@ -58,27 +62,17 @@ enum Connection {
 }
 
 pub struct RootView {
-    cwd: PathBuf,
     client: Option<Arc<DaemonClient>>,
     connection: Connection,
-    threads: Vec<ThreadInfo>,
-    /// The thread in the agent pane, if it has one yet.
-    current: Option<String>,
-    status: Option<Status>,
-    /// A prompt went out with no thread, and the daemon has not named the thread yet.
-    awaiting_thread: bool,
+    /// The project tabs, never empty; the one in `active` fills the window.
+    projects: Vec<Project>,
+    active: usize,
     /// A new thread runs in its own git worktree.
     use_worktree: bool,
-    /// What the daemon is doing before the new thread's run starts.
-    preparing: Option<String>,
-    /// Opens the most recent thread when the first list arrives.
-    first_list: bool,
     error: Option<SharedString>,
     agent: Entity<AgentPane>,
     composer: Entity<Composer>,
     editor: Entity<Editor>,
-    /// A shell per directory: the project's, and each worktree a thread opened shows.
-    shells: HashMap<PathBuf, Entity<ShellPane>>,
     toolbar: Entity<Toolbar>,
     review: Entity<ReviewPane>,
     /// The tools open in the panel, in rail order.
@@ -100,23 +94,26 @@ pub struct RootView {
 
 impl RootView {
     pub fn replay(agent: Entity<AgentPane>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut view = Self::new(PathBuf::new(), agent, window, cx);
+        let mut view = Self::new(vec![PathBuf::new()], 0, agent, window, cx);
         view.connection = Connection::Replay;
         view
     }
 
-    /// Connects to the daemon in the background and shows `cwd`'s threads.
+    /// Connects to the daemon in the background and shows the threads of the projects in
+    /// `tabs`, `active` in front.
     pub fn live(
-        cwd: PathBuf,
+        tabs: Vec<PathBuf>,
+        active: usize,
         layout: Layout,
         view_mode: ViewMode,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let agent = cx.new(|_| AgentPane::new("new thread").with_view_mode(view_mode));
-        let mut view = Self::new(cwd, agent, window, cx);
+        let mut view = Self::new(tabs, active, agent, window, cx);
         view.tools = layout.tools.clone();
         view.layout = layout;
+        view.remember_tabs();
         view.layout.bounds = Some(saved_bounds(window));
         cx.observe_window_bounds(window, |view, window, cx| {
             view.layout.bounds = Some(saved_bounds(window));
@@ -165,20 +162,24 @@ impl RootView {
     }
 
     fn new(
-        cwd: PathBuf,
+        tabs: Vec<PathBuf>,
+        active: usize,
         agent: Entity<AgentPane>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let editor = cx.new(|cx| Editor::multi_line(window, cx));
-        let project: SharedString = cwd
-            .file_name()
-            .map_or_else(|| "cedian".to_owned(), |n| n.to_string_lossy().into_owned())
-            .into();
+        let tabs = if tabs.is_empty() {
+            vec![PathBuf::new()]
+        } else {
+            tabs
+        };
+        let active = active.min(tabs.len() - 1);
+        let project = project::name_of(&tabs[active]);
         let toolbar = cx.new(|cx| Toolbar::new(project, window, cx));
         cx.subscribe_in(&toolbar, window, |view, _, event, window, cx| match event {
-            ToolbarEvent::Open(thread) => {
-                view.select(thread.clone(), cx);
+            ToolbarEvent::Open { cwd, thread } => {
+                view.open_thread(cwd, thread.clone(), cx);
                 view.composer
                     .update(cx, |composer, cx| composer.focus(window, cx));
             }
@@ -207,9 +208,9 @@ impl RootView {
         cx.subscribe(&composer, |view, _, event, cx| match event {
             ComposerEvent::Submit(text) => view.submit(text.clone(), cx),
             ComposerEvent::Unsend(id) => {
-                if let Some(thread) = view.current.clone() {
+                if let Some(thread) = view.project().current.clone() {
                     view.request(Request::Unsend {
-                        cwd: view.cwd.clone(),
+                        cwd: view.project().cwd.clone(),
                         thread,
                         ids: vec![id.clone()],
                     });
@@ -220,9 +221,9 @@ impl RootView {
         cx.subscribe(&agent, |view, agent, event, cx| match event {
             AgentEvent::Stop => view.stop(cx),
             AgentEvent::Rate(rating) => {
-                if let Some(thread) = view.current.clone() {
+                if let Some(thread) = view.project().current.clone() {
                     view.request(Request::Rate {
-                        cwd: view.cwd.clone(),
+                        cwd: view.project().cwd.clone(),
                         thread,
                         rating: *rating,
                     });
@@ -254,9 +255,9 @@ impl RootView {
         });
         cx.subscribe(&review, |view, _, event, cx| match event {
             ReviewEvent::Decide { hunk, decision } => {
-                if let Some(thread) = view.current.clone() {
+                if let Some(thread) = view.project().current.clone() {
                     view.request(Request::Decide {
-                        cwd: view.cwd.clone(),
+                        cwd: view.project().cwd.clone(),
                         thread,
                         hunk: hunk.clone(),
                         decision: decision.clone(),
@@ -272,21 +273,15 @@ impl RootView {
         })
         .detach();
         Self {
-            cwd,
             client: None,
             connection: Connection::Connecting,
-            threads: Vec::new(),
-            current: None,
-            status: None,
-            awaiting_thread: false,
+            projects: tabs.into_iter().map(Project::new).collect(),
+            active,
             use_worktree: true,
-            preparing: None,
-            first_list: true,
             error: None,
             agent,
             composer,
             editor,
-            shells: HashMap::new(),
             toolbar,
             review,
             tools: Layout::default().tools,
@@ -335,9 +330,11 @@ impl RootView {
                 self.connection = Connection::Connected {
                     cedia: cedia.into(),
                 };
-                self.request(Request::Threads {
-                    cwd: self.cwd.clone(),
-                });
+                for project in &self.projects {
+                    self.request(Request::Threads {
+                        cwd: project.cwd.clone(),
+                    });
+                }
                 self.request(Request::Settings);
             }
             Notice::Settings { path, desktop } => {
@@ -350,44 +347,72 @@ impl RootView {
                 self.settings
                     .update(cx, |view, cx| view.set(path, desktop, cx));
             }
-            Notice::Threads { cwd, threads } if cwd == self.cwd => {
-                self.threads = threads
-                    .into_iter()
-                    .filter(|t| !t.thread.archived && t.thread.parent.is_none())
-                    .collect();
-                if std::mem::take(&mut self.first_list)
-                    && self.current.is_none()
-                    && !self.awaiting_thread
+            Notice::Threads { cwd, threads } => {
+                let Some(n) = self.projects.iter().position(|p| p.cwd == cwd) else {
+                    return;
+                };
+                let project = &mut self.projects[n];
+                project.set_threads(threads);
+                if std::mem::take(&mut project.first_list)
+                    && project.current.is_none()
+                    && !project.awaiting_thread
                 {
-                    let saved = self.layout.open.get(&self.cwd.display().to_string());
-                    let thread = self
+                    let saved = self.layout.open.get(&cwd.display().to_string());
+                    let thread = project
                         .threads
                         .iter()
                         .find(|t| Some(&t.thread.id) == saved)
-                        .or(self.threads.first());
-                    if let Some(thread) = thread {
-                        let id = thread.thread.id.clone();
-                        self.select(id, cx);
+                        .or(project.threads.first())
+                        .map(|t| (t.thread.id.clone(), t.status));
+                    match thread {
+                        Some((id, _)) if n == self.active => self.select(id, cx),
+                        // A tab behind opens its thread when it comes to the front.
+                        Some((id, status)) => {
+                            project.current = Some(id);
+                            project.status = Some(status);
+                        }
+                        None => {}
                     }
                 }
                 self.retitle(cx);
             }
-            Notice::Threads { .. } => {}
-            Notice::Preparing { cwd, step } if cwd == self.cwd && self.awaiting_thread => {
-                self.preparing = Some(step);
-                self.retitle(cx);
+            Notice::Preparing { cwd, step } => {
+                if let Some(project) = self
+                    .projects
+                    .iter_mut()
+                    .find(|p| p.cwd == cwd && p.awaiting_thread)
+                {
+                    project.preparing = Some(step);
+                    self.retitle(cx);
+                }
             }
-            Notice::Preparing { .. } => {}
-            Notice::Started { cwd, thread } if cwd == self.cwd && self.awaiting_thread => {
-                self.awaiting_thread = false;
-                self.preparing = None;
-                self.current = Some(thread);
-                self.status = Some(Status::Working);
-                self.retitle(cx);
-                self.review_current(cx);
+            Notice::Started { cwd, thread } => {
+                let Some(n) = self
+                    .projects
+                    .iter()
+                    .position(|p| p.cwd == cwd && p.awaiting_thread)
+                else {
+                    return;
+                };
+                let project = &mut self.projects[n];
+                project.awaiting_thread = false;
+                project.preparing = None;
+                project.current = Some(thread.clone());
+                project.status = Some(Status::Working);
+                if n == self.active {
+                    self.retitle(cx);
+                    self.review_current(cx);
+                } else {
+                    // Started from a tab now behind: it reads the lines when it is in front.
+                    self.request(Request::Close {
+                        thread: thread.clone(),
+                    });
+                    self.layout.open.insert(cwd.display().to_string(), thread);
+                    self.save_layout(cx);
+                    self.retitle(cx);
+                }
             }
-            Notice::Started { .. } => {}
-            Notice::Line { thread, line } if self.current.as_ref() == Some(&thread) => {
+            Notice::Line { thread, line } if self.project().current.as_ref() == Some(&thread) => {
                 match Line::parse(&line) {
                     Ok(line) => self.agent.update(cx, |agent, cx| agent.apply(&line, cx)),
                     Err(error) => log::warn!("{thread}: {error}"),
@@ -395,16 +420,22 @@ impl RootView {
             }
             Notice::Line { .. } | Notice::Caught { .. } => {}
             Notice::Status { thread, status } => {
-                if let Some(info) = self.threads.iter_mut().find(|t| t.thread.id == thread) {
-                    info.status = status;
+                for project in &mut self.projects {
+                    if let Some(info) = project.threads.iter_mut().find(|t| t.thread.id == thread) {
+                        info.status = status;
+                    }
+                    if project.current.as_ref() == Some(&thread) {
+                        project.status = Some(status);
+                    }
                 }
-                if self.current.as_ref() == Some(&thread) {
-                    self.status = Some(status);
+                if self.project().current.as_ref() == Some(&thread) {
                     self.retitle(cx);
                     self.refresh_review();
                 }
             }
-            Notice::Review { thread, review } if self.current.as_ref() == Some(&thread) => {
+            Notice::Review { thread, review }
+                if self.project().current.as_ref() == Some(&thread) =>
+            {
                 self.waiting_hunks = review
                     .files
                     .iter()
@@ -417,27 +448,33 @@ impl RootView {
             Notice::Review { .. } => {}
             Notice::Error { message } => {
                 // A new thread that could not start: the composer is free again.
-                if self.awaiting_thread {
-                    self.awaiting_thread = false;
-                    self.preparing = None;
-                    self.retitle(cx);
+                for project in &mut self.projects {
+                    project.awaiting_thread = false;
+                    project.preparing = None;
                 }
+                self.retitle(cx);
                 self.error = Some(message.into());
             }
         }
         cx.notify();
     }
 
+    fn project(&self) -> &Project {
+        &self.projects[self.active]
+    }
+
+    fn project_mut(&mut self) -> &mut Project {
+        &mut self.projects[self.active]
+    }
+
     fn retitle(&mut self, cx: &mut Context<Self>) {
-        let info = self
-            .current
-            .as_ref()
-            .and_then(|id| self.threads.iter().find(|t| &t.thread.id == id));
-        let title = match &self.current {
+        let project = self.project();
+        let info = project.info();
+        let title = match &project.current {
             Some(id) => info
                 .map_or(id.as_str(), |t| t.thread.title.as_str())
                 .to_owned(),
-            None if self.awaiting_thread => match &self.preparing {
+            None if project.awaiting_thread => match &project.preparing {
                 Some(step) => format!("new thread · {step}"),
                 None => "new thread · starting".to_owned(),
             },
@@ -446,51 +483,194 @@ impl RootView {
         let branch = info
             .and_then(|t| t.cwd.as_deref())
             .and_then(crate::agent_pane::branch_of);
-        let found = self.threads.iter().map(Found::of).collect();
-        let dir = self.shell_dir();
-        self.toolbar
-            .update(cx, |toolbar, cx| toolbar.set(found, branch, dir, cx));
+        // The omnibox finds threads of every tab, this one's first.
+        let found = std::iter::once(project)
+            .chain(self.projects.iter().filter(|p| p.cwd != project.cwd))
+            .flat_map(|p| {
+                let elsewhere = (p.cwd != project.cwd).then(|| p.name());
+                p.threads
+                    .iter()
+                    .map(move |t| Found::of(t, &p.cwd, elsewhere.clone()))
+            })
+            .collect();
+        let dir = project.shell_dir();
+        let name = project.name();
         let header = Header {
             title: title.into(),
-            status: self.status,
+            status: project.status,
             cwd: info.and_then(|t| t.cwd.clone()),
             rating: info.and_then(|t| t.thread.rating),
         };
         self.agent
             .update(cx, |agent, cx| agent.set_header(header, cx));
         let queue = info.map(queued).unwrap_or_default();
+        self.toolbar
+            .update(cx, |toolbar, cx| toolbar.set(name, found, branch, dir, cx));
         self.composer
             .update(cx, |composer, cx| composer.set_queue(queue, cx));
     }
 
     fn select(&mut self, thread: String, cx: &mut Context<Self>) {
-        if self.current.as_ref() == Some(&thread) {
+        if self.project().current.as_ref() == Some(&thread) {
             return;
         }
-        if let Some(old) = self.current.take() {
+        if let Some(old) = self.project_mut().current.take() {
             self.request(Request::Close { thread: old });
         }
-        self.awaiting_thread = false;
-        self.preparing = None;
-        self.status = None;
-        self.agent
-            .update(cx, |agent, cx| agent.reset(thread.clone(), cx));
-        self.request(Request::Open {
-            cwd: self.cwd.clone(),
-            thread: thread.clone(),
-        });
-        self.current = Some(thread);
+        let project = self.project_mut();
+        project.awaiting_thread = false;
+        project.preparing = None;
+        project.status = None;
+        project.current = Some(thread);
+        self.show_current(cx);
+    }
+
+    /// Puts the front tab's thread in the agent pane, read again from the daemon.
+    fn show_current(&mut self, cx: &mut Context<Self>) {
+        let project = self.project();
+        let status = project.info().map(|t| t.status).or(project.status);
+        let cwd = project.cwd.clone();
+        match project.current.clone() {
+            Some(thread) => {
+                self.agent
+                    .update(cx, |agent, cx| agent.reset(thread.clone(), cx));
+                self.request(Request::Open { cwd, thread });
+            }
+            None => self
+                .agent
+                .update(cx, |agent, cx| agent.reset("new thread", cx)),
+        }
+        self.project_mut().status = status;
+        self.waiting_hunks = 0;
         self.retitle(cx);
         self.review_current(cx);
     }
 
-    fn new_thread(&mut self, cx: &mut Context<Self>) {
-        if let Some(old) = self.current.take() {
+    /// A thread the omnibox found, in whichever tab holds it.
+    fn open_thread(&mut self, cwd: &Path, thread: String, cx: &mut Context<Self>) {
+        if let Some(n) = self.projects.iter().position(|p| p.cwd == cwd) {
+            self.activate(n, cx);
+            self.select(thread, cx);
+        }
+    }
+
+    /// Brings tab `n` to the front; the tab it leaves stops reading its thread's lines.
+    fn activate(&mut self, n: usize, cx: &mut Context<Self>) {
+        if n == self.active || n >= self.projects.len() {
+            return;
+        }
+        if let Some(old) = self.project().current.clone() {
             self.request(Request::Close { thread: old });
         }
-        self.awaiting_thread = false;
-        self.preparing = None;
-        self.status = None;
+        self.active = n;
+        // A notice was about the tab left behind.
+        self.error = None;
+        self.show_current(cx);
+        self.remember_tabs();
+        self.save_layout(cx);
+        cx.notify();
+    }
+
+    /// Opens `dir` in a tab of its own, or brings its tab to the front.
+    fn open_tab(&mut self, dir: PathBuf, cx: &mut Context<Self>) {
+        let dir = match dir.canonicalize() {
+            Ok(dir) if dir.is_dir() => dir,
+            Ok(_) | Err(_) => {
+                self.error = Some(format!("{} is not a folder", dir.display()).into());
+                cx.notify();
+                return;
+            }
+        };
+        let n = match self.projects.iter().position(|p| p.cwd == dir) {
+            Some(n) => n,
+            None => {
+                self.request(Request::Threads { cwd: dir.clone() });
+                self.projects.push(Project::new(dir));
+                self.projects.len() - 1
+            }
+        };
+        self.activate(n, cx);
+        self.remember_tabs();
+        self.save_layout(cx);
+    }
+
+    /// `⌘T` and `+`: the system's folder picker, and a tab for the folder picked.
+    fn pick_project(&mut self, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("เปิดโปรเจกต์".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let dir = match picked.await {
+                Ok(Ok(Some(paths))) => paths.into_iter().next(),
+                Ok(Ok(None)) | Err(_) => None,
+                Ok(Err(error)) => {
+                    log::warn!("opening the folder picker: {error:#}");
+                    this.update(cx, |view, cx| {
+                        view.error = Some(format!("เปิดหน้าต่างเลือกโฟลเดอร์ไม่ได้: {error:#}").into());
+                        cx.notify();
+                    })
+                    .ok();
+                    None
+                }
+            };
+            if let Some(dir) = dir {
+                this.update(cx, |view, cx| view.open_tab(dir, cx)).ok();
+            }
+        })
+        .detach();
+    }
+
+    /// Closes tab `n`, and its shells with it; the last tab stays.
+    fn close_tab(&mut self, n: usize, cx: &mut Context<Self>) {
+        if self.projects.len() < 2 || n >= self.projects.len() {
+            return;
+        }
+        if n == self.active
+            && let Some(old) = self.project().current.clone()
+        {
+            self.request(Request::Close { thread: old });
+        }
+        self.projects.remove(n);
+        if n < self.active {
+            self.active -= 1;
+        } else if n == self.active {
+            self.active = n.min(self.projects.len() - 1);
+            self.show_current(cx);
+        }
+        self.remember_tabs();
+        self.save_layout(cx);
+        cx.notify();
+    }
+
+    fn click_tab(&mut self, click: TabClick, cx: &mut Context<Self>) {
+        match click {
+            TabClick::Activate(n) => self.activate(n, cx),
+            TabClick::Close(n) => self.close_tab(n, cx),
+            TabClick::New => self.pick_project(cx),
+        }
+    }
+
+    /// Puts the tabs in the layout the next window opens with.
+    fn remember_tabs(&mut self) {
+        self.layout.projects = self
+            .projects
+            .iter()
+            .map(|p| p.cwd.display().to_string())
+            .collect();
+        self.layout.project = Some(self.project().cwd.display().to_string());
+    }
+
+    fn new_thread(&mut self, cx: &mut Context<Self>) {
+        if let Some(old) = self.project_mut().current.take() {
+            self.request(Request::Close { thread: old });
+        }
+        let project = self.project_mut();
+        project.awaiting_thread = false;
+        project.preparing = None;
+        project.status = None;
         self.agent
             .update(cx, |agent, cx| agent.reset("new thread", cx));
         self.review_current(cx);
@@ -547,22 +727,11 @@ impl RootView {
         cx.notify();
     }
 
-    /// Where the terminal runs: the open thread's directory (its worktree) when it is on this
-    /// machine, else the project.
-    fn shell_dir(&self) -> PathBuf {
-        self.current
-            .as_ref()
-            .and_then(|id| self.threads.iter().find(|t| &t.thread.id == id))
-            .and_then(|t| t.cwd.clone())
-            .filter(|dir| dir.is_dir())
-            .unwrap_or_else(|| self.cwd.clone())
-    }
-
     /// Starts the shell for the terminal's directory the first time it is shown there. Each
     /// directory keeps its shell, so going back to a thread finds its shell as it was left.
     fn ensure_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let dir = self.shell_dir();
-        if self.shells.contains_key(&dir) {
+        let dir = self.project().shell_dir();
+        if self.project().shells.contains_key(&dir) {
             return;
         }
         let start = (!dir.as_os_str().is_empty()).then(|| dir.clone());
@@ -573,7 +742,7 @@ impl RootView {
                 .update(cx, |composer, cx| composer.attach(text, window, cx)),
         })
         .detach();
-        self.shells.insert(dir, shell);
+        self.project_mut().shells.insert(dir, shell);
     }
 
     fn attach_editor_selection(
@@ -682,15 +851,15 @@ impl RootView {
 
     /// Points the review at the open thread.
     fn review_current(&mut self, cx: &mut Context<Self>) {
-        let cwd = self.cwd.display().to_string();
-        let changed = match &self.current {
+        let cwd = self.project().cwd.display().to_string();
+        let changed = match &self.projects[self.active].current {
             Some(thread) => self.layout.open.insert(cwd, thread.clone()).as_ref() != Some(thread),
             None => false,
         };
         if changed {
             self.save_layout(cx);
         }
-        let thread = self.current.clone();
+        let thread = self.project().current.clone();
         self.review
             .update(cx, |pane, cx| pane.set_thread(thread, cx));
         self.refresh_review();
@@ -698,9 +867,9 @@ impl RootView {
 
     fn refresh_review(&self) {
         // Asked for even while the review is closed: the rail's badge counts its hunks.
-        if let Some(thread) = &self.current {
+        if let Some(thread) = &self.project().current {
             self.request(Request::Review {
-                cwd: self.cwd.clone(),
+                cwd: self.project().cwd.clone(),
                 thread: thread.clone(),
             });
         }
@@ -720,10 +889,7 @@ impl RootView {
         let details = shown
             .contains(&Tool::Details)
             .then(|| Details::of(self.agent.read(cx).transcript()));
-        let info = self
-            .current
-            .as_ref()
-            .and_then(|id| self.threads.iter().find(|t| &t.thread.id == id));
+        let info = self.project().info();
         let mut panel = div()
             .w(px(tool_rail::PANEL_WIDTH))
             .flex_none()
@@ -741,7 +907,7 @@ impl RootView {
                     .p_2()
                     .child(self.editor.clone())
                     .into_any_element(),
-                Tool::Terminal => match self.shells.get(&self.shell_dir()) {
+                Tool::Terminal => match self.project().shells.get(&self.project().shell_dir()) {
                     Some(shell) => shell.clone().into_any_element(),
                     None => div().into_any_element(),
                 },
@@ -852,9 +1018,14 @@ impl RootView {
             .text_color(colors.text)
             .overflow_y_scroll();
         for group in Group::ALL {
-            for info in self.threads.iter().filter(|t| Group::of(t) == group) {
+            for info in self
+                .project()
+                .threads
+                .iter()
+                .filter(|t| Group::of(t) == group)
+            {
                 let id = info.thread.id.clone();
-                let selected = self.current.as_ref() == Some(&id);
+                let selected = self.project().current.as_ref() == Some(&id);
                 let initial: String = info
                     .thread
                     .title
@@ -921,26 +1092,27 @@ impl RootView {
             return;
         }
         self.error = None;
-        if self.current.is_none() {
-            if self.awaiting_thread {
+        if self.project().current.is_none() {
+            if self.project().awaiting_thread {
                 self.error = Some("the new thread has not started yet".into());
                 cx.notify();
                 return;
             }
-            self.awaiting_thread = true;
+            self.project_mut().awaiting_thread = true;
         }
+        let project = self.project();
         self.request(Request::Prompt {
-            cwd: self.cwd.clone(),
+            cwd: project.cwd.clone(),
             text,
-            thread: self.current.clone(),
-            worktree: self.current.is_none() && self.use_worktree,
+            thread: project.current.clone(),
+            worktree: project.current.is_none() && self.use_worktree,
         });
         self.retitle(cx);
         cx.notify();
     }
 
     fn stop(&mut self, cx: &mut Context<Self>) {
-        if let Some(thread) = self.current.clone() {
+        if let Some(thread) = self.project().current.clone() {
             self.request(Request::Stop { thread });
         }
         cx.notify();
@@ -963,6 +1135,7 @@ impl RootView {
             .overflow_y_scroll();
         for group in Group::ALL {
             let members: Vec<&ThreadInfo> = self
+                .project()
                 .threads
                 .iter()
                 .filter(|t| Group::of(t) == group)
@@ -992,7 +1165,7 @@ impl RootView {
             );
             for info in members {
                 let id = info.thread.id.clone();
-                let selected = self.current.as_ref() == Some(&id);
+                let selected = self.project().current.as_ref() == Some(&id);
                 let word = thread_list::state_word(info.status);
                 let when = match info.status {
                     Status::Working => String::new(),
@@ -1106,17 +1279,16 @@ impl Render for RootView {
         if !matches!(self.connection, Connection::Replay) && self.tools.contains(&Tool::Terminal) {
             self.ensure_shell(window, cx);
         }
-        // The window's title carries the badge: how many threads need the person.
-        let project = self
-            .cwd
-            .file_name()
-            .map_or_else(|| "cedian".into(), |name| name.to_string_lossy());
-        let waiting = thread_list::badge_count(&self.threads);
-        window.set_window_title(&if waiting > 0 {
-            format!("{project} ({waiting})")
+        // The window's title carries the front tab's badge; the Dock and the status bar count
+        // every tab's threads that need the person.
+        let project = self.project();
+        let here = project.waiting();
+        window.set_window_title(&if here > 0 {
+            format!("{} ({here})", project.name())
         } else {
-            project.to_string()
+            project.name().to_string()
         });
+        let waiting: usize = self.projects.iter().map(Project::waiting).sum();
         if self.dock_badge != Some(waiting) {
             self.dock_badge = Some(waiting);
             dock::set_badge(waiting);
@@ -1124,9 +1296,8 @@ impl Render for RootView {
         let live = !matches!(self.connection, Connection::Replay);
         let threads = live.then(|| self.render_threads(cx));
         let question = self
-            .current
-            .as_ref()
-            .and_then(|id| self.threads.iter().find(|t| &t.thread.id == id))
+            .project()
+            .info()
             .filter(|t| t.status == Status::Asking)
             .and_then(|t| t.thread.question.clone())
             .map(|question| self.render_question(question, cx));
@@ -1173,27 +1344,30 @@ impl Render for RootView {
                         )
                     })
                     .when(!wide, |column| column.children(question))
-                    .when(!wide && live && self.current.is_none(), |column| {
-                        let word = if self.use_worktree {
-                            "In a new worktree: on"
-                        } else {
-                            "In a new worktree: off"
-                        };
-                        column.child(
-                            div()
-                                .id("worktree")
-                                .px_3()
-                                .py_1()
-                                .text_xs()
-                                .cursor_pointer()
-                                .text_color(colors.text_muted)
-                                .on_click(cx.listener(|view, _, _, cx| {
-                                    view.use_worktree = !view.use_worktree;
-                                    cx.notify();
-                                }))
-                                .child(word),
-                        )
-                    })
+                    .when(
+                        !wide && live && self.project().current.is_none(),
+                        |column| {
+                            let word = if self.use_worktree {
+                                "In a new worktree: on"
+                            } else {
+                                "In a new worktree: off"
+                            };
+                            column.child(
+                                div()
+                                    .id("worktree")
+                                    .px_3()
+                                    .py_1()
+                                    .text_xs()
+                                    .cursor_pointer()
+                                    .text_color(colors.text_muted)
+                                    .on_click(cx.listener(|view, _, _, cx| {
+                                        view.use_worktree = !view.use_worktree;
+                                        cx.notify();
+                                    }))
+                                    .child(word),
+                            )
+                        },
+                    )
                     .when(!wide && live, |column| column.child(self.composer.clone())),
             )
             // A widened review leaves the panel the other tools, and the rail.
@@ -1205,11 +1379,7 @@ impl Render for RootView {
                 Connection::Connected { cedia } => ("daemon".into(), true, Some(cedia.clone())),
                 Connection::Failed(_) => ("ต่อ daemon ไม่ได้".into(), false, None),
             };
-        let working = self
-            .threads
-            .iter()
-            .filter(|t| t.status == Status::Working)
-            .count();
+        let working = self.projects.iter().map(Project::working).sum();
         let status = status_bar::bar(
             StatusLine {
                 daemon,
@@ -1224,41 +1394,31 @@ impl Render for RootView {
                 .child("Settings"),
             cx,
         );
-        let tab = ProjectTab {
-            name: project.into_owned().into(),
-            working: self
-                .threads
-                .iter()
-                .filter(|t| t.status == Status::Working)
-                .count(),
-            waiting,
-            failed: self
-                .threads
-                .iter()
-                .any(|t| t.needs_you && t.status == Status::Failed),
-        };
-        let strip = tab_strip::strip(&tab, cx)
-            .id("tab-strip")
-            .window_control_area(WindowControlArea::Drag)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|view, _, _, _| view.should_move = true),
-            )
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|view, _, _, _| view.should_move = false),
-            )
-            .on_mouse_down_out(cx.listener(|view, _, _, _| view.should_move = false))
-            .on_mouse_move(cx.listener(|view, _, window, _| {
-                if std::mem::take(&mut view.should_move) {
-                    window.start_window_move();
-                }
-            }))
-            .on_click(|event, window, _| {
-                if event.click_count() == 2 {
-                    window.titlebar_double_click();
-                }
-            });
+        let tabs: Vec<ProjectTab> = self.projects.iter().map(Project::tab).collect();
+        let strip = tab_strip::strip(&tabs, self.active, cx, |click| {
+            Box::new(cx.listener(move |view, _, _, cx| view.click_tab(click, cx)))
+        })
+        .id("tab-strip")
+        .window_control_area(WindowControlArea::Drag)
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|view, _, _, _| view.should_move = true),
+        )
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(|view, _, _, _| view.should_move = false),
+        )
+        .on_mouse_down_out(cx.listener(|view, _, _, _| view.should_move = false))
+        .on_mouse_move(cx.listener(|view, _, window, _| {
+            if std::mem::take(&mut view.should_move) {
+                window.start_window_move();
+            }
+        }))
+        .on_click(|event, window, _| {
+            if event.click_count() == 2 {
+                window.titlebar_double_click();
+            }
+        });
         div()
             .size_full()
             .flex()
@@ -1281,6 +1441,25 @@ impl Render for RootView {
             )
             .on_action(cx.listener(|view, _: &HideTools, _, cx| view.hide_tools(cx)))
             .on_action(cx.listener(|view, _: &ToggleSidebar, _, cx| view.toggle_sidebar(cx)))
+            .when(live, |root| {
+                root.on_action(cx.listener(|view, _: &NewTab, _, cx| view.pick_project(cx)))
+                    .on_action(
+                        cx.listener(|view, _: &CloseTab, _, cx| view.close_tab(view.active, cx)),
+                    )
+                    .on_action(cx.listener(|view, _: &NextTab, _, cx| {
+                        let n = tab_strip::step(view.active, view.projects.len(), 1);
+                        view.activate(n, cx)
+                    }))
+                    .on_action(cx.listener(|view, _: &PreviousTab, _, cx| {
+                        let n = tab_strip::step(view.active, view.projects.len(), -1);
+                        view.activate(n, cx)
+                    }))
+                    .on_action(cx.listener(|view, tab: &ActivateTab, _, cx| {
+                        if let Some(n) = tab_strip::nth(tab.0, view.projects.len()) {
+                            view.activate(n, cx)
+                        }
+                    }))
+            })
             .on_action(cx.listener(|view, _: &FocusOmnibox, window, cx| {
                 view.toolbar
                     .update(cx, |toolbar, cx| toolbar.focus(window, cx))

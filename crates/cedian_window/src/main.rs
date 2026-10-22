@@ -8,6 +8,7 @@ mod dock;
 mod layout;
 mod line_breaks;
 mod open_in;
+mod project;
 mod receipt;
 mod replay;
 mod review_pane;
@@ -37,9 +38,10 @@ use settings::KeymapFile;
 use crate::{agent_pane::AgentPane, root_view::RootView};
 
 enum Mode {
-    /// The threads of a project, through the daemon.
+    /// The threads of the projects in the tabs, through the daemon; `cwd` is the `--cwd`
+    /// asked for.
     Live {
-        cwd: PathBuf,
+        cwd: Option<PathBuf>,
     },
     Replay(replay::Replay),
 }
@@ -65,16 +67,15 @@ fn main() {
 
 const USAGE: &str = "usage: cedian [--cwd <dir>] | cedian --replay <stream.jsonl> [--instant]";
 
-/// `--cwd <dir>` picks the project (default: the current directory). `--replay
+/// `--cwd <dir>` opens the project in front of the saved tabs (with neither, the current
+/// directory). `--replay
 /// <stream.jsonl>` plays a recorded run instead, read before the window opens so a bad file
 /// fails fast; `--instant` applies every line before the first frame, for budgets on long
 /// threads.
 fn mode() -> anyhow::Result<Mode> {
     let mut args = std::env::args_os().skip(1);
     let Some(flag) = args.next() else {
-        return Ok(Mode::Live {
-            cwd: std::env::current_dir().context("reading the current directory")?,
-        });
+        return Ok(Mode::Live { cwd: None });
     };
     if flag == "--cwd" {
         let cwd = PathBuf::from(args.next().context("--cwd needs a directory")?);
@@ -82,7 +83,7 @@ fn mode() -> anyhow::Result<Mode> {
             .canonicalize()
             .with_context(|| format!("opening {}", cwd.display()))?;
         anyhow::ensure!(args.next().is_none(), "{USAGE}");
-        return Ok(Mode::Live { cwd });
+        return Ok(Mode::Live { cwd: Some(cwd) });
     }
     anyhow::ensure!(flag == "--replay", "unknown argument {flag:?}; {USAGE}");
     let path = PathBuf::from(args.next().context("--replay needs a stream.jsonl path")?);
@@ -118,6 +119,12 @@ const ATTACH_KEY: &str = "ctrl-shift-l";
 const SIDEBAR_KEY: &str = "cmd-b";
 #[cfg(not(target_os = "macos"))]
 const SIDEBAR_KEY: &str = "ctrl-shift-b";
+/// The project tabs: `⌘T` opens one, `⌘W` closes it, `⌘1`–`⌘9` pick one, as in Chrome. On
+/// Linux the shell keeps `ctrl-t` and `ctrl-w`, so those take the shifted key.
+#[cfg(target_os = "macos")]
+const TAB_KEYS: (&str, &str, &str) = ("cmd-t", "cmd-w", "cmd");
+#[cfg(not(target_os = "macos"))]
+const TAB_KEYS: (&str, &str, &str) = ("ctrl-shift-t", "ctrl-shift-w", "ctrl");
 #[cfg(target_os = "macos")]
 const TOOL_KEY: &str = "cmd-alt";
 #[cfg(not(target_os = "macos"))]
@@ -179,6 +186,21 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         KeyBinding::new(&format!("{TOOL_KEY}-4"), tool_rail::ToggleDetails, None),
         KeyBinding::new(&format!("{TOOL_KEY}-0"), tool_rail::HideTools, None),
     ]);
+    // Bound in the composer too, where Zed's keymap would otherwise take some of these keys.
+    let (new_tab, close_tab, pick) = TAB_KEYS;
+    for context in [None, Some("Composer > Editor")] {
+        cx.bind_keys([
+            KeyBinding::new(new_tab, tab_strip::NewTab, context),
+            KeyBinding::new(close_tab, tab_strip::CloseTab, context),
+            KeyBinding::new("ctrl-tab", tab_strip::NextTab, context),
+            KeyBinding::new("ctrl-shift-tab", tab_strip::PreviousTab, context),
+        ]);
+        cx.bind_keys(
+            (1..=9).map(|n| {
+                KeyBinding::new(&format!("{pick}-{n}"), tab_strip::ActivateTab(n), context)
+            }),
+        );
+    }
     // Zed's keymap binds cmd-q (ctrl-q on Linux) to zed::Quit; the app menu gives macOS its
     // Quit item. Quitting the window never stops a thread: the daemon runs on.
     cx.on_action(|_: &zed_actions::Quit, cx| cx.quit());
@@ -223,7 +245,11 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         ..Default::default()
     };
     cx.open_window(options, |window, cx| match mode {
-        Mode::Live { cwd } => cx.new(|cx| RootView::live(cwd, layout, view_mode, window, cx)),
+        Mode::Live { cwd } => {
+            let here = std::env::current_dir().unwrap_or_default();
+            let (tabs, front) = layout.tabs(cwd, here);
+            cx.new(|cx| RootView::live(tabs, front, layout, view_mode, window, cx))
+        }
         Mode::Replay(replay) => {
             let title = format!("replay {}", replay.path.display());
             let agent = cx.new(|_| AgentPane::new(title).with_view_mode(view_mode));

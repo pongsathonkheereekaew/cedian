@@ -12,7 +12,7 @@ use gpui::{
 };
 use theme::ActiveTheme as _;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::{open_in::OpenIn, thread_list, tokens};
 
@@ -27,7 +27,11 @@ pub const TOOLBAR_HEIGHT: f32 = 44.;
 const MATCHES: usize = 6;
 
 pub enum ToolbarEvent {
-    Open(String),
+    /// Open the thread, in the tab of the project that holds it.
+    Open {
+        cwd: PathBuf,
+        thread: String,
+    },
     /// Start a thread with this task.
     Start(String),
     NewThread,
@@ -41,14 +45,27 @@ pub struct Found {
     pub id: String,
     pub title: SharedString,
     pub status: Status,
+    /// The project whose tab holds the thread.
+    pub cwd: PathBuf,
+    /// The project's name, for a thread of a tab behind the front one.
+    pub elsewhere: Option<SharedString>,
 }
 
 impl Found {
-    pub fn of(info: &ThreadInfo) -> Self {
+    pub fn of(info: &ThreadInfo, cwd: &Path, elsewhere: Option<SharedString>) -> Self {
         Self {
             id: info.thread.id.clone(),
             title: info.thread.title.clone().into(),
             status: info.status,
+            cwd: cwd.to_owned(),
+            elsewhere,
+        }
+    }
+
+    fn open(&self) -> ToolbarEvent {
+        ToolbarEvent::Open {
+            cwd: self.cwd.clone(),
+            thread: self.id.clone(),
         }
     }
 }
@@ -96,12 +113,18 @@ impl Toolbar {
 
     pub fn set(
         &mut self,
+        project: SharedString,
         threads: Vec<Found>,
         branch: Option<String>,
         dir: PathBuf,
         cx: &mut Context<Self>,
     ) {
-        if threads != self.threads || branch != self.branch || dir != self.dir {
+        if project != self.project
+            || threads != self.threads
+            || branch != self.branch
+            || dir != self.dir
+        {
+            self.project = project;
             self.threads = threads;
             self.branch = branch;
             self.dir = dir;
@@ -217,7 +240,7 @@ impl Toolbar {
         }
         let matches = found(&self.threads, &query);
         let event = match matches.get(self.selected) {
-            Some(n) => ToolbarEvent::Open(self.threads[*n].id.clone()),
+            Some(n) => self.threads[*n].open(),
             None => ToolbarEvent::Start(query.trim().to_owned()),
         };
         self.clear(window, cx);
@@ -283,7 +306,7 @@ impl Render for Toolbar {
             .text_size(px(13.));
         for (row, n) in matches.iter().enumerate() {
             let thread = &self.threads[*n];
-            let id = thread.id.clone();
+            let (cwd, id) = (thread.cwd.clone(), thread.id.clone());
             list = list.child(
                 div()
                     .id(("found", row))
@@ -298,7 +321,10 @@ impl Render for Toolbar {
                     .hover(|r| r.bg(colors.element_hover))
                     .on_click(cx.listener(move |toolbar, _, window, cx| {
                         toolbar.clear(window, cx);
-                        cx.emit(ToolbarEvent::Open(id.clone()));
+                        cx.emit(ToolbarEvent::Open {
+                            cwd: cwd.clone(),
+                            thread: id.clone(),
+                        });
                     }))
                     .child(thread_list::dot(thread.status, cx))
                     .child(
@@ -308,6 +334,17 @@ impl Render for Toolbar {
                             .truncate()
                             .child(thread.title.clone()),
                     )
+                    .when_some(thread.elsewhere.clone(), |row, project| {
+                        row.child(
+                            div()
+                                .px_1()
+                                .rounded(px(4.))
+                                .bg(colors.element_background)
+                                .text_size(px(11.))
+                                .text_color(colors.text_muted)
+                                .child(project),
+                        )
+                    })
                     .child(
                         div()
                             .text_size(px(12.))
@@ -469,6 +506,8 @@ mod tests {
             id: id.to_owned(),
             title: title.to_owned().into(),
             status: Status::Done,
+            cwd: PathBuf::from("/repo"),
+            elsewhere: None,
         }
     }
 
