@@ -22,7 +22,8 @@ use crate::{
     ledger::{Ledger, RunRecord, still_running},
     review::{Changes, DecisionStore, decide},
     run::{Run, RunId, watch},
-    thread_watch::{Seen, fingerprint},
+    seen::Seen,
+    thread_watch::{Fingerprints, fingerprint},
 };
 
 pub type Shared = Arc<Mutex<Daemon>>;
@@ -55,6 +56,7 @@ pub struct Daemon {
     ledger: Ledger,
     decisions: DecisionStore,
     /// The threads directories windows show, as last listed.
+    prints: Fingerprints,
     seen: Seen,
     next_id: u64,
 }
@@ -76,7 +78,8 @@ impl Daemon {
             keep_awake: KeepAwake::default(),
             ledger: Ledger::new(state_dir),
             decisions: DecisionStore::new(state_dir),
-            seen: Seen::default(),
+            prints: Fingerprints::default(),
+            seen: Seen::new(state_dir),
             next_id: 1,
         }
     }
@@ -256,15 +259,24 @@ impl Daemon {
             .is_some_and(|run| run.alive)
     }
 
-    fn threads(&self, slug: &str) -> anyhow::Result<Vec<ThreadInfo>> {
-        Ok(list_threads(&threads_dir(&self.home, slug))?
-            .into_iter()
-            .map(|thread| ThreadInfo {
-                status: Status::of(thread.state, self.running(&thread.id)),
+    fn threads(&mut self, slug: &str) -> anyhow::Result<Vec<ThreadInfo>> {
+        let mut threads = Vec::new();
+        for thread in list_threads(&threads_dir(&self.home, slug))? {
+            // A window showing the thread as it changes counts as seeing it.
+            if self.clients.values().any(|c| c.open.contains(&thread.id)) {
+                self.seen.mark(slug, &thread.id, &thread.updated_at);
+            }
+            let status = Status::of(thread.state, self.running(&thread.id));
+            threads.push(ThreadInfo {
+                needs_you: self
+                    .seen
+                    .needs_you(slug, &thread.id, &thread.updated_at, status),
+                status,
                 cwd: self.thread_cwd(slug, &thread),
                 thread,
-            })
-            .collect())
+            });
+        }
+        Ok(threads)
     }
 
     /// The directory the thread's latest session ran in, if it is still there.
@@ -311,9 +323,9 @@ impl Daemon {
     /// Refreshes each project whose threads directory changed since it was last listed.
     pub fn threads_seen(&mut self, prints: Vec<(String, u64)>) {
         let shown: Vec<String> = prints.iter().map(|(slug, _)| slug.clone()).collect();
-        self.seen.retain(&shown);
+        self.prints.retain(&shown);
         for (slug, print) in prints {
-            if self.seen.changed(&slug, print) {
+            if self.prints.changed(&slug, print) {
                 self.refresh(&slug);
             }
         }
@@ -357,7 +369,7 @@ impl Daemon {
                 let mut daemon = lock(shared);
                 let slug = project_key(&cwd);
                 let print = fingerprint(&threads_dir(&daemon.home, &slug));
-                daemon.seen.changed(&slug, print);
+                daemon.prints.changed(&slug, print);
                 match daemon.threads(&slug) {
                     Ok(threads) => {
                         if let Some(c) = daemon.clients.get_mut(&client) {
@@ -484,6 +496,9 @@ impl Daemon {
             Ok(summary) => summary,
             Err(error) => return self.error(client, format!("{error:#}")),
         };
+        if self.seen.mark(&slug, thread, &summary.updated_at) {
+            self.refresh(&slug);
+        }
         let run = self.by_thread.get(thread).and_then(|id| self.runs.get(id));
         let mut lines = Vec::new();
         for session in &summary.sessions {

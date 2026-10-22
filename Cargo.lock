@@ -1205,6 +1205,7 @@ dependencies = [
  "cedian_index",
  "cedian_protocol",
  "cedian_wire",
+ "chrono",
  "collections",
  "editor",
  "futures",
