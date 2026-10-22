@@ -18,6 +18,8 @@ pub struct Details {
     /// Finished runs' cost, by the model of the session they ended in.
     pub cost_by_model: Vec<(String, f64)>,
     pub context: Option<u64>,
+    /// The writer model's context window, when cedia lists the model.
+    pub context_window: Option<u64>,
     pub changed: Vec<String>,
 }
 
@@ -109,9 +111,14 @@ pub fn render(info: Option<&ThreadInfo>, details: &Details, cx: &App) -> Div {
         column = column.child(mono(format!("${cost:.4} · {model}")));
     }
     if let Some(context) = details.context {
-        column = column
-            .child(label("Context ของ turn ล่าสุด"))
-            .child(mono(format!("{context} tokens")));
+        column = column.child(label("Context ของ turn ล่าสุด")).child(mono(
+            match details.context_window.filter(|w| *w > 0) {
+                Some(window) => {
+                    format!("{context} / {window} tokens ({}%)", context * 100 / window)
+                }
+                None => format!("{context} tokens"),
+            },
+        ));
     }
     if !details.changed.is_empty() {
         column = column.child(label("ไฟล์ที่เปลี่ยน"));

@@ -124,12 +124,9 @@ impl RootView {
                     }))
                     .child(thread_list::dot(info.status, cx))
                     .child(
-                        div()
+                        crate::tooltip::cut("title", info.thread.title.clone())
                             .flex_grow(1.)
-                            .min_w_0()
-                            .truncate()
-                            .text_ui()
-                            .child(info.thread.title.clone()),
+                            .text_ui(),
                     )
                     .child(
                         div()

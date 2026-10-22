@@ -34,6 +34,7 @@ mod thread_search;
 mod tokens;
 mod tool_card;
 mod tool_menu;
+mod tooltip;
 mod type_scale;
 mod view_mode;
 mod workplace;

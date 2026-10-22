@@ -4,6 +4,8 @@
 mod blocks;
 mod chat;
 mod run_choices;
+#[cfg(test)]
+mod window_tests;
 
 use std::{
     path::{Path, PathBuf},
@@ -46,7 +48,7 @@ use crate::{
         self, ActivateTab, CloseTab, NewTab, NextTab, PreviousTab, ProjectTab, TabClick, TabDrag,
     },
     thread_list::{self, Group},
-    thread_search::{FocusSearch, Found, SearchEvent, ThreadSearch},
+    thread_search::{Act, FocusSearch, Found, SearchEvent, ThreadSearch},
     tokens,
     view_mode::ViewMode,
     workplace::Workplace,
@@ -165,6 +167,7 @@ impl RootView {
         }
         view.projects = projects;
         view.focused = view.ws().find(Kind::Agent);
+        view.set_search_actions(cx);
         view.remember_tabs();
         view.layout.bounds = Some(saved_bounds(window));
         cx.observe_window_bounds(window, |view, window, cx| {
@@ -234,6 +237,15 @@ impl RootView {
                 view.open_thread(cwd, thread.clone(), cx);
                 view.composer
                     .update(cx, |composer, cx| composer.focus(window, cx));
+            }
+            SearchEvent::Act(act) => {
+                match *act {
+                    Act::Layout(n) => view.switch_layout(n, cx),
+                    Act::Add(kind) => {
+                        view.open_kind(kind, blocks::ToolTarget { against: None }, cx)
+                    }
+                }
+                view.refocus = true;
             }
             SearchEvent::Dismissed => view
                 .composer
@@ -777,6 +789,7 @@ impl RootView {
         self.focused = self.ws().find(Kind::Agent);
         self.show_current(cx);
         self.open_chat_thread(cx);
+        self.set_search_actions(cx);
         self.remember_tabs();
         self.save_layout(cx);
         cx.notify();
@@ -1378,15 +1391,12 @@ impl RootView {
                         .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
                         .child(thread_list::dot(info.status, cx))
                         .child(
-                            div()
+                            crate::tooltip::cut("title", info.thread.title.clone())
                                 .flex_grow(1.)
-                                .min_w_0()
                                 .text_ui()
-                                .truncate()
                                 .when(info.needs_you, |title| {
                                     title.font_weight(gpui::FontWeight::SEMIBOLD)
-                                })
-                                .child(info.thread.title.clone()),
+                                }),
                         )
                         .when(!meta.is_empty() && !narrow, |row| {
                             row.child(
@@ -1595,11 +1605,9 @@ impl RootView {
                                         .flex()
                                         .flex_col()
                                         .child(
-                                            div()
+                                            crate::tooltip::cut("title", info.thread.title.clone())
                                                 .text_ui()
-                                                .truncate()
-                                                .text_color(colors.text_muted)
-                                                .child(info.thread.title.clone()),
+                                                .text_color(colors.text_muted),
                                         )
                                         .child(
                                             div()
@@ -1724,7 +1732,13 @@ impl RootView {
             _ => None,
         };
         let notice = failure.or_else(|| self.error.clone());
-        let chips = self.agent.read(cx).chips(&self.agent.downgrade(), cx);
+        let window = self
+            .writer_model(cx)
+            .and_then(|model| self.choices.context_window(&model));
+        let chips = self
+            .agent
+            .read(cx)
+            .chips(&self.agent.downgrade(), window, cx);
         let working = self.project().status == Some(Status::Working);
         let colors = cx.theme().colors().clone();
         div()
@@ -1803,6 +1817,7 @@ impl RootView {
                                 // The composer's bottom row: where the thread runs, then the
                                 // context and the view mode.
                                 div()
+                                    .debug_selector(|| "composer-row".into())
                                     .flex_none()
                                     .min_w_0()
                                     .px_4()
@@ -1814,11 +1829,12 @@ impl RootView {
                                     .child(self.workplace.clone())
                                     .children(worktree)
                                     .child(self.render_run_choices(cx))
+                                    // The chips keep their width: the model's name and
+                                    // the workplace give way first.
                                     .child(
                                         div()
                                             .flex_grow(1.)
-                                            .min_w_0()
-                                            .overflow_hidden()
+                                            .flex_shrink_0()
                                             .when(!narrow, |row| row.child(chips)),
                                     )
                                     .children(stop),

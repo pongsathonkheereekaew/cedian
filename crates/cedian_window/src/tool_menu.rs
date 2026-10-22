@@ -37,13 +37,10 @@ pub fn key(kind: Kind) -> Option<String> {
 
 pub fn rows(ws: &Workspace, pick: impl Fn(Kind) -> OnClick) -> Vec<Row> {
     let row = |kind: Kind, label: &str| {
-        let open = kind.one_per_layout() && ws.find(kind).is_some();
-        let note = if !built(kind) {
-            Some("เร็วๆ นี้".to_owned())
-        } else if open {
-            Some("เปิดอยู่".to_owned())
+        let note = if built(kind) {
+            note(ws, kind)
         } else {
-            key(kind)
+            Some("เร็วๆ นี้".to_owned())
         };
         Row::Item {
             icon: Some(icon(kind)),
@@ -52,23 +49,40 @@ pub fn rows(ws: &Workspace, pick: impl Fn(Kind) -> OnClick) -> Vec<Row> {
             on_click: built(kind).then(|| pick(kind)),
         }
     };
-    vec![
-        Row::Label("ของ thread ที่เปิดอยู่".into()),
-        row(Kind::Agent, "Session"),
-        row(Kind::Terminal, "Terminal"),
-        row(Kind::Browser, "Browser"),
-        row(Kind::Review, "Review"),
-        row(Kind::Editor, "Editor"),
-        row(Kind::Files, "Files"),
-        row(Kind::Git, "Git"),
-        row(Kind::Session, "รายละเอียด thread"),
-        Row::Separator,
-        Row::Label("ของ project".into()),
-        row(Kind::Threads, "Threads"),
-        row(Kind::Chat, "แชทโปรเจกต์"),
-        row(Kind::Outputs, "Outputs"),
-        row(Kind::Memory, "Memory"),
-        row(Kind::Usage, "Usage"),
-        row(Kind::Background, "Background tasks"),
-    ]
+    let mut rows = vec![Row::Label("ของ thread ที่เปิดอยู่".into())];
+    rows.extend(THREAD_TOOLS.iter().map(|(kind, label)| row(*kind, label)));
+    rows.extend([Row::Separator, Row::Label("ของ project".into())]);
+    rows.extend(PROJECT_TOOLS.iter().map(|(kind, label)| row(*kind, label)));
+    rows
+}
+
+/// The tools for the open thread, in the menu's order.
+pub const THREAD_TOOLS: [(Kind, &str); 8] = [
+    (Kind::Agent, "Session"),
+    (Kind::Terminal, "Terminal"),
+    (Kind::Browser, "Browser"),
+    (Kind::Review, "Review"),
+    (Kind::Editor, "Editor"),
+    (Kind::Files, "Files"),
+    (Kind::Git, "Git"),
+    (Kind::Session, "รายละเอียด thread"),
+];
+
+/// The tools for the project.
+pub const PROJECT_TOOLS: [(Kind, &str); 6] = [
+    (Kind::Threads, "Threads"),
+    (Kind::Chat, "แชทโปรเจกต์"),
+    (Kind::Outputs, "Outputs"),
+    (Kind::Memory, "Memory"),
+    (Kind::Usage, "Usage"),
+    (Kind::Background, "Background tasks"),
+];
+
+/// The note a tool's row carries: เปิดอยู่ for one the layout already shows, else its key.
+pub fn note(ws: &Workspace, kind: Kind) -> Option<String> {
+    if kind.one_per_layout() && ws.find(kind).is_some() {
+        Some("เปิดอยู่".to_owned())
+    } else {
+        key(kind)
+    }
 }

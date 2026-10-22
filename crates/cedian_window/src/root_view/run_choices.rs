@@ -35,7 +35,7 @@ pub(super) struct RunChoices {
     picks: HashMap<String, Pick>,
     /// The pick for the thread the composer would start.
     new_thread: Pick,
-    menu: Option<Menu>,
+    pub(super) menu: Option<Menu>,
     /// The menu a press outside it just closed: a press on its own chip closes it, and the
     /// click that follows must not open it again.
     closed: Option<(Menu, Instant)>,
@@ -47,8 +47,8 @@ pub(super) struct Pick {
     pub permission: Option<PermissionSetting>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Menu {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Menu {
     Model,
     Permission,
 }
@@ -65,7 +65,7 @@ impl RunChoices {
             .unwrap_or(&self.new_thread)
     }
 
-    fn pick_mut(&mut self, thread: Option<&str>) -> &mut Pick {
+    pub(super) fn pick_mut(&mut self, thread: Option<&str>) -> &mut Pick {
         match thread {
             Some(t) => self.picks.entry(t.to_owned()).or_default(),
             None => &mut self.new_thread,
@@ -100,6 +100,11 @@ impl RunChoices {
             pick.permission = Some(PermissionSetting::Workspace);
         }
         (model, permission.map(|p| p.to_string()))
+    }
+
+    /// The context window of the listed model a ref or alias names.
+    pub(super) fn context_window(&self, name: &str) -> Option<u64> {
+        self.entry(name).map(|m| m.context_window as u64)
     }
 
     /// The listed model a ref or alias names.
@@ -202,6 +207,7 @@ impl RootView {
             .child(
                 div()
                     .id(id)
+                    .debug_selector(|| id.into())
                     .h(px(24.))
                     .max_w_full()
                     .px_2()
@@ -224,7 +230,7 @@ impl RootView {
                         choices.menu = (choices.menu.is_none() && !just_closed).then_some(menu);
                         cx.notify();
                     }))
-                    .child(div().min_w_0().truncate().child(label))
+                    .child(crate::tooltip::cut("label", label))
                     .child(
                         svg()
                             .path("icons/chevron_down.svg")
@@ -333,6 +339,7 @@ impl RootView {
         deferred(
             div().absolute().bottom(px(28.)).right_0().child(
                 popup_menu::menu("run-choice-menu", rows, cx)
+                    .debug_selector(|| "run-choice-menu".into())
                     .w(px(MENU_WIDTH))
                     .on_mouse_down_out(cx.listener(|view, _, _, cx| {
                         view.choices.closed =

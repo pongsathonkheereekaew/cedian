@@ -1,11 +1,13 @@
 //! Search at the top of the sidebar (Interface, Phase C: search moves to the top of the
 //! thread list; `⌘K` focuses it). While something is typed, the sidebar lists the threads of
-//! every tab whose title holds each word, the front tab's first, in place of its groups; Up and
-//! Down move, Enter opens, Escape clears and goes back to the composer. It only finds: threads
-//! are started by the project's coordinator, not from here.
+//! every tab whose title holds each word, the front tab's first, in place of its groups, then
+//! the layouts by name and the blocks to add (ใหม่…, so typing `ใหม่` lists them all); Up
+//! and Down move, Enter opens, Escape clears and goes back to the composer. It only finds:
+//! threads are started by the project's coordinator, not from here.
 
 use std::path::{Path, PathBuf};
 
+use cedian_layout::Kind;
 use cedian_wire::{Status, ThreadInfo};
 use editor::{Editor, EditorEvent};
 use gpui::{
@@ -34,8 +36,51 @@ const SEARCH_KEY: &str = "Ctrl+K";
 pub enum SearchEvent {
     /// Open the thread, in the tab of the project that holds it.
     Open { cwd: PathBuf, thread: String },
+    /// Switch to a layout or add a block.
+    Act(Act),
     /// Escape left the search; focus goes back where the person types.
     Dismissed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Act {
+    /// The layout at this place in the project's list.
+    Layout(usize),
+    /// Open a block of this kind, or focus the one a layout holds once.
+    Add(Kind),
+}
+
+/// A layout or a block to add, as the search finds it by name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Action {
+    pub act: Act,
+    pub label: SharedString,
+    /// Its key, or เปิดอยู่ for a block the layout already shows.
+    pub note: Option<SharedString>,
+}
+
+impl Action {
+    /// The word a row is grouped under, which the search matches too.
+    fn group(&self) -> &'static str {
+        match self.act {
+            Act::Layout(_) => "layout",
+            Act::Add(_) => "ใหม่…",
+        }
+    }
+
+    fn icon(&self) -> &'static str {
+        match self.act {
+            Act::Layout(_) => "icons/blocks.svg",
+            Act::Add(kind) => crate::block_header::icon(kind),
+        }
+    }
+}
+
+/// A row of the results.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Hit {
+    Thread(usize),
+    Action(usize),
 }
 
 /// A thread as the search finds it.
@@ -65,6 +110,7 @@ impl Found {
 pub struct ThreadSearch {
     input: Entity<Editor>,
     threads: Vec<Found>,
+    actions: Vec<Action>,
     selected: usize,
 }
 
@@ -87,6 +133,7 @@ impl ThreadSearch {
         Self {
             input,
             threads: Vec::new(),
+            actions: Vec::new(),
             selected: 0,
         }
     }
@@ -95,6 +142,32 @@ impl ThreadSearch {
         if threads != self.threads {
             self.threads = threads;
             cx.notify();
+        }
+    }
+
+    pub fn set_actions(&mut self, actions: Vec<Action>, cx: &mut Context<Self>) {
+        if actions != self.actions {
+            self.actions = actions;
+            cx.notify();
+        }
+    }
+
+    fn hits(&self, cx: &gpui::App) -> Vec<Hit> {
+        let query = self.query(cx);
+        found(&self.threads, &query)
+            .into_iter()
+            .map(Hit::Thread)
+            .chain(acted(&self.actions, &query).into_iter().map(Hit::Action))
+            .collect()
+    }
+
+    fn event(&self, hit: Hit) -> SearchEvent {
+        match hit {
+            Hit::Thread(n) => SearchEvent::Open {
+                cwd: self.threads[n].cwd.clone(),
+                thread: self.threads[n].id.clone(),
+            },
+            Hit::Action(n) => SearchEvent::Act(self.actions[n].act),
         }
     }
 
@@ -112,7 +185,7 @@ impl ThreadSearch {
     }
 
     fn select_next(&mut self, _: &SelectNext, _: &mut Window, cx: &mut Context<Self>) {
-        let count = found(&self.threads, &self.query(cx)).len();
+        let count = self.hits(cx).len();
         if self.selected + 1 < count {
             self.selected += 1;
             cx.notify();
@@ -125,13 +198,8 @@ impl ThreadSearch {
     }
 
     fn confirm(&mut self, _: &Confirm, window: &mut Window, cx: &mut Context<Self>) {
-        let matches = found(&self.threads, &self.query(cx));
-        if let Some(n) = matches.get(self.selected) {
-            let thread = &self.threads[*n];
-            let event = SearchEvent::Open {
-                cwd: thread.cwd.clone(),
-                thread: thread.id.clone(),
-            };
+        if let Some(hit) = self.hits(cx).get(self.selected) {
+            let event = self.event(*hit);
             self.clear(window, cx);
             cx.emit(event);
         }
@@ -150,9 +218,9 @@ impl ThreadSearch {
 
     fn results(&self, cx: &mut Context<Self>) -> Div {
         let colors = cx.theme().colors().clone();
-        let matches = found(&self.threads, &self.query(cx));
+        let hits = self.hits(cx);
         let mut list = div().flex().flex_col().gap_px().pt_1();
-        if matches.is_empty() {
+        if hits.is_empty() {
             return list.child(
                 div()
                     .px_2()
@@ -162,9 +230,38 @@ impl ThreadSearch {
                     .child("ไม่พบ thread"),
             );
         }
-        for (row, n) in matches.iter().enumerate() {
-            let thread = &self.threads[*n];
-            let (cwd, id) = (thread.cwd.clone(), thread.id.clone());
+        for (row, hit) in hits.into_iter().enumerate() {
+            let (lead, title, meta, note) = match hit {
+                Hit::Thread(n) => {
+                    let thread = &self.threads[n];
+                    let meta = match &thread.elsewhere {
+                        Some(project) => {
+                            format!("{} · {project}", thread_list::state_word(thread.status))
+                        }
+                        None => thread_list::state_word(thread.status).to_owned(),
+                    };
+                    (
+                        thread_list::dot(thread.status, cx).into_any_element(),
+                        thread.title.clone(),
+                        meta,
+                        None,
+                    )
+                }
+                Hit::Action(n) => {
+                    let action = &self.actions[n];
+                    (
+                        svg()
+                            .path(action.icon())
+                            .size(px(14.))
+                            .flex_none()
+                            .text_color(colors.text_muted)
+                            .into_any_element(),
+                        action.label.clone(),
+                        action.group().to_owned(),
+                        action.note.clone(),
+                    )
+                }
+            };
             list = list.child(
                 div()
                     .id(("found", row))
@@ -178,34 +275,48 @@ impl ThreadSearch {
                     .when(row == self.selected, |r| r.bg(colors.element_selected))
                     .hover(|r| r.bg(colors.element_hover))
                     .on_click(cx.listener(move |search, _, window, cx| {
+                        let event = search.event(hit);
                         search.clear(window, cx);
-                        cx.emit(SearchEvent::Open {
-                            cwd: cwd.clone(),
-                            thread: id.clone(),
-                        });
+                        cx.emit(event);
                     }))
-                    .child(thread_list::dot(thread.status, cx))
+                    .child(lead)
                     .child(
                         div()
                             .flex_grow(1.)
                             .min_w_0()
                             .flex()
                             .flex_col()
-                            .child(div().text_ui().truncate().child(thread.title.clone()))
-                            .child(div().text_meta().text_color(colors.text_muted).child(
-                                match &thread.elsewhere {
-                                    Some(project) => format!(
-                                        "{} · {project}",
-                                        thread_list::state_word(thread.status)
-                                    ),
-                                    None => thread_list::state_word(thread.status).to_owned(),
-                                },
-                            )),
-                    ),
+                            .child(crate::tooltip::cut("title", title).text_ui())
+                            .child(div().text_meta().text_color(colors.text_muted).child(meta)),
+                    )
+                    .children(note.map(|note| {
+                        div()
+                            .flex_none()
+                            .text_label()
+                            .text_color(colors.text_muted)
+                            .child(note)
+                    })),
             );
         }
         list
     }
+}
+
+/// The layouts and blocks whose group and name hold every word typed, ignoring case.
+fn acted(actions: &[Action], query: &str) -> Vec<usize> {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    if words.is_empty() {
+        return Vec::new();
+    }
+    actions
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| {
+            let text = format!("{} {}", a.group(), a.label).to_lowercase();
+            words.iter().all(|w| text.contains(w.as_str()))
+        })
+        .map(|(n, _)| n)
+        .collect()
 }
 
 /// The threads whose title holds every word typed, ignoring case, in the order given.
@@ -300,5 +411,24 @@ mod tests {
         assert_eq!(found(&threads, "say good"), [0]);
         assert_eq!(found(&threads, "ปุ่ม"), [1]);
         assert!(found(&threads, "  ").is_empty());
+    }
+
+    #[test]
+    fn layouts_and_blocks_are_found_by_name_or_group() {
+        let action = |act, label: &str| Action {
+            act,
+            label: label.to_owned().into(),
+            note: None,
+        };
+        let actions = [
+            action(Act::Layout(0), "โฟกัส"),
+            action(Act::Layout(1), "เขียนโค้ด"),
+            action(Act::Add(Kind::Terminal), "Terminal"),
+            action(Act::Add(Kind::Review), "Review"),
+        ];
+        assert_eq!(acted(&actions, "ใหม่"), [2, 3]);
+        assert_eq!(acted(&actions, "term"), [2]);
+        assert_eq!(acted(&actions, "layout โค้ด"), [1]);
+        assert!(acted(&actions, "").is_empty());
     }
 }

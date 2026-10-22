@@ -147,13 +147,7 @@ pub fn strip(
                     style.bg(cx.theme().colors().element_hover)
                 })
                 .on_drop(dropped(n))
-                .child(
-                    div()
-                        .flex_grow(1.)
-                        .min_w_0()
-                        .truncate()
-                        .child(tab.name.clone()),
-                )
+                .child(crate::tooltip::cut("name", tab.name.clone()).flex_grow(1.))
                 .when(tab.working > 0 && (selected || !compact), |row| {
                     row.child(
                         div()
