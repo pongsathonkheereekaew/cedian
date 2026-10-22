@@ -166,6 +166,13 @@ mod tests {
         // Into an empty directory: each path is either cloned whole or not there at all.
         let into = tempfile::tempdir().expect("tempdir");
         let cloned = clone_into(root, into.path());
+        // APFS always clones, so a skip there is a regression, not a filesystem's limit.
+        if cfg!(target_os = "macos") {
+            assert!(
+                cloned.contains(&PathBuf::from("node_modules")),
+                "{cloned:?}"
+            );
+        }
         for path in [".env", "node_modules"] {
             let there = into.path().join(path).exists();
             assert_eq!(there, cloned.contains(&PathBuf::from(path)), "{path}");
