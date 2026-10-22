@@ -40,4 +40,8 @@ pub struct ThreadInfo {
     /// Where the thread's latest session ran: its worktree, when it has one.
     #[serde(default)]
     pub cwd: Option<std::path::PathBuf>,
+    /// It finished, failed, was interrupted or asks something since the person last saw it:
+    /// it counts in the badges until a window opens it.
+    #[serde(default)]
+    pub needs_you: bool,
 }

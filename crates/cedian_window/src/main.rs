@@ -11,6 +11,7 @@ mod root_view;
 mod settings_view;
 mod shell_pane;
 mod spike_view;
+mod thread_list;
 mod tokens;
 
 use std::path::PathBuf;
