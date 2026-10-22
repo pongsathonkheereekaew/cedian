@@ -39,7 +39,7 @@ Each feature file starts with an H1 and one paragraph, then four H2 sections in 
 ## Features
 
 - [Agent pane](./agent-pane.md) is the thread, drawn as blocks, which is the primary surface.
-- [Spawn cedia](./spawn-cedia.md) is the daemon starting one cedia process for that thread.
+- [Spawn cedia](./spawn-cedia.md) is the daemon running one cedia process for each prompt in that thread.
 - [Terminal pane](./terminal-pane.md) is a shell in the same window.
 - [Review pane](./review-pane.md) is the diff review against the task baseline.
 - [Desktop settings](./desktop-settings.md) is the `desktop` key in cedia's settings file.
