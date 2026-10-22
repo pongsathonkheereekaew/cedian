@@ -76,9 +76,10 @@ impl ReviewPane {
         hunks(self.review.as_ref()?).nth(index)
     }
 
-    // The reason box takes focus on the next frame; keys typed before it do not move the list.
+    // The reason box sits inside the list, so while it is open J, K, Y and N are text for it.
     fn next(&mut self, _: &Next, _: &mut Window, cx: &mut Context<Self>) {
         if self.rejecting.is_some() {
+            cx.propagate();
             return;
         }
         if self.hunk(self.selected + 1).is_some() {
@@ -89,6 +90,7 @@ impl ReviewPane {
 
     fn previous(&mut self, _: &Previous, _: &mut Window, cx: &mut Context<Self>) {
         if self.rejecting.is_some() {
+            cx.propagate();
             return;
         }
         self.selected = self.selected.saturating_sub(1);
@@ -97,6 +99,7 @@ impl ReviewPane {
 
     fn accept(&mut self, _: &Accept, _: &mut Window, cx: &mut Context<Self>) {
         if self.rejecting.is_some() {
+            cx.propagate();
             return;
         }
         self.decide_selected(true, cx);
@@ -104,6 +107,7 @@ impl ReviewPane {
 
     fn reject(&mut self, _: &Reject, window: &mut Window, cx: &mut Context<Self>) {
         if self.rejecting.is_some() {
+            cx.propagate();
             return;
         }
         if let Some(hunk) = self.hunk(self.selected).cloned() {
@@ -203,14 +207,7 @@ impl ReviewPane {
                     },
                 )));
             }
-            HunkState::Stale => {
-                actions = actions.child(
-                    div()
-                        .text_color(colors.text_muted)
-                        .child("edited by hand after the agent, so it cannot be rejected"),
-                );
-            }
-            HunkState::Rejected => {}
+            HunkState::Stale | HunkState::Rejected => {}
         }
         let collapsed = matches!(hunk.state, HunkState::Accepted | HunkState::Rejected);
         let mut body = div().font_family("Lilex").text_xs().flex().flex_col();
@@ -269,6 +266,18 @@ impl ReviewPane {
                     )
                     .child(actions),
             )
+            .when(hunk.state == HunkState::Stale, |el| {
+                el.child(
+                    div()
+                        .px_2()
+                        .pb_1()
+                        .text_xs()
+                        .text_color(colors.text_muted)
+                        .child(
+                            "Edited by hand after the agent wrote it, so it cannot be rejected.",
+                        ),
+                )
+            })
             .child(body)
             .when_some(rejecting, |el, editor| {
                 el.child(
