@@ -4,6 +4,7 @@
 
 mod cedia;
 mod daemon;
+mod desktop_settings;
 mod environment;
 mod follow;
 mod keep_awake;

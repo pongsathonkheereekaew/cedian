@@ -11,13 +11,16 @@ use gpui::{
     IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
     Styled as _, Window, div, prelude::FluentBuilder as _, px,
 };
+use settings::Settings as _;
 use theme::ActiveTheme as _;
 
 use crate::{
     agent_pane::AgentPane,
     composer::{Composer, ComposerEvent},
     daemon_client::DaemonClient,
+    desktop::Desktop,
     review_pane::{ReviewEvent, ReviewPane},
+    settings_view::{SettingsEvent, SettingsView},
     spike_view::SpikeView,
 };
 
@@ -54,6 +57,9 @@ pub struct RootView {
     review: Entity<ReviewPane>,
     /// The right column shows the review instead of the editor and terminal.
     showing_review: bool,
+    settings: Entity<SettingsView>,
+    /// The center column shows the settings instead of the thread.
+    showing_settings: bool,
 }
 
 impl RootView {
@@ -121,6 +127,18 @@ impl RootView {
             ComposerEvent::Submit(text) => view.submit(text.clone(), cx),
         })
         .detach();
+        let settings = cx.new(|_| SettingsView::default());
+        cx.subscribe(&settings, |view, _, event, cx| match event {
+            SettingsEvent::Set { key, value } => view.request(Request::SetDesktop {
+                key: (*key).to_owned(),
+                value: value.clone(),
+            }),
+            SettingsEvent::Close => {
+                view.showing_settings = false;
+                cx.notify();
+            }
+        })
+        .detach();
         let review = cx.new(ReviewPane::new);
         cx.subscribe(&review, |view, _, event, _| match event {
             ReviewEvent::Decide { hunk, decision } => {
@@ -153,6 +171,8 @@ impl RootView {
             tools,
             review,
             showing_review: false,
+            settings,
+            showing_settings: false,
         }
     }
 
@@ -178,6 +198,12 @@ impl RootView {
                 self.request(Request::Threads {
                     cwd: self.cwd.clone(),
                 });
+                self.request(Request::Settings);
+            }
+            Notice::Settings { path, desktop } => {
+                Desktop::from_value(&desktop).apply(cx);
+                self.settings
+                    .update(cx, |view, cx| view.set(path, desktop, cx));
             }
             Notice::Threads { cwd, threads } if cwd == self.cwd => {
                 self.threads = threads
@@ -325,6 +351,7 @@ impl RootView {
         };
         div()
             .w(px(460.))
+            .flex_none()
             .h_full()
             .flex()
             .flex_col()
@@ -437,6 +464,7 @@ impl RootView {
         }
         div()
             .w(px(220.))
+            .flex_none()
             .h_full()
             .flex()
             .flex_col()
@@ -470,11 +498,25 @@ impl RootView {
             .child(list)
             .child(
                 div()
+                    .flex()
+                    .justify_between()
                     .px_2()
                     .py_1()
                     .text_xs()
                     .text_color(colors.text_muted)
-                    .child(connection),
+                    .child(connection)
+                    .child(
+                        div()
+                            .id("open-settings")
+                            .cursor_pointer()
+                            .text_color(colors.text_accent)
+                            .on_click(cx.listener(|view, _, _, cx| {
+                                view.showing_settings = !view.showing_settings;
+                                view.request(Request::Settings);
+                                cx.notify();
+                            }))
+                            .child("Settings"),
+                    ),
             )
             .into_any_element()
     }
@@ -501,7 +543,9 @@ fn status_color(status: Status, colors: &theme::StatusColors, idle: Hsla) -> Hsl
 }
 
 impl Render for RootView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Text sizes are in rems, so the interface size setting scales all of it, as in Zed.
+        window.set_rem_size(theme_settings::ThemeSettings::get_global(cx).ui_font_size(cx));
         let live = !matches!(self.connection, Connection::Replay);
         let threads = live.then(|| self.render_threads(cx));
         let colors = cx.theme().colors();
@@ -511,7 +555,8 @@ impl Render for RootView {
             _ => None,
         };
         let notice = failure.or_else(|| self.error.clone());
-        let working = self.status == Some(Status::Working);
+        let working = self.status == Some(Status::Working) && !self.showing_settings;
+        let live = live && !self.showing_settings;
         div()
             .size_full()
             .flex()
@@ -520,12 +565,19 @@ impl Render for RootView {
             .child(
                 div()
                     .flex_grow(1.)
+                    .min_w_0()
                     .h_full()
                     .flex()
                     .flex_col()
                     .border_r_1()
                     .border_color(colors.border)
-                    .child(div().flex_grow(1.).min_h_0().child(self.agent.clone()))
+                    .child(div().flex_grow(1.).min_h_0().map(|body| {
+                        if self.showing_settings {
+                            body.child(self.settings.clone())
+                        } else {
+                            body.child(self.agent.clone())
+                        }
+                    }))
                     .when_some(notice, |column, notice| {
                         column.child(
                             div()
