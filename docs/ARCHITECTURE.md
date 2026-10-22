@@ -216,7 +216,7 @@ Thai: line height at least 1.6 times the size for running text, no italics (use 
 
 ### `desktop` keys
 
-`theme` (`dark` by default, `light`, `system`), `font.ui`, `font.answer`, `font.code`, `ui_font_size` and `code_font_size`, `density` (`comfortable`, `compact`), `view_mode` (`answers`, `thinking`, `all`), `notifications.sound`, `keymap`, `layout` (per project: open tools, panes, sizes).
+`theme` (`dark` by default, `light`, `system`), `font.ui`, `font.answer`, `font.code`, `ui_font_size` and `code_font_size`, `density` (`comfortable`, `compact`), `view_mode` (`answers`, `thinking`, `all`), `notifications.sound`, `keymap`, `layout` (per project: the block tree with each block's kind, tabs and share, the named layouts, the look, and floating blocks).
 
 ### Order of work
 
@@ -225,6 +225,7 @@ Thai: line height at least 1.6 times the size for running text, no italics (use 
 3. Review and the settings window (phase B).
 4. Project tabs, toolbar, sidebar groups, tool panel and rail, badges (phase B for one project, phase C for many).
 5. Phase C, below: the project chat first (it changes what phase B built), then the browser, usage, background tasks, scheduled runs and MCP.
+6. Blocks, below: the split tree in the daemon and `desktop.layout`, then the block header and menu, then dragging, then the palette's ใหม่…, picture in picture and the two looks.
 
 ### Phase C
 
@@ -252,6 +253,21 @@ Decided 2026-10-22 with the owner over the canvas's P1–P6 boards ("like the Cl
 - **Review widened** is one sheet: files (248 px), hunks as 12 px cards with รับ and ปฏิเสธ in their header, evidence (280 px), and the keys at the evidence's foot.
 - This replaces, in what phase B built: the toolbar, the rail, the status bar, the sidebar's two-line rows, and the Ink & Lime theme files. Order: theme files and type sizes, then sheets and header, then sidebar and composer, then the conversation blocks.
 - Built the same day: `script/themes/cedian.py` writes Warm & Lime and `type_scale.rs` names the type sizes. The window is the tab strip over a row of the sidebar (no border, on `app`), the main sheet and, when a tool is open, the tool panel as a second sheet. The main sheet's header is `sheet_header.rs`; the rail's buttons became its toggles (`tool_rail::toggles`), and the toolbar row and the status bar are gone. Thread ใหม่ moved beside the search, until the project chat opens threads. The status bar's line is the sidebar's foot (`sidebar_foot.rs`: the daemon's dot and cedia, the runs working and the threads needing you when there are any, Settings); today's cost waits for the daemon to report it. The composer's bottom row has the branch and เปิดใน (`workplace.rs`, its menu opening upward), the context and the view mode; the session's model stays on the session's divider. Sidebar rows are 32 px and one line, the meta in the code face: the time since, or ถาม, ล้มเหลว, ขาดตอน in their colors; pin and archive cover it on hover. Blocks sit in a 700 px column centred in the sheet, 20 px apart (8 compact), with the composer under it; a thinking block is the line ความคิด › until opened (its duration waits for cedia); a run of tool calls folds to a 38 px line. The widened review's files column is 248 px and its hunks are 12 px cards. The light table followed, with `diff_add`, `primary` and `on_primary` in `tokens.rs`: diff additions, check marks and the daemon's dot are green; counts, badges, ratings, the search's focus and accepted hunks are neutral; lime is left on the send and recommended buttons, `verified`, the asking ring and the question card's edge. Costs, counts, times and sizes use `tokens::numeric_font()` (Inter with `tnum`). On macOS no Thai face is named and Noto Thai is not bundled, so Core Text sets Thai in Thonburi; Linux keeps the bundled Noto Sans Thai and Noto Serif Thai as fallbacks.
+
+### Blocks
+
+Decided 2026-10-22 with the owner over the canvas's B1–B4 and H1–H3 boards: the window is built from blocks that move like Tern's (Stencil), with the Claude desktop app's conversation inside them.
+
+- **Everything under the project tabs is a block**: Threads (the thread list with search, the project chat row and the groups), Agent (one thread, or several as tabs), Project chat, Terminal, Browser, Review, Editor, Files, Usage, Background tasks, Session. The thread list is a block like any other, so it can sit on the left, under the browser or in a tab of its own. The project tabs stay as they are.
+- **One split tree per project**: each block is a leaf; a split is right or down with a draggable divider. Blocks sit as 12 px sheets 6 px apart on `app`. The tree is the daemon's, saved per project in `desktop.layout` as the tree and its named layouts; the window only draws it.
+- **Every block has a 36 px header** (owner's choice): a chip with the block's kind and icon (Agent's in `accent soft`), its tabs (a thread's tab carries its state dot), a short mono meta such as the cost, then Zoom and ⋯. A grip (⠿) in the middle of the header drags the block. The focused block has a 2 px line in the primary color along its top.
+- **Moving**: drag the grip over another block; the half it would take is tinted with `accent soft`, outlined in `accent`, and labelled with a pill (แบ่งขวา · Terminal); a compass of five targets picks left, right, up, down or a tab in the middle. Esc cancels. `⌃⌥` with an arrow moves the focused block without the mouse.
+- **The block menu** (⋯): แบ่งขวา `⌘D`, แบ่งล่าง `⌘⇧D`, ลอยเป็น picture in picture `⌘⌥P`, ขยายเต็ม `⌘⇧↩`, ย้ายไปแท็บ…, เปิดใน thread อื่น…, ปิด block `⌘W`.
+- **Adding**: `⌘K` with ใหม่… lists blocks by group (Agent: a thread, the project chat; tools: Terminal, Browser, Browser แบบลอย, Review, Editor, Usage) with their keys (`⌘⇧A`, `⌘⇧T`, `⌘⇧B`, `⌘⇧R`, `⌘⇧E`). `⏎` splits the focused block to the right, `⌥⏎` opens a tab, `⇧⏎` floats it. Unlike Tern, a new block goes into the largest leaf and splits along its long side, so blocks never get thin.
+- **Picture in picture**: any block, usually the browser, floats as a 360 px card with a shadow over the tiles and keeps running.
+- **Two looks over the same tree**, switched with `⌃⌘L`: โฟกัส, like the Claude desktop app (the thread list on the left, one agent block with the conversation centred at most 720 px, a side block such as Review opening to the right as Claude opens an artifact), and Workspace, like Tern's tiles (several agents, browser and terminal side by side).
+- **Inside an agent block**, from both apps: the serif answer, thinking as one line (คิดอยู่ 12 วินาที ›), tool calls as a folded card that opens to the calls and an edit's numbers, a per-turn line in mono (`16.5s · 15K token · $0.14 รอบนี้`), permission asks inline with the primary answer filled, and a 20 px composer with `+`, a model and effort chip and the branch chip.
+- This replaces, from Layout and Polish: the fixed sidebar, the pane tabs, the tool panel and its rail, and the header's tool toggles (each tool is a block now). The sidebar's foot (daemon dot, archived count, today's cost, Settings) moves to the Threads block's foot.
 
 ## What cedia needs to add
 
