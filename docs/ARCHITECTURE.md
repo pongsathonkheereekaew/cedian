@@ -41,6 +41,7 @@ cedia writes five: `working`, `done`, `failed`, `stopped`, and `asking` when a r
 | Topic | Decision |
 | --- | --- |
 | Users | The owner only. No onboarding, accounts or team features |
+| License | All rights reserved (`LICENSE`), the same as cedia: the repository is public to read and for CI, not open source. Zed's GPL crates link into the binary, so a cedian build is never distributed; it is built for the owner. Third-party parts are listed in `NOTICE` (2026-10-22) |
 | Scope | Coding at the core, plus dev tools around it |
 | Working mode | Delegate first, then parallel threads, a worktree each |
 | Agent | cedia is the only agent |

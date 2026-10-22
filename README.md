@@ -26,3 +26,7 @@ cargo run -p cedian_window -- --replay /tmp/long.jsonl --instant
 `target/debug/cedian-daemon install` registers the daemon as a LaunchAgent so it starts at login; `uninstall` removes it. The daemon logs to `daemon.log` beside its socket, in `~/Library/Application Support/cedian` on macOS. `CEDIAN_STATE_DIR` moves both, which keeps a test daemon apart from the real one.
 
 On Linux, install the packages from Zed's `script/linux` first. On a Mac without full Xcode, add `--features runtime_shaders`.
+
+## License
+
+All rights reserved. The source is public to read, but no one may use, copy, modify or distribute it without written permission from the owner. See `LICENSE`, and `NOTICE` for third-party parts under their own licenses.
