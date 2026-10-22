@@ -34,7 +34,7 @@ The native macOS desktop for [cedia](https://github.com/pongsathonkheereekaew/ce
 
 ## Thread states
 
-cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon shows `working` only while a run of the thread is alive, and adds `interrupted` for a thread whose last state is `working` but whose run is gone (crash, reboot), which can go on with `--thread`. There is no `waiting` yet, because cedia never stops to ask; the owner wants threads to ask only when something truly matters, which is a cedia change first (below). Tabs and the thread list show the state as badges, with an optional sound when a thread finishes or fails, and a `verified` badge when its last receipt has no unverified or flagged files (Interface, below).
+cedia writes five: `working`, `done`, `failed`, `stopped`, and `asking` when a run ended on a question for the owner (cedia PR #35, `--ask on`, which the daemon passes when cedia lists the `ask` capability). The daemon shows `working` only while a run of the thread is alive, and adds `interrupted` for a thread whose last state is `working` but whose run is gone (crash, reboot), which can go on with `--thread`. A thread in `asking` holds its question (the `question` thread event, cleared by the next state); the window shows it over the composer with a button per option, the recommended one first, and any answer goes in as the next prompt with `--thread`, which cedia frames with the question. The tool's description keeps the bar high: a goal-changing decision, an irreversible or costly step, or something only the owner has. Tabs and the thread list show the state as badges, with an optional sound when a thread finishes or fails, and a `verified` badge when its last receipt has no unverified or flagged files (Interface, below).
 
 ## Decisions
 
@@ -223,7 +223,7 @@ Thai: line height at least 1.6 times the size for running text, no italics (use 
 
 ## What cedia needs to add
 
-Done in cedia PR #19: project identity across worktrees, the `desktop` key with unknown keys failing loudly, the protocol schema and session fixtures, `permission_reply` removed. Done in cedia PR #28 (pinned at `4716402`): `cedia --version --json` with version, protocol hash and capabilities; `threads rate` and `threads unsend` as thread events; a Keychain fallback for API keys (service `cedia`, the env var name as account); each check in a receipt names the thread that ran it; fixture thread ids are stable across re-records. Done in cedia PR #31 (pinned at `427cfa8`): a `result` session event at the end of a run's last writer session, carrying the receipt, so a thread rebuilt from cedia's files shows it. Still to add, in the order cedian needs them:
+Done in cedia PR #19: project identity across worktrees, the `desktop` key with unknown keys failing loudly, the protocol schema and session fixtures, `permission_reply` removed. Done in cedia PR #28 (pinned at `4716402`): `cedia --version --json` with version, protocol hash and capabilities; `threads rate` and `threads unsend` as thread events; a Keychain fallback for API keys (service `cedia`, the env var name as account); each check in a receipt names the thread that ran it; fixture thread ids are stable across re-records. Done in cedia PR #31: a `result` session event at the end of a run's last writer session, carrying the receipt, so a thread rebuilt from cedia's files shows it. Done in cedia PR #35 (pinned at `8ecebb8`): `ask_user`, the `asked` result, the `question` thread event and the `asking` state. The schema's assistant blocks now include a `$ref` member (compaction), so cedian's build inlines `$ref` members of a union before typify, which otherwise gives up on the tag. Still to add, in the order cedian needs them:
 
 1. `threads delete`, and a `title` event for rename (phase C).
 2. `profiles` and `--profile` (phase C).
@@ -231,7 +231,6 @@ Done in cedia PR #19: project identity across worktrees, the `desktop` key with 
 4. `cedia serve` with `host_tools`, `host_call` and `host_result`, once a host tool is needed (phase C).
 5. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
 6. Media references (video frames, original file) in tool results (phase D).
-7. A question event that ends a run with the thread waiting for the owner's answer, used only when something truly matters (owner, 2026-10-22); cedian draws it as `asking` (Interface).
 
 ## Projects
 

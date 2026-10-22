@@ -15,6 +15,8 @@ pub enum Status {
     /// cedia's last word was `working` but no run is alive: it crashed or the Mac restarted.
     /// The thread can go on with `--thread`.
     Interrupted,
+    /// The run ended on a question for the person; their answer goes on with the thread.
+    Asking,
 }
 
 impl Status {
@@ -25,6 +27,7 @@ impl Status {
             (false, ThreadState::Done) => Self::Done,
             (false, ThreadState::Failed) => Self::Failed,
             (false, ThreadState::Stopped) => Self::Stopped,
+            (false, ThreadState::Asking) => Self::Asking,
         }
     }
 }

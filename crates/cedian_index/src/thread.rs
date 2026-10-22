@@ -22,7 +22,17 @@ pub struct ThreadSummary {
     pub messages: Vec<ThreadMessage>,
     /// Messages no session has been shown yet.
     pub pending: Vec<String>,
+    /// What the thread asked the person, while it waits in `asking` for the answer.
+    #[serde(default)]
+    pub question: Option<ThreadQuestion>,
     pub updated_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ThreadQuestion {
+    pub question: String,
+    /// Two to four choices, the recommended one first; none for a free answer.
+    pub options: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -56,6 +66,7 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
         sessions: Vec::new(),
         messages: Vec::new(),
         pending: Vec::new(),
+        question: None,
         updated_at: String::new(),
     };
     let mut delivered = std::collections::HashSet::new();
@@ -106,8 +117,23 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 thread.messages.retain(|m| !ids.contains(&m.id));
                 thread.updated_at = at.clone();
             }
+            ThreadEvent::Question {
+                question,
+                options,
+                at,
+                ..
+            } => {
+                thread.question = Some(ThreadQuestion {
+                    question: question.clone(),
+                    options: options.clone(),
+                });
+                thread.updated_at = at.clone();
+            }
             ThreadEvent::State { state, result, at } => {
                 thread.state = *state;
+                if *state != ThreadState::Asking {
+                    thread.question = None;
+                }
                 if result.is_some() {
                     thread.result = result.clone();
                 }
