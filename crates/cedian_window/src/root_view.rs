@@ -4,6 +4,7 @@
 mod blocks;
 mod chat;
 mod run_choices;
+mod tear_off;
 #[cfg(test)]
 mod window_tests;
 
@@ -147,6 +148,11 @@ pub struct RootView {
     contents: Option<Entity<ContentSearch>>,
     /// The blocks moving after a split, close, zoom or park.
     motion: Option<crate::motion::Motion>,
+    /// A window a block was dragged out into: its tree is its own and is not saved.
+    torn: bool,
+    /// The block being dragged and where the mouse last was, to open it in a new window when
+    /// it is let go outside this one.
+    dragging: Option<(BlockId, gpui::Point<gpui::Pixels>)>,
 }
 
 impl RootView {
@@ -437,6 +443,8 @@ impl RootView {
             finder: None,
             contents: None,
             motion: None,
+            torn: false,
+            dragging: None,
         }
     }
 
@@ -982,7 +990,7 @@ impl RootView {
     /// Writes the layout through the daemon half a second after the last change, so dragging
     /// the window writes the file once.
     fn save_layout(&mut self, cx: &mut Context<Self>) {
-        if matches!(self.connection, Connection::Replay) {
+        if matches!(self.connection, Connection::Replay) || self.torn {
             return;
         }
         self.saving_layout = Some(cx.spawn(async move |this, cx| {

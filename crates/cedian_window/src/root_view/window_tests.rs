@@ -9,7 +9,7 @@ use cedian_protocol::Line;
 use cedian_wire::Notice;
 use gpui::{
     AppContext as _, Bounds, Focusable as _, Pixels, TestAppContext, TestDispatcher,
-    VisualTestContext, px, size,
+    VisualContext as _, VisualTestContext, px, size,
 };
 
 use super::{Kind, RootView};
@@ -281,4 +281,77 @@ fn at_lists_files_and_a_pick_puts_the_path_in_the_text() {
         "look at @crates/cedian_window/src/root_view/blocks.rs "
     );
     assert!(cx.debug_bounds("mention-list").is_none(), "the list closes");
+}
+
+#[test]
+fn a_block_let_go_outside_the_window_opens_in_a_new_one() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    cx.run_until_parked();
+    let agent = view.read_with(cx, |view, _| view.ws().find(Kind::Agent));
+    let block = bounds(cx, "agent-block");
+    let grip = gpui::point(block.center().x, block.top() + px(18.));
+    let outside = gpui::point(px(1400.), px(300.));
+    let button = Some(gpui::MouseButton::Left);
+    cx.simulate_mouse_down(grip, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.simulate_mouse_move(
+        grip + gpui::point(px(40.), px(0.)),
+        button,
+        gpui::Modifiers::none(),
+    );
+    cx.simulate_mouse_move(outside, button, gpui::Modifiers::none());
+    cx.simulate_mouse_up(outside, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(cx.windows().len(), 2, "a second window opened");
+    view.read_with(cx, |view, _| {
+        assert!(
+            view.ws().find(Kind::Agent).is_none(),
+            "the block left this window"
+        );
+        assert!(agent.is_some_and(|id| view.ws().kind(id).is_none()));
+    });
+    let here = cx.window_handle().window_id();
+    let torn = cx
+        .windows()
+        .into_iter()
+        .filter(|w| w.window_id() != here)
+        .find_map(|w| w.downcast::<RootView>());
+    let torn = torn.expect("the new window holds a RootView");
+    cx.update(|_, cx| {
+        torn.read_with(cx, |torn, _| {
+            assert!(torn.torn);
+            assert!(torn.ws().find(Kind::Agent).is_some());
+            assert!(torn.ws().find(Kind::Threads).is_none());
+            assert_eq!(
+                torn.layout.open.get("/fixture/repo").map(String::as_str),
+                Some("t-00000001")
+            );
+        })
+        .expect("the torn window is open");
+    });
+}
+
+#[test]
+fn a_block_let_go_inside_the_window_stays() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    cx.run_until_parked();
+    let block = bounds(cx, "agent-block");
+    let grip = gpui::point(block.center().x, block.top() + px(18.));
+    // The title bar: in the window, over no block.
+    let above = gpui::point(px(600.), px(8.));
+    let button = Some(gpui::MouseButton::Left);
+    cx.simulate_mouse_down(grip, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.simulate_mouse_move(
+        grip + gpui::point(px(40.), px(0.)),
+        button,
+        gpui::Modifiers::none(),
+    );
+    cx.simulate_mouse_move(above, button, gpui::Modifiers::none());
+    cx.simulate_mouse_up(above, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(cx.windows().len(), 1);
+    assert!(view.read_with(cx, |view, _| view.ws().find(Kind::Agent).is_some()));
 }

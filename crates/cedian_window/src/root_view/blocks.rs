@@ -324,7 +324,7 @@ impl RootView {
     }
 
     /// Where each block is drawn now, for a motion to start from.
-    fn shown_rects(&self) -> Vec<(BlockId, Rect)> {
+    pub(super) fn shown_rects(&self) -> Vec<(BlockId, Rect)> {
         if let Some(id) = self.zoomed {
             return vec![(id, self.area())];
         }
@@ -639,6 +639,29 @@ impl RootView {
             .p(px(BLOCK_GAP))
             .flex()
             .overflow_hidden()
+            // A block let go outside the window opens in a new one.
+            .on_drag_move(
+                cx.listener(|view, event: &DragMoveEvent<BlockDrag>, window, cx| {
+                    let at = event.event.position;
+                    view.dragging = Some((event.drag(cx).id, at));
+                    if super::tear_off::outside(window.viewport_size(), at)
+                        && view.drop_target.take().is_some()
+                    {
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_mouse_up_out(
+                gpui::MouseButton::Left,
+                cx.listener(|view, event: &gpui::MouseUpEvent, window, cx| {
+                    if let Some((id, _)) = view.dragging.take()
+                        && super::tear_off::outside(window.viewport_size(), event.position)
+                    {
+                        view.tear_off(id, event.position, window, cx);
+                    }
+                }),
+            )
+            .capture_any_mouse_up(cx.listener(|view, _, _, _| view.dragging = None))
             .child(body)
             .when_some(floating.filter(|_| self.zoomed.is_none()), |area, id| {
                 area.child(

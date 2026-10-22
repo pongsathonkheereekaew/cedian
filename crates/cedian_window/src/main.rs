@@ -83,6 +83,16 @@ fn main() {
 
 const USAGE: &str = "usage: cedian [--cwd <dir>] | cedian --replay <stream.jsonl> [--instant]";
 
+/// The project tabs are drawn in the title bar, under the traffic lights (macOS; Linux keeps
+/// its window manager's title bar).
+pub fn titlebar() -> TitlebarOptions {
+    TitlebarOptions {
+        title: None,
+        appears_transparent: true,
+        traffic_light_position: Some(point(px(14.), px(14.))),
+    }
+}
+
 /// `--cwd <dir>` opens the project in front of the saved tabs (with neither, the current
 /// directory). `--replay
 /// <stream.jsonl>` plays a recorded run instead, read before the window opens so a bad file
@@ -302,13 +312,7 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     let options = WindowOptions {
         window_bounds: Some(bounds),
         window_min_size: Some(size(px(1024.), px(640.))),
-        // The project tabs are drawn in the title bar, under the traffic lights (macOS; Linux
-        // keeps its window manager's title bar).
-        titlebar: Some(TitlebarOptions {
-            title: None,
-            appears_transparent: true,
-            traffic_light_position: Some(point(px(14.), px(14.))),
-        }),
+        titlebar: Some(titlebar()),
         ..Default::default()
     };
     cx.open_window(options, |window, cx| match mode {
