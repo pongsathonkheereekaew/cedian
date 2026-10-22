@@ -248,6 +248,18 @@ impl Node {
     /// Moves the divider after child `divider` of the split at `path` to `at`, a part of the
     /// split's length from its start; the two children beside it share the change.
     pub fn move_divider(&mut self, path: &[usize], divider: usize, at: f32) {
+        self.move_divider_within(path, divider, at, (MIN_SHARE, MIN_SHARE));
+    }
+
+    /// `move_divider`, keeping at least `min.0` of the split's length before the divider's
+    /// child and `min.1` for the one after it (each at least `MIN_SHARE`).
+    pub fn move_divider_within(
+        &mut self,
+        path: &[usize],
+        divider: usize,
+        at: f32,
+        min: (f32, f32),
+    ) {
         let Some(Node::Split { sizes, .. }) = self.at_mut(path) else {
             return;
         };
@@ -257,10 +269,11 @@ impl Node {
         let total: f32 = sizes.iter().sum();
         let start = sizes[..divider].iter().sum::<f32>() / total;
         let end = sizes[..=divider + 1].iter().sum::<f32>() / total;
-        if end - start < 2. * MIN_SHARE {
+        let (before, after) = (min.0.max(MIN_SHARE), min.1.max(MIN_SHARE));
+        if end - start < before + after {
             return;
         }
-        let at = at.clamp(start + MIN_SHARE, end - MIN_SHARE);
+        let at = at.clamp(start + before, end - after);
         sizes[divider] = (at - start) * total;
         sizes[divider + 1] = (end - at) * total;
     }

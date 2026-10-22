@@ -32,8 +32,6 @@ pub enum ReviewEvent {
         decision: Decision,
     },
     Refresh,
-    /// Fill the main area, or go back to the right column.
-    Widen(bool),
     /// Ask the thread to run a check again, the file having changed after it.
     Rerun {
         command: String,
@@ -51,6 +49,8 @@ pub struct ReviewPane {
     /// The hunk being rejected and the box its reason goes in.
     rejecting: Option<(String, Entity<Editor>)>,
     wide: bool,
+    /// Under 380 px a hunk's buttons show only their keys.
+    compact: bool,
     /// The thread's transcript, for the checks that cover a file.
     agent: Option<WeakEntity<AgentPane>>,
     focus: FocusHandle,
@@ -73,6 +73,7 @@ impl ReviewPane {
             file: 0,
             rejecting: None,
             wide: false,
+            compact: false,
             agent: None,
             focus: cx.focus_handle(),
         }
@@ -89,9 +90,13 @@ impl ReviewPane {
         .detach();
     }
 
-    pub fn set_wide(&mut self, wide: bool, cx: &mut Context<Self>) {
-        self.wide = wide;
-        cx.notify();
+    /// `wide`: files beside the hunks; `compact`: the hunk buttons as their keys.
+    pub fn set_width(&mut self, wide: bool, compact: bool, cx: &mut Context<Self>) {
+        if (self.wide, self.compact) != (wide, compact) {
+            self.wide = wide;
+            self.compact = compact;
+            cx.notify();
+        }
     }
 
     pub fn set_thread(&mut self, thread: Option<String>, cx: &mut Context<Self>) {
@@ -244,6 +249,7 @@ impl ReviewPane {
         let colors = cx.theme().colors();
         let status = cx.theme().status();
         let selected = index == self.selected;
+        let compact = self.compact;
         let stale = hunk.state == HunkState::Stale;
         let badge = match hunk.state {
             HunkState::Pending => None,
@@ -264,26 +270,40 @@ impl ReviewPane {
                     .text_color(status.warning),
             ),
         };
-        let mut actions = div().flex().gap_1();
+        // The buttons never shrink or wrap; the hunk's header gives way with an ellipsis.
+        let mut actions = div().flex_none().flex().gap_1();
         match hunk.state {
             HunkState::Pending => {
                 actions = actions
                     .child(
-                        button(cx, ("accept", index), "รับ", Some("Y"))
-                            .border_color(colors.border_selected)
-                            .on_click(cx.listener(move |pane, _, _, cx| {
-                                pane.select(index, cx);
-                                pane.decide_selected(true, cx);
-                            })),
-                    )
-                    .child(button(cx, ("reject", index), "ปฏิเสธ", Some("N")).on_click(
-                        cx.listener(move |pane, _, window, cx| {
+                        button(
+                            cx,
+                            ("accept", index),
+                            if compact { "Y" } else { "รับ" },
+                            (!compact).then_some("Y"),
+                        )
+                        .border_color(colors.border_selected)
+                        .on_click(cx.listener(move |pane, _, _, cx| {
                             pane.select(index, cx);
-                            if let Some(hunk) = pane.hunk(index).cloned() {
-                                pane.start_reject(&hunk, window, cx);
-                            }
-                        }),
-                    ));
+                            pane.decide_selected(true, cx);
+                        })),
+                    )
+                    .child(
+                        button(
+                            cx,
+                            ("reject", index),
+                            if compact { "N" } else { "ปฏิเสธ" },
+                            (!compact).then_some("N"),
+                        )
+                        .on_click(cx.listener(
+                            move |pane, _, window, cx| {
+                                pane.select(index, cx);
+                                if let Some(hunk) = pane.hunk(index).cloned() {
+                                    pane.start_reject(&hunk, window, cx);
+                                }
+                            },
+                        )),
+                    );
             }
             HunkState::Accepted => {
                 actions = actions.child(button(cx, ("undo", index), "ย้อนกลับ", None).on_click(
@@ -296,18 +316,13 @@ impl ReviewPane {
             HunkState::Stale | HunkState::Rejected => {}
         }
         let folded = matches!(hunk.state, HunkState::Accepted | HunkState::Rejected);
-        let mut body = div()
-            .border_t_1()
-            .border_color(colors.border)
-            .py_1()
-            .font(tokens::code_font())
-            .text_code()
-            .flex()
-            .flex_col();
+        // The lines as wide as the longest, so a tint runs the whole line when it scrolls
+        // sideways.
+        let mut lines = div().flex_none().min_w_full().flex().flex_col();
         if !folded {
             for line in &hunk.lines {
-                let row = div().px_2().whitespace_nowrap().overflow_hidden();
-                body = body.child(match line.chars().next() {
+                let row = div().px_2().whitespace_nowrap();
+                lines = lines.child(match line.chars().next() {
                     Some('+') => row
                         .bg(tokens::Tokens::of(cx).diff_add.opacity(0.1))
                         .text_color(colors.text)
@@ -322,6 +337,16 @@ impl ReviewPane {
                 });
             }
         }
+        let body = div()
+            .id(SharedString::from(format!("hunk-lines-{}", hunk.id)))
+            .border_t_1()
+            .border_color(colors.border)
+            .py_1()
+            .font(tokens::code_font())
+            .text_code()
+            .flex()
+            .overflow_x_scroll()
+            .child(lines);
         let rejecting = self
             .rejecting
             .as_ref()
@@ -709,12 +734,7 @@ impl Render for ReviewPane {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(
-                        div()
-                            .text_pane_title()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("รีวิว diff"),
-                    )
+                    // The block's header names it; this line counts what is left.
                     .when(total > 0, |row| {
                         row.child(
                             div()
@@ -731,20 +751,6 @@ impl Render for ReviewPane {
                                 .on_click(cx.listener(|pane, _, _, cx| pane.accept_rest(cx))),
                         )
                     })
-                    .child(
-                        icon_button(
-                            cx,
-                            "widen",
-                            if wide {
-                                "icons/minimize.svg"
-                            } else {
-                                "icons/maximize.svg"
-                            },
-                        )
-                        .on_click(
-                            cx.listener(move |_, _, _, cx| cx.emit(ReviewEvent::Widen(!wide))),
-                        ),
-                    )
                     .child(
                         icon_button(cx, "refresh-review", "icons/rotate_cw.svg")
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(ReviewEvent::Refresh))),

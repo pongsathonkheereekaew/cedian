@@ -3,14 +3,14 @@
 //! while more than one is open, and `+` to open another project. A tab drags to a new place.
 
 use gpui::{
-    App, AppContext as _, Context, Div, InteractiveElement as _, IntoElement, MouseButton,
-    ParentElement as _, Pixels, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Window, div, prelude::FluentBuilder as _, px,
+    AnyElement, App, AppContext as _, Context, Div, InteractiveElement as _, IntoElement,
+    MouseButton, ParentElement as _, Pixels, Render, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Window, div, prelude::FluentBuilder as _, px,
 };
 use theme::ActiveTheme as _;
 
 use crate::type_scale::TypeScale as _;
-use crate::{thread_list, tokens::Tokens, tool_rail::OnClick};
+use crate::{on_click::OnClick, thread_list, tokens::Tokens};
 
 gpui::actions!(tabs, [NewTab, CloseTab, NextTab, PreviousTab]);
 
@@ -63,17 +63,32 @@ impl Render for TabDrag {
     }
 }
 
+/// What sits at the strip's ends, and whether the window is narrow.
+pub struct Ends {
+    pub before: AnyElement,
+    pub after: AnyElement,
+    pub compact: bool,
+}
+
 /// What dropping a dragged tab on tab `n` does.
 pub type OnDrop = Box<dyn Fn(&TabDrag, &mut Window, &mut App) + 'static>;
 
-/// The strip, without the window-moving listeners the root view adds to it.
+/// The strip, without the window-moving listeners the root view adds to it: `before` sits left
+/// of the tabs (the Threads button) and `after` at the right end (the layout and + Tool).
+/// `compact` (a window under 1000 px) leaves the counts and × to the open tab.
 pub fn strip(
     tabs: &[ProjectTab],
     active: usize,
     cx: &App,
     click: impl Fn(TabClick) -> OnClick,
     dropped: impl Fn(usize) -> OnDrop,
+    ends: Ends,
 ) -> Div {
+    let Ends {
+        before,
+        after,
+        compact,
+    } = ends;
     let colors = cx.theme().colors();
     let status = cx.theme().status();
     let tokens = Tokens::of(cx);
@@ -92,7 +107,8 @@ pub fn strip(
         .gap_1()
         .pl(lead)
         .pr_2()
-        .bg(tokens.frame);
+        .bg(tokens.frame)
+        .child(before);
     for (n, tab) in tabs.iter().enumerate() {
         let selected = n == active;
         row = row.child(
@@ -100,7 +116,7 @@ pub fn strip(
                 .id(("tab", n))
                 .h(TAB_HEIGHT)
                 .w(TAB_WIDTH)
-                .min_w(px(96.))
+                .min_w(px(if selected { 140. } else { 96. }))
                 .flex_shrink(1.)
                 .px_3()
                 .flex()
@@ -138,7 +154,7 @@ pub fn strip(
                         .truncate()
                         .child(tab.name.clone()),
                 )
-                .when(tab.working > 0, |row| {
+                .when(tab.working > 0 && (selected || !compact), |row| {
                     row.child(
                         div()
                             .flex()
@@ -150,10 +166,10 @@ pub fn strip(
                             .child(tab.working.to_string()),
                     )
                 })
-                .when(tab.waiting > 0, |row| {
+                .when(tab.waiting > 0 && (selected || !compact), |row| {
                     row.child(thread_list::badge(tab.waiting, tab.failed, cx))
                 })
-                .when(closable, |row| {
+                .when(closable && (selected || !compact), |row| {
                     row.child(
                         div()
                             .id(("close-tab", n))
@@ -187,6 +203,8 @@ pub fn strip(
             .on_click(click(TabClick::New))
             .child("+"),
     )
+    .child(div().flex_grow(1.))
+    .child(after)
 }
 
 /// The tab `⌃Tab` (`step` 1) or `⌃⇧Tab` (`step` -1) moves to, wrapping round.

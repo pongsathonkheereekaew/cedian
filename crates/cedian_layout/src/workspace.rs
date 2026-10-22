@@ -41,6 +41,9 @@ pub struct Workspace {
     pub parked: Vec<BlockId>,
     #[serde(default)]
     pub hidden: Option<Hidden>,
+    /// Out of the tree, floating over it as picture in picture.
+    #[serde(default)]
+    pub floating: Option<BlockId>,
     pub next: BlockId,
 }
 
@@ -56,13 +59,14 @@ impl Default for Workspace {
             blocks: BTreeMap::new(),
             parked: Vec::new(),
             hidden: None,
+            floating: None,
             next: 1,
         };
         let mut b = |kind| Node::leaf(ws_new(&mut ws.blocks, &mut ws.next, kind));
         let focus = Node::split(
             Dir::Row,
             vec![
-                (1., tabs(vec![b(Kind::Threads), b(Kind::Chat)])),
+                (1., b(Kind::Threads)),
                 (2.6, b(Kind::Agent)),
                 (1.6, tabs(vec![b(Kind::Review), b(Kind::Session)])),
             ],
@@ -95,7 +99,8 @@ impl Default for Workspace {
                         vec![(1.7, b(Kind::Agent)), (1., b(Kind::Terminal))],
                     ),
                 ),
-                (1.6, b(Kind::Browser)),
+                // The browser comes in phase C; until then the preview reads the files.
+                (1.6, tabs(vec![b(Kind::Files), b(Kind::Editor)])),
             ],
         );
         let review = Node::split(
@@ -210,6 +215,20 @@ impl Workspace {
             }
             return id;
         }
+        if kind.one_per_layout() {
+            if let Some(id) = self.floating.filter(|id| self.kind(*id) == Some(kind)) {
+                return id;
+            }
+            if let Some(id) = self
+                .parked
+                .iter()
+                .copied()
+                .find(|id| self.kind(*id) == Some(kind))
+            {
+                self.unpark(id, tab_of.map(|t| (t, Side::Center)), area);
+                return id;
+            }
+        }
         if kind == Kind::Threads
             && let Some(id) = self.hidden.as_ref().map(|h| h.block)
         {
@@ -254,6 +273,9 @@ impl Workspace {
         if !self.kind(id).is_some_and(Kind::closable) {
             return false;
         }
+        if self.floating == Some(id) {
+            self.floating = None;
+        }
         let tree = self.tree_mut();
         *tree = tree.take().and_then(|t| t.remove(id));
         self.parked.retain(|p| *p != id);
@@ -275,6 +297,24 @@ impl Workspace {
         }
         *tree = tree.take().and_then(|t| t.remove(id));
         self.parked.push(id);
+    }
+
+    /// Floats `id` over the tree; the block floating before goes back by the placing rule.
+    pub fn float(&mut self, id: BlockId, area: Rect) {
+        if self.floating == Some(id) || !self.tree().is_some_and(|t| t.contains(id)) {
+            return;
+        }
+        self.land(area);
+        let tree = self.tree_mut();
+        *tree = tree.take().and_then(|t| t.remove(id));
+        self.floating = Some(id);
+    }
+
+    /// Puts the floating block back into the tree by the placing rule.
+    pub fn land(&mut self, area: Rect) {
+        if let Some(id) = self.floating.take() {
+            self.place(id, area);
+        }
     }
 
     /// Brings a parked block back against `target`, or by the placing rule.
@@ -448,6 +488,7 @@ impl Workspace {
             .flat_map(Node::blocks)
             .chain(self.parked.iter().copied())
             .chain(self.hidden.as_ref().map(|h| h.block))
+            .chain(self.floating)
             .collect();
         live.sort_unstable();
         self.blocks.retain(|id, _| live.binary_search(id).is_ok());
@@ -516,8 +557,8 @@ mod tests {
     #[test]
     fn threads_hidden_from_tabs_come_back_as_a_tab() {
         let mut ws = Workspace::default();
-        // โฟกัส has Threads and the project chat as tabs.
-        let chat = ws.find(Kind::Chat).expect("chat");
+        let threads = ws.find(Kind::Threads).expect("threads");
+        let chat = ws.open(Kind::Chat, AREA, Some(threads));
         ws.hide_threads();
         ws.open(Kind::Terminal, AREA, None);
         ws.show_threads();
@@ -605,6 +646,18 @@ mod tests {
         assert!(ws.move_block(term, threads, Side::Down));
         let tree = ws.tree().expect("tree");
         assert_eq!(tree.blocks()[..2], [threads, term]);
+    }
+
+    #[test]
+    fn a_floating_block_leaves_the_tree_and_lands_by_the_rule() {
+        let mut ws = Workspace::default();
+        let review = ws.find(Kind::Review).expect("review");
+        ws.float(review, AREA);
+        assert_eq!(ws.floating, Some(review));
+        assert!(!ws.tree().expect("tree").contains(review));
+        ws.land(AREA);
+        assert!(ws.tree().expect("tree").contains(review));
+        assert_eq!(ws.floating, None);
     }
 
     #[test]

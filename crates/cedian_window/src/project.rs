@@ -4,6 +4,7 @@
 
 use std::{collections::HashMap, path::PathBuf};
 
+use cedian_layout::Workspace;
 use cedian_wire::{Status, ThreadInfo};
 use gpui::{Entity, SharedString};
 
@@ -30,6 +31,14 @@ pub struct Project {
     pub first_list: bool,
     /// A shell per directory: the project's, and each worktree a thread opened shows.
     pub shells: HashMap<PathBuf, Entity<ShellPane>>,
+    /// The blocks and their named layouts, as `desktop.layout` keeps them.
+    pub workspace: Workspace,
+    /// The workspace before each layout change, newest last, for `⌘Z`.
+    pub undo: Vec<Workspace>,
+    /// The project chat's thread the chat block reads, once one is open.
+    pub chat_open: Option<String>,
+    /// A prompt went out from the project chat with no thread yet.
+    pub awaiting_chat: bool,
 }
 
 impl Project {
@@ -44,6 +53,10 @@ impl Project {
             preparing: None,
             first_list: true,
             shells: HashMap::new(),
+            workspace: Workspace::default(),
+            undo: Vec::new(),
+            chat_open: None,
+            awaiting_chat: false,
         }
     }
 
@@ -60,6 +73,29 @@ impl Project {
             .iter()
             .chain(&self.archived)
             .find(|t| &t.thread.id == id)
+    }
+
+    /// The project chat's thread: the newest top-level thread on cedia's `coordinator` profile.
+    pub fn chat_thread(&self) -> Option<&ThreadInfo> {
+        self.threads
+            .iter()
+            .filter(|t| is_chat(t))
+            .max_by(|a, b| a.thread.updated_at.cmp(&b.thread.updated_at))
+    }
+
+    /// The threads the project chat opened, newest first.
+    pub fn opened_by_chat(&self) -> Vec<&ThreadInfo> {
+        let Some(chat) = self.chat_thread() else {
+            return Vec::new();
+        };
+        let mut opened: Vec<&ThreadInfo> = self
+            .threads
+            .iter()
+            .chain(&self.archived)
+            .filter(|t| t.thread.by.as_deref() == Some(chat.thread.id.as_str()))
+            .collect();
+        opened.sort_by(|a, b| b.thread.updated_at.cmp(&a.thread.updated_at));
+        opened
     }
 
     /// The top-level threads still in use, and apart from them the archived ones; sub-threads
@@ -121,6 +157,14 @@ impl Project {
     }
 }
 
+/// A thread of the project chat, which Threads shows as its own row and not in a group.
+pub fn is_chat(info: &ThreadInfo) -> bool {
+    info.thread.profile.as_deref() == Some(CHAT_PROFILE)
+}
+
+/// cedia's built-in profile for the project's coordinator.
+pub const CHAT_PROFILE: &str = "coordinator";
+
 pub fn name_of(cwd: &std::path::Path) -> SharedString {
     cwd.file_name()
         .map_or_else(|| "cedian".to_owned(), |n| n.to_string_lossy().into_owned())
@@ -161,5 +205,29 @@ mod tests {
         // An open thread that archived itself is still the one shown.
         project.current = Some("c".into());
         assert_eq!(project.info().map(|t| t.thread.id.as_str()), Some("c"));
+    }
+
+    #[test]
+    fn the_chat_is_the_newest_coordinator_thread_and_lists_what_it_opened() {
+        let mut project = Project::new(PathBuf::from("/repo"));
+        let mut chat = info("c", false, None, "2026-10-22T05:00:00.000Z");
+        chat.thread.profile = Some(CHAT_PROFILE.into());
+        let mut opened = info("o", false, None, "2026-10-22T06:00:00.000Z");
+        opened.thread.by = Some("c".into());
+        project.set_threads(vec![
+            chat,
+            opened,
+            info("x", false, None, "2026-10-22T07:00:00.000Z"),
+        ]);
+        assert_eq!(
+            project.chat_thread().map(|t| t.thread.id.as_str()),
+            Some("c")
+        );
+        let ids: Vec<&str> = project
+            .opened_by_chat()
+            .iter()
+            .map(|t| t.thread.id.as_str())
+            .collect();
+        assert_eq!(ids, ["o"]);
     }
 }

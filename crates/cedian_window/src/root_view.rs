@@ -1,19 +1,22 @@
-//! The window: the project tab and the toolbar, the project's threads, the open thread with
-//! its composer, the tool panel and its rail, and the status bar. It keeps only what the daemon
-//! can send again.
+//! The window: the project tabs over the front project's blocks (Interface, Blocks). It keeps
+//! only what the daemon can send again.
+
+mod blocks;
+mod chat;
 
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+use cedian_layout::{BlockId, Kind, Rect, Side};
 use cedian_protocol::{Line, TodoState};
 use cedian_wire::{HunkState, Notice, Request, Status, ThreadInfo};
 use editor::Editor;
 use futures::StreamExt as _;
 use gpui::{
-    AnyElement, AppContext as _, Context, DragMoveEvent, Entity, EntityInputHandler as _,
-    InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render, SharedString,
+    AnyElement, AppContext as _, Context, Entity, EntityInputHandler as _, InteractiveElement as _,
+    IntoElement, MouseButton, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Task, Window, WindowControlArea, WindowHandle,
     div, prelude::FluentBuilder as _, px, svg,
 };
@@ -35,35 +38,24 @@ use crate::{
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
     settings_window::SettingsWindow,
-    sheet_header::{self, HeaderLine},
     shell_pane::{AttachSelection, ShellEvent, ShellPane},
     sidebar_foot::{self, StatusLine},
     sound::{self, Sound},
     tab_strip::{
         self, ActivateTab, CloseTab, NewTab, NextTab, PreviousTab, ProjectTab, TabClick, TabDrag,
     },
-    thread_details::{self, Details},
     thread_list::{self, Group},
     thread_search::{FocusSearch, Found, SearchEvent, ThreadSearch},
     tokens,
-    tool_rail::{
-        self, DividerDrag, HideTools, ToggleDetails, ToggleEditor, ToggleFiles, ToggleGit,
-        ToggleReview, ToggleTerminal, Tool,
-    },
     view_mode::ViewMode,
     workplace::Workplace,
 };
 
-gpui::actions!(sidebar, [ToggleSidebar]);
-
-/// The sidebar's width, open and folded to its rail of dots.
-const SIDEBAR_WIDTH: f32 = 264.;
-const SIDEBAR_FOLDED: f32 = 56.;
-/// Sheets' corners, and the space between them and around them (Interface, Polish).
-const SHEET_RADIUS: f32 = 12.;
-const SHEET_GAP: f32 = 8.;
 /// The conversation's 700 px column with the composer's own margins.
 const COMPOSER_WIDTH: f32 = 732.;
+/// Under this window width the title bar keeps only what acts (Interface, Blocks: nothing
+/// leaks).
+const COMPACT_WINDOW: f32 = 1000.;
 /// Files larger than this are named in the Editor, not shown.
 const MAX_SHOWN: usize = 2 * 1024 * 1024;
 
@@ -88,6 +80,9 @@ pub struct RootView {
     error: Option<SharedString>,
     agent: Entity<AgentPane>,
     composer: Entity<Composer>,
+    /// The project chat's conversation and composer, in the Project chat block.
+    chat: Entity<AgentPane>,
+    chat_composer: Entity<Composer>,
     editor: Entity<Editor>,
     /// What the Editor shows, read only, when Files or Git put something in it.
     editor_shows: Option<SharedString>,
@@ -96,12 +91,30 @@ pub struct RootView {
     workplace: Entity<Workplace>,
     search: Entity<ThreadSearch>,
     review: Entity<ReviewPane>,
-    /// The tools open in the panel, in rail order.
-    tools: Vec<Tool>,
-    /// Hunks of the open thread's review still waiting, for the rail's badge.
+    /// Hunks of the open thread's review still waiting, for the Review block's meta.
     waiting_hunks: usize,
-    /// The review fills the main area in place of the agent pane.
-    review_wide: bool,
+    /// The block keys act on, the one zoomed to fill the area, and where a dragged block
+    /// would land.
+    focused: Option<BlockId>,
+    zoomed: Option<BlockId>,
+    drop_target: Option<(BlockId, Side)>,
+    /// The block whose ⋯ menu is open.
+    block_menu: Option<BlockId>,
+    /// The + Tool menu, and the timers that open and close it on hover.
+    tool_menu: Option<blocks::ToolTarget>,
+    tool_menu_opening: Option<Task<()>>,
+    tool_menu_closing: Option<Task<()>>,
+    layout_menu: bool,
+    overview: bool,
+    /// The area the blocks fill, measured at each frame.
+    area: Rect,
+    /// Holds the keys when no block's own input has them, so the block keys still reach the
+    /// window after the focused input leaves the screen (a zoom, a park).
+    root_focus: gpui::FocusHandle,
+    /// The focused block changed: the next frame gives its input the keys.
+    refocus: bool,
+    /// The window is too small for the layout, so some leaves are drawn folded into others.
+    folded: bool,
     settings: Entity<SettingsView>,
     settings_window: Option<WindowHandle<SettingsWindow>>,
     /// What the next window opens with; saved shortly after it changes.
@@ -138,8 +151,13 @@ impl RootView {
     ) -> Self {
         let agent = cx.new(|_| AgentPane::new("new thread").with_view_mode(view_mode));
         let mut view = Self::new(tabs, active, agent, window, cx);
-        view.tools = layout.tools.clone();
         view.layout = layout;
+        let mut projects = std::mem::take(&mut view.projects);
+        for project in &mut projects {
+            view.load_blocks(project);
+        }
+        view.projects = projects;
+        view.focused = view.ws().find(Kind::Agent);
         view.remember_tabs();
         view.layout.bounds = Some(saved_bounds(window));
         cx.observe_window_bounds(window, |view, window, cx| {
@@ -219,7 +237,7 @@ impl RootView {
         cx.observe(&search, |_, _, cx| cx.notify()).detach();
         // Thread details reads the transcript.
         cx.observe(&agent, |view, _, cx| {
-            if view.tools.contains(&Tool::Details) {
+            if view.showing(Kind::Session) {
                 cx.notify();
             }
         })
@@ -256,7 +274,24 @@ impl RootView {
                     value: mode.key().into(),
                 });
             }
-            AgentEvent::Review => view.show_review(true, cx),
+            AgentEvent::Review => {
+                view.open_kind(Kind::Review, blocks::ToolTarget { against: None }, cx)
+            }
+        })
+        .detach();
+        let chat = cx.new(|_| AgentPane::new("แชทโปรเจกต์"));
+        let chat_composer = cx.new(|cx| Composer::new(window, cx));
+        cx.subscribe(&chat_composer, |view, _, event, cx| match event {
+            ComposerEvent::Submit(text) => view.submit_chat(text.clone(), cx),
+            ComposerEvent::Unsend(id) => {
+                if let Some(thread) = view.project().chat_open.clone() {
+                    view.request(Request::Unsend {
+                        cwd: view.project().cwd.clone(),
+                        thread,
+                        ids: vec![id.clone()],
+                    });
+                }
+            }
         })
         .detach();
         let files = cx.new(|_| FileTree::default());
@@ -294,7 +329,6 @@ impl RootView {
                 }
             }
             ReviewEvent::Refresh => view.refresh_review(),
-            ReviewEvent::Widen(wide) => view.widen_review(*wide, cx),
             ReviewEvent::Rerun { command, path } => view.submit(
                 format!("รัน check `{command}` ใหม่: {path} ถูกแก้หลังจาก check ครั้งล่าสุด"),
                 cx,
@@ -310,6 +344,8 @@ impl RootView {
             error: None,
             agent,
             composer,
+            chat,
+            chat_composer,
             editor,
             editor_shows: None,
             files,
@@ -317,9 +353,20 @@ impl RootView {
             workplace,
             search,
             review,
-            tools: Layout::default().tools,
             waiting_hunks: 0,
-            review_wide: false,
+            focused: None,
+            zoomed: None,
+            drop_target: None,
+            block_menu: None,
+            tool_menu: None,
+            tool_menu_opening: None,
+            tool_menu_closing: None,
+            layout_menu: false,
+            overview: false,
+            area: Rect::new(0., 0., 1200., 800.),
+            root_focus: cx.focus_handle(),
+            refocus: false,
+            folded: false,
             settings,
             settings_window: None,
             layout: Layout::default(),
@@ -402,7 +449,7 @@ impl RootView {
                         .threads
                         .iter()
                         .find(|t| Some(&t.thread.id) == saved)
-                        .or(project.threads.first())
+                        .or(project.threads.iter().find(|t| !crate::project::is_chat(t)))
                         .map(|t| (t.thread.id.clone(), t.status));
                     match thread {
                         Some((id, _)) if n == self.active => self.select(id, cx),
@@ -414,6 +461,9 @@ impl RootView {
                         None => {}
                     }
                 }
+                if n == self.active {
+                    self.open_chat_thread(cx);
+                }
                 self.retitle(cx);
             }
             Notice::Preparing { cwd, step } => {
@@ -424,6 +474,22 @@ impl RootView {
                 {
                     project.preparing = Some(step);
                     self.retitle(cx);
+                }
+            }
+            Notice::Started { cwd, thread }
+                if self
+                    .projects
+                    .iter()
+                    .any(|p| p.cwd == cwd && p.awaiting_chat) =>
+            {
+                // The project chat's first message started its thread.
+                if let Some(project) = self
+                    .projects
+                    .iter_mut()
+                    .find(|p| p.cwd == cwd && p.awaiting_chat)
+                {
+                    project.awaiting_chat = false;
+                    project.chat_open = Some(thread);
                 }
             }
             Notice::Started { cwd, thread } => {
@@ -455,6 +521,12 @@ impl RootView {
             Notice::Line { thread, line } if self.project().current.as_ref() == Some(&thread) => {
                 match Line::parse(&line) {
                     Ok(line) => self.agent.update(cx, |agent, cx| agent.apply(&line, cx)),
+                    Err(error) => log::warn!("{thread}: {error}"),
+                }
+            }
+            Notice::Line { thread, line } if self.project().chat_open.as_ref() == Some(&thread) => {
+                match Line::parse(&line) {
+                    Ok(line) => self.chat.update(cx, |chat, cx| chat.apply(&line, cx)),
                     Err(error) => log::warn!("{thread}: {error}"),
                 }
             }
@@ -613,10 +685,17 @@ impl RootView {
         if let Some(old) = self.project().current.clone() {
             self.request(Request::Close { thread: old });
         }
+        if let Some(chat) = self.project_mut().chat_open.take() {
+            self.request(Request::Close { thread: chat });
+        }
         self.active = n;
         // A notice was about the tab left behind.
         self.error = None;
+        self.zoomed = None;
+        self.block_menu = None;
+        self.focused = self.ws().find(Kind::Agent);
         self.show_current(cx);
+        self.open_chat_thread(cx);
         self.remember_tabs();
         self.save_layout(cx);
         cx.notify();
@@ -636,7 +715,9 @@ impl RootView {
             Some(n) => n,
             None => {
                 self.request(Request::Threads { cwd: dir.clone() });
-                self.projects.push(Project::new(dir));
+                let mut project = Project::new(dir);
+                self.load_blocks(&mut project);
+                self.projects.push(project);
                 self.projects.len() - 1
             }
         };
@@ -798,37 +879,6 @@ impl RootView {
         }));
     }
 
-    fn widen_review(&mut self, wide: bool, cx: &mut Context<Self>) {
-        self.review_wide = wide;
-        self.review.update(cx, |pane, cx| pane.set_wide(wide, cx));
-        if !wide && !self.tools.contains(&Tool::Review) {
-            tool_rail::toggle(&mut self.tools, Tool::Review);
-            self.layout.tools = self.tools.clone();
-            self.save_layout(cx);
-        }
-        self.refresh_review();
-        cx.notify();
-    }
-
-    fn show_review(&mut self, on: bool, cx: &mut Context<Self>) {
-        if self.tools.contains(&Tool::Review) != on {
-            self.toggle_tool(Tool::Review, cx);
-        }
-    }
-
-    fn toggle_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
-        if tool == Tool::Review && self.review_wide {
-            // The review is in the main area; its button brings it back to the panel.
-            self.widen_review(false, cx);
-            return;
-        }
-        tool_rail::toggle(&mut self.tools, tool);
-        self.layout.tools = self.tools.clone();
-        self.save_layout(cx);
-        self.refresh_review();
-        cx.notify();
-    }
-
     /// Starts the shell for the terminal's directory the first time it is shown there. Each
     /// directory keeps its shell, so going back to a thread finds its shell as it was left.
     fn ensure_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -901,16 +951,7 @@ impl RootView {
             editor.set_text(text, window, cx);
         });
         self.editor_shows = Some(name);
-        if !self.tools.contains(&Tool::Editor) {
-            self.toggle_tool(Tool::Editor, cx);
-        }
-        cx.notify();
-    }
-
-    fn hide_tools(&mut self, cx: &mut Context<Self>) {
-        self.tools.clear();
-        self.layout.tools.clear();
-        self.save_layout(cx);
+        self.open_kind(Kind::Editor, blocks::ToolTarget { against: None }, cx);
         cx.notify();
     }
 
@@ -1019,228 +1060,6 @@ impl RootView {
         }
     }
 
-    /// The panel's open tools stacked in rail order, as a sheet beside the main one; none when
-    /// no tool is open.
-    fn render_tools(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let colors = cx.theme().colors().clone();
-        let live = !matches!(self.connection, Connection::Replay);
-        // A widened review sits in the main area, so the panel keeps the rest.
-        let shown: Vec<Tool> = self
-            .tools
-            .iter()
-            .copied()
-            .filter(|t| !(*t == Tool::Review && (self.review_wide || !live)))
-            .collect();
-        let details = shown
-            .contains(&Tool::Details)
-            .then(|| Details::of(self.agent.read(cx).transcript()));
-        let info = self.project().info();
-        if shown.is_empty() {
-            return None;
-        }
-        let mut panel = div()
-            .w(px(tool_rail::PANEL_WIDTH))
-            .flex_none()
-            .h_full()
-            .flex()
-            .flex_col()
-            .rounded(px(SHEET_RADIUS))
-            .border_1()
-            .border_color(colors.border)
-            .bg(colors.editor_background)
-            .overflow_hidden();
-        for (n, tool) in shown.iter().enumerate() {
-            let body: AnyElement = match tool {
-                Tool::Editor => div()
-                    .key_context("ToolEditor")
-                    .on_action(cx.listener(Self::attach_editor_selection))
-                    .size_full()
-                    .p_2()
-                    .child(self.editor.clone())
-                    .into_any_element(),
-                Tool::Terminal => match self.project().shells.get(&self.project().shell_dir()) {
-                    Some(shell) => shell.clone().into_any_element(),
-                    None => div().into_any_element(),
-                },
-                Tool::Review => self.review.clone().into_any_element(),
-                Tool::Files => self.files.clone().into_any_element(),
-                Tool::Git => self.git.clone().into_any_element(),
-                Tool::Details => div()
-                    .id("details")
-                    .size_full()
-                    .overflow_y_scroll()
-                    .bg(colors.panel_background)
-                    .child(thread_details::render(
-                        info,
-                        details.as_ref().unwrap_or(&Details::default()),
-                        cx,
-                    ))
-                    .when(info.is_some(), |details| {
-                        details.child(
-                            div().px_3().pb_3().flex().child(
-                                div()
-                                    .id("export-thread")
-                                    .h(px(26.))
-                                    .px_2()
-                                    .flex()
-                                    .items_center()
-                                    .gap_1()
-                                    .rounded(px(6.))
-                                    .border_1()
-                                    .border_color(colors.border)
-                                    .cursor_pointer()
-                                    .text_meta()
-                                    .hover(|b| b.bg(colors.element_hover))
-                                    .on_click(cx.listener(|view, _, _, cx| view.export_thread(cx)))
-                                    .child("ส่งออกเป็น Markdown"),
-                            ),
-                        )
-                    })
-                    .into_any_element(),
-            };
-            let tool = *tool;
-            if n > 0 {
-                // A 5 px strip over the line between two tools drags their shares.
-                panel = panel.child(
-                    div()
-                        .id(("divider", n))
-                        .h(px(5.))
-                        .flex_none()
-                        .cursor_row_resize()
-                        .border_t_1()
-                        .border_color(colors.border)
-                        .hover(|d| d.bg(colors.element_hover))
-                        .on_drag(DividerDrag(n - 1), |drag, _, _, cx| cx.new(|_| *drag)),
-                );
-            }
-            panel =
-                panel.child(
-                    div()
-                        .flex_basis(px(0.))
-                        .flex_grow(self.layout.tool_size(tool))
-                        .min_h(px(60.))
-                        .flex()
-                        .flex_col()
-                        .overflow_hidden()
-                        .child(
-                            div()
-                                .h(px(28.))
-                                .flex_none()
-                                .px_3()
-                                .flex()
-                                .items_center()
-                                .bg(colors.panel_background)
-                                .text_label()
-                                .font_weight(gpui::FontWeight::SEMIBOLD)
-                                .text_color(colors.text_muted)
-                                .child(div().flex_grow(1.).min_w_0().truncate().child(
-                                    match (tool, &self.editor_shows) {
-                                        (Tool::Editor, Some(name)) => {
-                                            SharedString::from(format!("Editor · {name}"))
-                                        }
-                                        _ => tool.label().into(),
-                                    },
-                                ))
-                                .child(
-                                    div()
-                                        .id(SharedString::from(format!("close-{}", tool.key())))
-                                        .px_1()
-                                        .cursor_pointer()
-                                        .hover(|c| c.text_color(colors.text))
-                                        .on_click(cx.listener(move |view, _, _, cx| {
-                                            view.toggle_tool(tool, cx)
-                                        }))
-                                        .child("×"),
-                                ),
-                        )
-                        .child(div().flex_1().min_h_0().child(body)),
-                );
-        }
-        let dragged = shown.clone();
-        let panel = panel.on_drag_move(cx.listener(
-            move |view, event: &DragMoveEvent<DividerDrag>, _, cx| {
-                let height = f32::from(event.bounds.size.height);
-                if height > 0. {
-                    let at = f32::from(event.event.position.y - event.bounds.top()) / height;
-                    let divider = event.drag(cx).0;
-                    view.resize_tools(&dragged, divider, at, cx);
-                }
-            },
-        ));
-        Some(panel.into_any_element())
-    }
-
-    /// The sidebar folded (`⌘B`): each thread as its first letter over its state dot, in the
-    /// same order, the one open marked and the ones that need you ringed.
-    fn render_folded_threads(&self, cx: &mut Context<Self>) -> AnyElement {
-        let colors = cx.theme().colors();
-        let status_colors = cx.theme().status();
-        let mut rail = div()
-            .id("threads")
-            .w(px(SIDEBAR_FOLDED))
-            .flex_none()
-            .h_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap_1()
-            .py_2()
-            .border_r_1()
-            .border_color(colors.border)
-            .bg(colors.panel_background)
-            .text_color(colors.text)
-            .overflow_y_scroll();
-        for group in Group::ALL {
-            for info in self
-                .project()
-                .threads
-                .iter()
-                .filter(|t| Group::of(t, self.is_pinned(&t.thread.id)) == group)
-            {
-                let id = info.thread.id.clone();
-                let selected = self.project().current.as_ref() == Some(&id);
-                let initial: String = info
-                    .thread
-                    .title
-                    .chars()
-                    .find(|c| c.is_alphanumeric())
-                    .map_or_else(|| "·".to_owned(), |c| c.to_uppercase().collect());
-                rail = rail.child(
-                    div()
-                        .id(SharedString::from(format!("folded-{id}")))
-                        .relative()
-                        .size(px(36.))
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .justify_center()
-                        .gap(px(2.))
-                        .rounded(px(8.))
-                        .cursor_pointer()
-                        .when(selected, |row| row.bg(colors.element_selected))
-                        .hover(|row| row.bg(colors.element_hover))
-                        .when(info.needs_you, |row| {
-                            row.border_1()
-                                .border_color(if info.status == Status::Failed {
-                                    status_colors.error
-                                } else {
-                                    colors.text
-                                })
-                        })
-                        .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
-                        .child(
-                            div()
-                                .text_meta()
-                                .font_weight(gpui::FontWeight::SEMIBOLD)
-                                .child(initial),
-                        )
-                        .child(thread_list::dot(info.status, cx)),
-                );
-            }
-        }
-        rail.into_any_element()
-    }
-
     /// Archives a thread (`cedia threads archive`): it leaves the list, and the sidebar offers
     /// to bring it back for a few seconds. The thread open in the pane gives way to a new one.
     fn archive(&mut self, thread: &str, cx: &mut Context<Self>) {
@@ -1311,23 +1130,6 @@ impl RootView {
         cx.notify();
     }
 
-    fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
-        self.layout.sidebar_folded = !self.layout.sidebar_folded;
-        self.save_layout(cx);
-        cx.notify();
-    }
-
-    /// A divider dragged to `at` (a fraction of the panel's height) between two of `shown`.
-    fn resize_tools(&mut self, shown: &[Tool], divider: usize, at: f32, cx: &mut Context<Self>) {
-        let mut weights: Vec<f32> = shown.iter().map(|t| self.layout.tool_size(*t)).collect();
-        tool_rail::resize(&mut weights, divider, at);
-        for (tool, weight) in shown.iter().zip(weights) {
-            self.layout.tool_sizes.insert(tool.key().to_owned(), weight);
-        }
-        self.save_layout(cx);
-        cx.notify();
-    }
-
     fn submit(&mut self, text: String, cx: &mut Context<Self>) {
         if self.client.is_none() {
             self.error = Some("not connected to the daemon".into());
@@ -1363,10 +1165,10 @@ impl RootView {
         cx.notify();
     }
 
-    fn render_threads(&self, cx: &mut Context<Self>) -> AnyElement {
-        if self.layout.sidebar_folded {
-            return self.render_folded_threads(cx);
-        }
+    /// The Threads block: the search, the project chat's row, the groups, the archived ones
+    /// and the foot. A narrow block keeps each row's dot and title.
+    fn render_threads(&self, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
+        let chat_row = self.render_chat_row(cx);
         let archived = self.render_archived(cx);
         let foot = self.render_foot(cx);
         let searching = self.search.read(cx).searching(cx);
@@ -1386,6 +1188,7 @@ impl RootView {
                 .project()
                 .threads
                 .iter()
+                .filter(|t| blocks::in_groups(t))
                 .filter(|t| Group::of(t, self.is_pinned(&t.thread.id)) == group)
                 .collect();
             if members.is_empty() {
@@ -1484,7 +1287,7 @@ impl RootView {
                                 })
                                 .child(info.thread.title.clone()),
                         )
-                        .when(!meta.is_empty(), |row| {
+                        .when(!meta.is_empty() && !narrow, |row| {
                             row.child(
                                 div()
                                     .flex_none()
@@ -1564,49 +1367,17 @@ impl RootView {
             }
         }
         div()
-            .w(px(SIDEBAR_WIDTH))
-            .flex_none()
-            .h_full()
+            .size_full()
+            .min_w_0()
             .flex()
             .flex_col()
             .text_color(colors.text)
-            .child(
-                div()
-                    .flex_none()
-                    .flex()
-                    .items_end()
-                    .child(div().flex_grow(1.).min_w_0().child(self.search.clone()))
-                    .child(
-                        // Until the project chat opens threads, the only way to start one.
-                        div()
-                            .id("new-thread")
-                            .flex_none()
-                            .mr_2()
-                            .size(px(30.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(8.))
-                            .cursor_pointer()
-                            .hover(|b| b.bg(colors.element_hover))
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.new_thread(cx);
-                                view.composer
-                                    .update(cx, |composer, cx| composer.focus(window, cx));
-                            }))
-                            .child(
-                                svg()
-                                    .path("icons/pencil.svg")
-                                    .size(px(15.))
-                                    .text_color(colors.text_muted),
-                            ),
-                    ),
-            )
+            .child(div().flex_none().child(self.search.clone()))
             .map(|sidebar| {
                 if searching {
                     sidebar.child(div().flex_grow(1.))
                 } else {
-                    sidebar.child(list)
+                    sidebar.child(chat_row).child(list)
                 }
             })
             .child(archived)
@@ -1650,6 +1421,12 @@ impl RootView {
 impl RootView {
     /// The sidebar's last line: the daemon, the runs and Settings.
     fn render_foot(&self, cx: &mut Context<Self>) -> gpui::Div {
+        // A narrow thread list leaves cedia's version to Settings.
+        let full = self
+            .ws()
+            .find(Kind::Threads)
+            .and_then(|id| self.block_rect(id))
+            .is_none_or(|r| r.w >= blocks::FOOT_FULL);
         let (daemon, connected, cedia): (SharedString, bool, Option<SharedString>) =
             match &self.connection {
                 Connection::Replay => ("replay".into(), false, None),
@@ -1661,7 +1438,7 @@ impl RootView {
             StatusLine {
                 daemon,
                 connected,
-                cedia,
+                cedia: cedia.filter(|_| full),
                 working: self.projects.iter().map(Project::working).sum(),
                 waiting: self.projects.iter().map(Project::waiting).sum(),
             },
@@ -1781,7 +1558,8 @@ impl RootView {
                         .child(
                             div()
                                 .flex_grow(1.)
-                                .child(format!("เก็บอัตโนมัติแล้ว {}", archived.len())),
+                                .font(tokens::numeric_font())
+                                .child(archived.len().to_string()),
                         )
                         .child(if open { "ซ่อน" } else { "ดู" }),
                 )
@@ -1828,82 +1606,32 @@ fn saved_bounds(window: &Window) -> gpui::WindowBounds {
     }
 }
 
-impl Render for RootView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Text sizes are in rems, so the interface size setting scales all of it, as in Zed.
-        window.set_rem_size(theme_settings::ThemeSettings::get_global(cx).ui_font_size(cx));
-        if !matches!(self.connection, Connection::Replay) && self.tools.contains(&Tool::Terminal) {
-            self.ensure_shell(window, cx);
-        }
-        // The window's title carries the front tab's badge; the Dock and the status bar count
-        // every tab's threads that need the person.
-        let project = self.project();
-        let here = project.waiting();
-        window.set_window_title(&if here > 0 {
-            format!("{} ({here})", project.name())
-        } else {
-            project.name().to_string()
-        });
-        let waiting: usize = self.projects.iter().map(Project::waiting).sum();
-        if self.dock_badge != Some(waiting) {
-            self.dock_badge = Some(waiting);
-            dock::set_badge(waiting);
-        }
+impl RootView {
+    /// The Agent block: the open thread's conversation, the notice, its question and the
+    /// composer under the conversation's column. A narrow block drops the chips.
+    fn render_agent(&self, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
         let live = !matches!(self.connection, Connection::Replay);
-        let threads = live.then(|| self.render_threads(cx));
         let question = self
             .project()
             .info()
             .filter(|t| t.status == Status::Asking)
             .and_then(|t| t.thread.question.clone())
             .map(|question| self.render_question(question, cx));
-        let colors = cx.theme().colors();
         let error_color = cx.theme().status().error;
         let failure = match &self.connection {
             Connection::Failed(error) => Some(error.clone()),
             _ => None,
         };
         let notice = failure.or_else(|| self.error.clone());
-        let background = colors.background;
-        let text = colors.text;
-        let wide = self.review_wide;
-        let agent = self.agent.read(cx);
-        let line = HeaderLine {
-            title: agent.header().title.clone(),
-            status: agent.header().status,
-            cost: agent.cost(),
-        };
-        let chips = agent.chips(&self.agent.downgrade(), cx);
-        let toggles = tool_rail::toggles(&self.tools, self.waiting_hunks, cx, |tool| {
-            Box::new(cx.listener(move |view, _, _, cx| view.toggle_tool(tool, cx)))
-        });
-        let header = sheet_header::header(
-            line,
-            toggles,
-            Box::new(cx.listener(|view, _, _, cx| view.stop(cx))),
-            cx,
-        );
-        let tools = live.then(|| self.render_tools(cx)).flatten();
-        let colors = cx.theme().colors();
-        let main = div()
-            .flex_grow(1.)
+        let chips = self.agent.read(cx).chips(&self.agent.downgrade(), cx);
+        let working = self.project().status == Some(Status::Working);
+        let colors = cx.theme().colors().clone();
+        div()
+            .size_full()
             .min_w_0()
-            .h_full()
             .flex()
             .flex_col()
-            .rounded(px(SHEET_RADIUS))
-            .border_1()
-            .border_color(colors.border)
-            .bg(colors.editor_background)
-            .overflow_hidden()
-            .child(header)
-            .child(div().flex_grow(1.).min_h_0().map(|main| {
-                if wide {
-                    main.child(self.review.clone())
-                } else {
-                    main.child(self.agent.clone())
-                }
-            }))
+            .child(div().flex_grow(1.).min_h_0().child(self.agent.clone()))
             .when_some(notice, |column, notice| {
                 column.child(
                     div()
@@ -1914,8 +1642,8 @@ impl Render for RootView {
                         .child(notice),
                 )
             })
-            .when(!wide, |column| column.children(question))
-            .when(!wide && live, |column| {
+            .children(question)
+            .when(live, |column| {
                 let worktree = self.project().current.is_none().then(|| {
                     let word = if self.use_worktree {
                         "worktree ใหม่: เปิด"
@@ -1935,11 +1663,38 @@ impl Render for RootView {
                         }))
                         .child(word)
                 });
+                let stop = working.then(|| {
+                    div()
+                        .id("stop-run")
+                        .flex_none()
+                        .h(px(24.))
+                        .px_2()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(colors.border)
+                        .cursor_pointer()
+                        .text_meta()
+                        .text_color(colors.text_muted)
+                        .hover(|b| b.bg(colors.element_hover).text_color(colors.text))
+                        .on_click(cx.listener(|view, _, _, cx| view.stop(cx)))
+                        .child(div().size(px(8.)).rounded(px(2.)).bg(colors.text_muted))
+                        .child("หยุด")
+                        .child(
+                            div()
+                                .text_label()
+                                .text_color(colors.text_placeholder)
+                                .child(crate::agent_pane::STOP_KEY),
+                        )
+                });
                 // Under the conversation's column, as wide as it with its margins.
                 column.child(
-                    div().w_full().flex().justify_center().child(
+                    div().w_full().flex_none().flex().justify_center().child(
                         div()
                             .w_full()
+                            .min_w_0()
                             .max_w(px(COMPOSER_WIDTH))
                             .child(self.composer.clone())
                             .child(
@@ -1947,32 +1702,88 @@ impl Render for RootView {
                                 // context and the view mode.
                                 div()
                                     .flex_none()
+                                    .min_w_0()
                                     .px_4()
                                     .pb_3()
                                     .flex()
                                     .items_center()
                                     .gap_1p5()
+                                    .overflow_hidden()
                                     .child(self.workplace.clone())
                                     .children(worktree)
-                                    .child(div().flex_grow(1.).min_w_0().child(chips)),
+                                    .child(
+                                        div()
+                                            .flex_grow(1.)
+                                            .min_w_0()
+                                            .overflow_hidden()
+                                            .when(!narrow, |row| row.child(chips)),
+                                    )
+                                    .children(stop),
                             ),
                     ),
                 )
-            });
-        let body = div()
-            .flex_grow(1.)
-            .min_h_0()
-            .w_full()
-            .flex()
-            .gap(px(SHEET_GAP))
-            .pt(px(SHEET_GAP))
-            .pr(px(SHEET_GAP))
-            .pb(px(SHEET_GAP))
-            .when(!live, |body| body.pl(px(SHEET_GAP)))
-            .children(threads)
-            .child(main)
-            .children(tools);
+            })
+            .into_any_element()
+    }
+}
+
+impl Render for RootView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Text sizes are in rems, so the interface size setting scales all of it, as in Zed.
+        window.set_rem_size(theme_settings::ThemeSettings::get_global(cx).ui_font_size(cx));
+        // The window's title carries the front tab's badge; the Dock and the status bar count
+        // every tab's threads that need the person.
+        let project = self.project();
+        let here = project.waiting();
+        window.set_window_title(&if here > 0 {
+            format!("{} ({here})", project.name())
+        } else {
+            project.name().to_string()
+        });
+        let waiting: usize = self.projects.iter().map(Project::waiting).sum();
+        if self.dock_badge != Some(waiting) {
+            self.dock_badge = Some(waiting);
+            dock::set_badge(waiting);
+        }
+        let live = !matches!(self.connection, Connection::Replay);
+        let colors = cx.theme().colors();
+        let background = colors.background;
+        let text = colors.text;
+        let body = if live {
+            self.render_blocks(window, cx)
+        } else {
+            // A replay is one conversation, alone.
+            div()
+                .flex_grow(1.)
+                .min_h_0()
+                .w_full()
+                .p(px(blocks::BLOCK_GAP))
+                .flex()
+                .child(
+                    div()
+                        .size_full()
+                        .rounded(px(blocks::BLOCK_RADIUS))
+                        .border_1()
+                        .border_color(colors.border)
+                        .bg(colors.editor_background)
+                        .overflow_hidden()
+                        .child(self.agent.clone()),
+                )
+                .into_any_element()
+        };
+        let overview = live.then(|| self.render_overview(cx)).flatten();
         let tabs: Vec<ProjectTab> = self.projects.iter().map(Project::tab).collect();
+        let compact = f32::from(window.viewport_size().width) < COMPACT_WINDOW;
+        let before = if live {
+            self.render_threads_button(cx)
+        } else {
+            div().into_any_element()
+        };
+        let after = if live {
+            self.render_title_tools(compact, cx)
+        } else {
+            div().into_any_element()
+        };
         let strip =
             tab_strip::strip(
                 &tabs,
@@ -1983,6 +1794,11 @@ impl Render for RootView {
                     Box::new(cx.listener(move |view, drag: &TabDrag, _, cx| {
                         view.move_tab(drag.from, to, cx)
                     }))
+                },
+                tab_strip::Ends {
+                    before,
+                    after,
+                    compact,
                 },
             )
             .id("tab-strip")
@@ -2006,67 +1822,56 @@ impl Render for RootView {
                     window.titlebar_double_click();
                 }
             });
-        div()
+        if std::mem::take(&mut self.refocus) {
+            self.focus_input(window, cx);
+        }
+        let root = div()
+            .track_focus(&self.root_focus)
+            .relative()
             .size_full()
             .flex()
             .flex_col()
             .on_action(
                 cx.listener(|view, _: &zed_actions::OpenSettings, _, cx| view.open_settings(cx)),
             )
-            .on_action(cx.listener(|view, _: &StopRun, _, cx| view.stop(cx)))
-            .on_action(
-                cx.listener(|view, _: &ToggleEditor, _, cx| view.toggle_tool(Tool::Editor, cx)),
-            )
-            .on_action(
-                cx.listener(|view, _: &ToggleTerminal, _, cx| view.toggle_tool(Tool::Terminal, cx)),
-            )
-            .on_action(
-                cx.listener(|view, _: &ToggleReview, _, cx| view.toggle_tool(Tool::Review, cx)),
-            )
-            .on_action(
-                cx.listener(|view, _: &ToggleFiles, _, cx| view.toggle_tool(Tool::Files, cx)),
-            )
-            .on_action(cx.listener(|view, _: &ToggleGit, _, cx| view.toggle_tool(Tool::Git, cx)))
-            .on_action(
-                cx.listener(|view, _: &ToggleDetails, _, cx| view.toggle_tool(Tool::Details, cx)),
-            )
-            .on_action(cx.listener(|view, _: &HideTools, _, cx| view.hide_tools(cx)))
-            .on_action(cx.listener(|view, _: &ToggleSidebar, _, cx| view.toggle_sidebar(cx)))
-            .when(live, |root| {
-                root.on_action(cx.listener(|view, _: &NewTab, _, cx| view.pick_project(cx)))
-                    .on_action(
-                        cx.listener(|view, _: &CloseTab, _, cx| view.close_tab(view.active, cx)),
-                    )
-                    .on_action(cx.listener(|view, _: &NextTab, _, cx| {
-                        let n = tab_strip::step(view.active, view.projects.len(), 1);
+            .on_action(cx.listener(|view, _: &StopRun, _, cx| view.stop(cx)));
+        let root = if live {
+            self.block_actions(root, cx)
+                .on_action(cx.listener(|view, _: &NewTab, _, cx| view.pick_project(cx)))
+                .on_action(cx.listener(|view, _: &CloseTab, _, cx| view.close_tab(view.active, cx)))
+                .on_action(cx.listener(|view, _: &NextTab, _, cx| {
+                    let n = tab_strip::step(view.active, view.projects.len(), 1);
+                    view.activate(n, cx)
+                }))
+                .on_action(cx.listener(|view, _: &PreviousTab, _, cx| {
+                    let n = tab_strip::step(view.active, view.projects.len(), -1);
+                    view.activate(n, cx)
+                }))
+                .on_action(cx.listener(|view, tab: &ActivateTab, _, cx| {
+                    if let Some(n) = tab_strip::nth(tab.0, view.projects.len()) {
                         view.activate(n, cx)
-                    }))
-                    .on_action(cx.listener(|view, _: &PreviousTab, _, cx| {
-                        let n = tab_strip::step(view.active, view.projects.len(), -1);
-                        view.activate(n, cx)
-                    }))
-                    .on_action(cx.listener(|view, tab: &ActivateTab, _, cx| {
-                        if let Some(n) = tab_strip::nth(tab.0, view.projects.len()) {
-                            view.activate(n, cx)
-                        }
-                    }))
-            })
-            .on_action(cx.listener(|view, _: &FocusSearch, window, cx| {
-                // A folded sidebar has no room for the search, so it opens first.
-                if view.layout.sidebar_folded {
-                    view.toggle_sidebar(cx);
-                }
-                view.search
-                    .update(cx, |search, cx| search.focus(window, cx))
-            }))
-            .font(
-                theme_settings::ThemeSettings::get_global(cx)
-                    .ui_font
-                    .clone(),
-            )
-            .bg(background)
-            .text_color(text)
-            .child(strip)
-            .child(body)
+                    }
+                }))
+                .on_action(cx.listener(|view, _: &FocusSearch, window, cx| {
+                    // A hidden thread list comes back for the search.
+                    if view.ws().find(Kind::Threads).is_none() {
+                        view.open_kind(Kind::Threads, blocks::ToolTarget { against: None }, cx);
+                    }
+                    view.search
+                        .update(cx, |search, cx| search.focus(window, cx))
+                }))
+        } else {
+            root
+        };
+        root.font(
+            theme_settings::ThemeSettings::get_global(cx)
+                .ui_font
+                .clone(),
+        )
+        .bg(background)
+        .text_color(text)
+        .child(strip)
+        .child(body)
+        .children(overview)
     }
 }

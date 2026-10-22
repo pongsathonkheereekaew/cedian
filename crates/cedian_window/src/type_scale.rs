@@ -9,11 +9,6 @@ pub trait TypeScale: Styled + Sized {
         self.text_size(px(22.)).line_height(px(30.))
     }
 
-    /// The thread's title in the sheet's header.
-    fn text_pane_title(self) -> Self {
-        self.text_size(px(14.)).line_height(px(22.))
-    }
-
     /// The agent's answers, in the serif.
     fn text_answer(self) -> Self {
         self.text_size(px(16.)).line_height(px(27.))
