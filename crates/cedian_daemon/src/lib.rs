@@ -13,6 +13,7 @@ mod ledger;
 mod review;
 mod run;
 mod server;
+mod thread_watch;
 mod worktree;
 
 pub use cedia::Cedia;
