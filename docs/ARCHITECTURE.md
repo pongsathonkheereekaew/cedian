@@ -49,7 +49,7 @@ cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon adds `idle
 | Process model | The daemon runs one cedia per prompt (above) and supervises it; the daemon itself restarts with backoff |
 | Contract | cedia's `src/protocol/protocol.schema.json` is the source of cedian's Rust types (generated with `typify` in `cedian_protocol`'s build script, strict about unknown fields), and cedia's `test/fixtures/sessions/` are what cedian's replay tests read. `script/pin-cedia <checkout> <rev>` copies both into `crates/cedian_protocol/cedia` with the rev, so a pin bump is one reviewed diff |
 | Tools | Agent tools live in cedia. cedian offers host tools only for desktop-owned things (open buffers, the shared terminal's output), never a second tool with a cedia tool's name. The browser tool is cedia's; cedian only hands it the shared Chromium's CDP endpoint |
-| Media | Images and video go to a model that reads images: when a thread has media and the code model is text-only, cedia starts a new session of the thread on Haiku 5.5 |
+| Media | Images and video go to a model that reads images: when a thread has media and the code model is text-only, cedia starts a new session of the thread on Haiku 5.5. Deferred to phase D (2026-10-22): the owner does not work mainly with images or video yet |
 | Bundling | cedian ships a pinned cedia build (`bun build --compile`) and `rg`, never the copies on PATH |
 | Environment | The daemon reads the login shell's environment once at start, so cedia finds `git`, `gh` and `claude` as it does in a terminal |
 | Repos | `cedia` and `cedian`. cedia's protocol types are the source; cedian's Rust types follow them |
@@ -80,7 +80,7 @@ cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon adds `idle
 Done in cedia PR #19: project identity across worktrees, the `desktop` key with unknown keys failing loudly, the protocol schema and session fixtures, `permission_reply` removed. Still to add, in the order cedian needs them:
 
 1. `cedia --version --json` with version and capabilities (phase B).
-2. `prompt.images` and the media route to Haiku 5.5 (phase B).
+2. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
 3. `threads rate`, `threads unsend` for queued messages, `threads delete`, and a `title` event for rename (phases B and C).
 4. Keychain fallback for API keys (phase B).
 5. `profiles` and `--profile` (phase C).
@@ -98,9 +98,9 @@ cedia's threads already follow Claude Projects: a thread is one line of work mad
 | --- | --- | --- | --- |
 | 0 Clean | Repo cleared | Contract (PR #19) | Both repos clean; schema and fixtures merged (done) |
 | A Window | Spike first: GPUI window plus Zed `editor` and `terminal` compiling at one pinned rev, with Zed's `[patch]` entries copied and the toolchain matched; compiled cedia passing its sandbox tests on a Mac. Then the agent pane over the fixtures | Stage 2 | A fixture renders; replay test green; performance budgets measured |
-| B One live thread | Daemon as a LaunchAgent, runs per prompt, reconcile and keep-awake; terminal (attach selection), review, settings UI; message queue with Send now; receipt card with next steps and the verified badge; reactions; view modes, context meter, thread details; window and layout restored after quit; worktree setup with progress and branch names from the first message; open in other apps | `--version --json`, prompt images, rate, unsend, Keychain | Delegate a task into a worktree, quit and reopen with the thread intact, review and accept |
+| B One live thread | Daemon as a LaunchAgent, runs per prompt, reconcile and keep-awake; terminal (attach selection), review, settings UI; message queue with Send now; receipt card with next steps and the verified badge; reactions; view modes, context meter, thread details; window and layout restored after quit; worktree setup with progress and branch names from the first message; open in other apps | `--version --json`, rate, unsend, Keychain, which thread ran each check | Delegate a task into a worktree, quit and reopen with the thread intact, review and accept |
 | C Parallel | Many threads, tabs by state, notifications, search, pin and group; shared Chromium with capture and annotate; project pane with coordinator; bot profiles and @mention; side chat, background tasks pane, task chips, app preview with per-site approval, safe archive; file tree; usage page by day, model and project; storage view; export; scheduled runs; Open With from Finder; MCP card | Stage 5: sub-agents, MCP, web, host tools, profiles, `open_thread` | Three threads at once, memory measured |
-| D Media, depth | Video and image panes, editor with LSP and line comments, git pane, surface protocol, pop-out panes | Stage 6 plus video read | The agent fixes a bug shown in a screen recording |
+| D Media, depth | Video and image panes, editor with LSP and line comments, git pane, surface protocol, pop-out panes | Stage 6, prompt images and the media route, video read | The agent fixes a bug shown in a screen recording |
 | Later | Remote over QUIC, computer use via `cua-driver`, voice mode | Classifier, goal mode | |
 
 ## Phase A spike
