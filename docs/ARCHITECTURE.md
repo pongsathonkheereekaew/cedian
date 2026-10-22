@@ -187,11 +187,12 @@ The tokens ship as two Zed theme files, "cedian Dark" and "cedian Light", so the
 
 ### Type
 
-The owner asked for type in the manner of the Claude desktop app: a plain sans for the interface and a serif for the agent's answers. Anthropic's own faces are not ours to ship, so cedian bundles open (OFL) ones and registers them with GPUI's text system at start, never reading the system's:
+The owner asked for type in the manner of the Claude desktop app: a plain sans for the interface and a serif for the agent's answers. Claude's own faces (anthropicSans, anthropicSerif) are Anthropic's and not licensed to anyone, so cedian bundles open (OFL) look-alikes for Latin and registers them with GPUI's text system at start. Claude's faces have no Thai, so Claude's Thai is the system's; cedian does the same (owner, 2026-10-22), so Thai looks as it does in Claude:
 
-- Interface: **Inter**, with **Noto Sans Thai** for Thai.
-- Agent answers: **Source Serif 4**, with **Noto Serif Thai** for Thai.
-- Code, tool output and terminal: **Lilex** (Zed's), with Noto Sans Thai for Thai.
+- Interface: **Inter**; Thai in the system's Thai face (Thonburi on macOS, through Core Text's fallback for the script).
+- Agent answers: **Source Serif 4**; Thai in the same system face, as in Claude.
+- Code, tool output and terminal: **Lilex** (Zed's); Thai in the same system face.
+- Linux has no fixed Thai face, so there the window keeps the bundled Noto Sans Thai as the fallback; macOS no longer needs Noto Sans Thai or Noto Serif Thai in the bundle.
 
 | Name | Size / line | Weight | Use |
 | --- | --- | --- | --- |
