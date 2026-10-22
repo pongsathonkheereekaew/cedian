@@ -1,6 +1,7 @@
-//! The window drawn offline at the sizes it opens at, with real fonts: each part of the
-//! composer's bottom row and each menu stays inside what holds it. A part that leaks out
-//! (clipped, over a neighbour block, off the window) fails here before a screenshot shows it.
+//! The window drawn offline, with real fonts and no daemon. At the sizes it opens at, each
+//! part of the composer's bottom row and each menu stays inside what holds it: a part that
+//! leaks out (clipped, over a neighbour block, off the window) fails here before a screenshot
+//! shows it. And `⌘K` finds layouts and blocks as well as threads.
 
 use std::path::PathBuf;
 
@@ -10,8 +11,8 @@ use gpui::{
     AppContext as _, Bounds, Pixels, TestAppContext, TestDispatcher, VisualTestContext, px, size,
 };
 
-use super::RootView;
-use crate::agent_pane::AgentPane;
+use super::{Kind, RootView};
+use crate::{agent_pane::AgentPane, thread_search};
 
 const MODELS: &str = r#"{"default":"faux/scripted","models":[
   {"ref":"faux/scripted","label":"Faux (scripted)","provider":"faux","available":true,"contextWindow":200000,"effort":false},
@@ -62,7 +63,8 @@ fn window(cx: &mut TestAppContext) -> (gpui::Entity<RootView>, &mut VisualTestCo
             view.load_blocks(project);
         }
         view.projects = projects;
-        view.focused = view.ws().find(super::Kind::Agent);
+        view.focused = view.ws().find(Kind::Agent);
+        view.set_search_actions(cx);
         view
     });
     view.update_in(cx, |view, _, cx| {
@@ -166,4 +168,24 @@ fn the_run_menus_open_inside_the_agent_block_and_the_window() {
             );
         }
     }
+}
+
+#[test]
+fn search_adds_a_block_and_switches_layouts_by_name() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    let pick = |cx: &mut VisualTestContext, query: &str| {
+        view.update_in(cx, |view, window, cx| {
+            view.search
+                .update(cx, |search, cx| search.focus(window, cx))
+        });
+        cx.simulate_input(query);
+        cx.dispatch_action(thread_search::Confirm);
+        cx.run_until_parked();
+    };
+    assert!(view.read_with(cx, |view, _| view.ws().find(Kind::Git).is_none()));
+    pick(cx, "ใหม่ git");
+    assert!(view.read_with(cx, |view, _| view.ws().find(Kind::Git).is_some()));
+    pick(cx, "layout เขียน");
+    assert_eq!(view.read_with(cx, |view, _| view.ws().current), 1);
 }

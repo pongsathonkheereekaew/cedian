@@ -3,9 +3,9 @@
 
 mod blocks;
 mod chat;
-#[cfg(test)]
-mod fit_tests;
 mod run_choices;
+#[cfg(test)]
+mod window_tests;
 
 use std::{
     path::{Path, PathBuf},
@@ -48,7 +48,7 @@ use crate::{
         self, ActivateTab, CloseTab, NewTab, NextTab, PreviousTab, ProjectTab, TabClick, TabDrag,
     },
     thread_list::{self, Group},
-    thread_search::{FocusSearch, Found, SearchEvent, ThreadSearch},
+    thread_search::{Act, FocusSearch, Found, SearchEvent, ThreadSearch},
     tokens,
     view_mode::ViewMode,
     workplace::Workplace,
@@ -167,6 +167,7 @@ impl RootView {
         }
         view.projects = projects;
         view.focused = view.ws().find(Kind::Agent);
+        view.set_search_actions(cx);
         view.remember_tabs();
         view.layout.bounds = Some(saved_bounds(window));
         cx.observe_window_bounds(window, |view, window, cx| {
@@ -236,6 +237,15 @@ impl RootView {
                 view.open_thread(cwd, thread.clone(), cx);
                 view.composer
                     .update(cx, |composer, cx| composer.focus(window, cx));
+            }
+            SearchEvent::Act(act) => {
+                match *act {
+                    Act::Layout(n) => view.switch_layout(n, cx),
+                    Act::Add(kind) => {
+                        view.open_kind(kind, blocks::ToolTarget { against: None }, cx)
+                    }
+                }
+                view.refocus = true;
             }
             SearchEvent::Dismissed => view
                 .composer
@@ -779,6 +789,7 @@ impl RootView {
         self.focused = self.ws().find(Kind::Agent);
         self.show_current(cx);
         self.open_chat_thread(cx);
+        self.set_search_actions(cx);
         self.remember_tabs();
         self.save_layout(cx);
         cx.notify();

@@ -25,6 +25,7 @@ use crate::{
     project::{self, Project},
     tab_strip::STRIP_HEIGHT,
     thread_details::{self, Details},
+    thread_search::{Act, Action},
     tool_menu,
     type_scale::TypeScale as _,
 };
@@ -93,6 +94,33 @@ impl RootView {
         self.save_layout(cx);
     }
 
+    /// What `⌘K` finds besides threads: the layouts, then the blocks there are to add.
+    pub(super) fn set_search_actions(&mut self, cx: &mut Context<Self>) {
+        let ws = self.ws();
+        let layouts = ws.layouts.iter().enumerate().map(|(n, l)| Action {
+            act: Act::Layout(n),
+            label: l.name.clone().into(),
+            note: if n == ws.current {
+                Some("อยู่ที่นี่".into())
+            } else {
+                (n < 9)
+                    .then(|| block_keys::shown(&format!("{}-{}", block_keys::LAYOUT, n + 1)).into())
+            },
+        });
+        let tools = tool_menu::THREAD_TOOLS
+            .iter()
+            .chain(&tool_menu::PROJECT_TOOLS)
+            .filter(|(kind, _)| tool_menu::built(*kind))
+            .map(|(kind, label)| Action {
+                act: Act::Add(*kind),
+                label: (*label).into(),
+                note: tool_menu::note(ws, *kind).map(Into::into),
+            });
+        let actions = layouts.chain(tools).collect();
+        self.search
+            .update(cx, |search, cx| search.set_actions(actions, cx));
+    }
+
     /// Keeps focus and zoom on blocks that are still shown.
     fn after_change(&mut self, cx: &mut Context<Self>) {
         let shown = self.shown();
@@ -109,6 +137,7 @@ impl RootView {
         }
         self.sync_review_width(cx);
         self.open_chat_thread(cx);
+        self.set_search_actions(cx);
         // A Review block that comes into view reads the hunks again.
         if self.showing(Kind::Review) {
             self.refresh_review();
