@@ -25,6 +25,7 @@ collections.workspace = true
 editor.workspace = true
 futures.workspace = true
 gpui.workspace = true
+icu_segmenter.workspace = true
 gpui_platform.workspace = true
 log.workspace = true
 release_channel.workspace = true
