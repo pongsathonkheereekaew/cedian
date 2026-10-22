@@ -1350,6 +1350,7 @@ impl RootView {
             thread: project.current.clone(),
             worktree: project.current.is_none() && self.use_worktree,
             profile: None,
+            model: None,
         });
         self.retitle(cx);
         cx.notify();

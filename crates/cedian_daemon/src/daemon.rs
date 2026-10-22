@@ -16,6 +16,7 @@ use cedian_wire::{Notice, Request, Status, ThreadInfo};
 
 use crate::{
     Cedia, auto_archive,
+    cedia::Flags,
     desktop_settings::{read_desktop, set_desktop_key, settings_path},
     follow::{Offsets, follow},
     keep_awake::KeepAwake,
@@ -34,13 +35,6 @@ pub fn lock(shared: &Shared) -> MutexGuard<'_, Daemon> {
     shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/// What a prompt asks of its run beyond the text: cedia's `--profile` and `--model`.
-#[derive(Clone, Copy, Default)]
-struct With<'a> {
-    profile: Option<&'a str>,
-    model: Option<&'a str>,
 }
 
 struct Client {
@@ -413,9 +407,10 @@ impl Daemon {
                 profile,
                 model,
             } => {
-                let with = With {
+                let with = Flags {
                     profile: profile.as_deref(),
                     model: model.as_deref(),
+                    ..Flags::default()
                 };
                 let running = thread.as_deref().is_some_and(|t| lock(shared).running(t));
                 match thread {
@@ -733,7 +728,7 @@ impl Daemon {
             match crate::worktree::create(&cwd, &task) {
                 Ok((dir, branch)) => {
                     log::info!("worktree {} on {branch}", dir.display());
-                    Self::prompt(shared, None, cwd, dir, &task, Some(thread), With::default());
+                    Self::prompt(shared, None, cwd, dir, &task, Some(thread), Flags::default());
                 }
                 Err(error) => log::warn!("starting {thread}: {error:#}"),
             }
@@ -745,7 +740,7 @@ impl Daemon {
         client: ClientId,
         asked_in: PathBuf,
         text: &str,
-        with: With,
+        with: Flags,
     ) {
         lock(shared).send(
             client,
@@ -779,7 +774,7 @@ impl Daemon {
         cwd: PathBuf,
         text: &str,
         thread: Option<String>,
-        with: With,
+        with: Flags,
     ) {
         let mut daemon = lock(shared);
         let slug = project_key(&cwd);
@@ -800,22 +795,12 @@ impl Daemon {
                 .as_ref()
                 .is_ok_and(|v| v.capabilities.contains(&capability))
         };
-        let (ask, todo) = (
-            can(cedian_protocol::Capability::Ask),
-            can(cedian_protocol::Capability::Todo),
-        );
-        let child = match daemon
-            .cedia
-            .prompt(
-                &cwd,
-                text,
-                thread.as_deref(),
-                with.profile,
-                with.model,
-                ask,
-                todo,
-            )
-        {
+        let with = Flags {
+            ask: can(cedian_protocol::Capability::Ask),
+            todo: can(cedian_protocol::Capability::Todo),
+            ..with
+        };
+        let child = match daemon.cedia.prompt(&cwd, text, thread.as_deref(), with) {
             Ok(child) => child,
             Err(error) => return daemon.error_to(client, format!("{error:#}")),
         };

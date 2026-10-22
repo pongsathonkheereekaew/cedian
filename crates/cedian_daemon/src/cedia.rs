@@ -8,6 +8,17 @@ use std::{
 use anyhow::Context as _;
 use cedian_protocol::{Rating, VersionInfo};
 
+/// A run's flags beyond its text: cedia's `--profile`, `--model`, `--ask on` and `--todo on`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Flags<'a> {
+    pub profile: Option<&'a str>,
+    pub model: Option<&'a str>,
+    /// The run may end on a question for the person, when this cedia can.
+    pub ask: bool,
+    /// The writer keeps a todo list, when this cedia can.
+    pub todo: bool,
+}
+
 /// How the daemon starts cedia: which binary, with which environment.
 #[derive(Clone, Debug)]
 pub struct Cedia {
@@ -67,10 +78,7 @@ impl Cedia {
         cwd: &Path,
         text: &str,
         thread: Option<&str>,
-        profile: Option<&str>,
-        model: Option<&str>,
-        ask: bool,
-        todo: bool,
+        flags: Flags,
     ) -> anyhow::Result<Child> {
         let mut command = self.command(cwd);
         command
@@ -84,17 +92,17 @@ impl Cedia {
         if let Some(thread) = thread {
             command.args(["--thread", thread]);
         }
-        if let Some(profile) = profile {
+        if let Some(profile) = flags.profile {
             command.args(["--profile", profile]);
         }
-        if let Some(model) = model {
+        if let Some(model) = flags.model {
             command.args(["--model", model]);
         }
-        if ask {
+        if flags.ask {
             command.args(["--ask", "on"]);
         }
         // The writer's todo list is the thread's progress in the window.
-        if todo {
+        if flags.todo {
             command.args(["--todo", "on"]);
         }
         command
