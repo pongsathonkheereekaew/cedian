@@ -98,13 +98,14 @@ pub fn dot(status: Status, cx: &App) -> Div {
     }
 }
 
-/// A count in a pill: `failed` when any counted thread failed, else the accent.
+/// A count in a pill: `failed` when any counted thread failed, else neutral (`text` with
+/// `app` digits), so lime stays for what is primary or verified.
 pub fn badge(count: usize, failed: bool, cx: &App) -> Div {
     let colors = cx.theme().colors();
     let fill = if failed {
         cx.theme().status().error
     } else {
-        colors.text_accent
+        colors.text
     };
     div()
         .flex_none()

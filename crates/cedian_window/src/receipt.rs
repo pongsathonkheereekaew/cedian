@@ -90,7 +90,7 @@ impl Receipt<'_> {
             .child(
                 div()
                     .flex_none()
-                    .font(tokens::code_font())
+                    .font(tokens::numeric_font())
                     .text_meta()
                     .text_color(colors.text_muted)
                     .child(figures.join(" · ")),
@@ -124,7 +124,11 @@ impl Receipt<'_> {
                         .child(
                             div()
                                 .flex_none()
-                                .text_color(if passed { status.success } else { status.error })
+                                .text_color(if passed {
+                                    tokens::Tokens::of(cx).diff_add
+                                } else {
+                                    status.error
+                                })
                                 .child(if passed { "✓" } else { "✕" }),
                         )
                         .child(div().font(tokens::code_font()).child(format!(
@@ -193,9 +197,9 @@ impl Actions {
             let on = self.rating == Some(rating);
             let emit = self.emit.clone();
             button(id)
-                .when(on, |b| b.border_color(colors.text_accent))
+                .when(on, |b| b.border_color(colors.border_selected))
                 .child(svg().path(icon).size(px(14.)).text_color(if on {
-                    colors.text_accent
+                    colors.text
                 } else {
                     colors.text_muted
                 }))

@@ -65,7 +65,7 @@ pub fn card(call: &ToolCall, cx: &App) -> Div {
         .children(outcome(call).map(|word| {
             div()
                 .flex_none()
-                .font(tokens::code_font())
+                .font(tokens::numeric_font())
                 .text_color(if failed {
                     status.error
                 } else {
@@ -144,7 +144,7 @@ fn body(lines: impl Iterator<Item = (String, Option<bool>)>, cx: &App) -> Div {
             let row = div().px_2().whitespace_nowrap().overflow_hidden();
             match added {
                 Some(true) => row
-                    .bg(status.success.opacity(0.1))
+                    .bg(tokens::Tokens::of(cx).diff_add.opacity(0.1))
                     .text_color(colors.text)
                     .child(text),
                 Some(false) => row

@@ -252,7 +252,7 @@ impl Render for ThreadSearch {
                     .rounded(px(8.))
                     .border_1()
                     .border_color(if focused {
-                        colors.text_accent
+                        colors.border_selected
                     } else {
                         colors.border
                     })
