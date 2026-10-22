@@ -7,7 +7,12 @@ use std::{collections::HashMap, path::PathBuf};
 use cedian_wire::{Status, ThreadInfo};
 use gpui::{Entity, SharedString};
 
-use crate::{shell_pane::ShellPane, tab_strip::ProjectTab, thread_list};
+use crate::{
+    shell_pane::ShellPane,
+    sound::{self, Ending},
+    tab_strip::ProjectTab,
+    thread_list,
+};
 
 pub struct Project {
     pub cwd: PathBuf,
@@ -50,11 +55,25 @@ impl Project {
     }
 
     /// The top-level threads still in use: archived ones and sub-threads stay out of the list.
-    pub fn set_threads(&mut self, threads: Vec<ThreadInfo>) {
-        self.threads = threads
+    /// Returns how each run that was working in the last list ended, for the sound.
+    pub fn set_threads(&mut self, threads: Vec<ThreadInfo>) -> Vec<Ending> {
+        let threads: Vec<ThreadInfo> = threads
             .into_iter()
             .filter(|t| !t.thread.archived && t.thread.parent.is_none())
             .collect();
+        let endings = threads
+            .iter()
+            .filter_map(|t| {
+                let before = self
+                    .threads
+                    .iter()
+                    .find(|old| old.thread.id == t.thread.id)
+                    .map(|old| old.status);
+                sound::ending(before, t.status)
+            })
+            .collect();
+        self.threads = threads;
+        endings
     }
 
     /// Where the terminal runs: the open thread's directory (its worktree) when it is on this

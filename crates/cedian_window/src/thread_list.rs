@@ -11,17 +11,27 @@ use theme::ActiveTheme as _;
 pub enum Group {
     Working,
     NeedsYou,
+    /// Threads the person pinned, once they are neither working nor waiting on the person.
+    Pinned,
     Finished,
 }
 
 impl Group {
-    pub const ALL: [Group; 3] = [Group::Working, Group::NeedsYou, Group::Finished];
+    pub const ALL: [Group; 4] = [
+        Group::Working,
+        Group::NeedsYou,
+        Group::Pinned,
+        Group::Finished,
+    ];
 
-    pub fn of(info: &ThreadInfo) -> Self {
+    /// A pinned thread still shows where it needs attention first: working, or waiting on the
+    /// person.
+    pub fn of(info: &ThreadInfo, pinned: bool) -> Self {
         match info.status {
             Status::Working => Group::Working,
             Status::Asking | Status::Failed | Status::Interrupted => Group::NeedsYou,
             Status::Done if info.needs_you => Group::NeedsYou,
+            Status::Done | Status::Stopped if pinned => Group::Pinned,
             Status::Done | Status::Stopped => Group::Finished,
         }
     }
@@ -30,6 +40,7 @@ impl Group {
         match self {
             Group::Working => "กำลังทำ",
             Group::NeedsYou => "ต้องดู",
+            Group::Pinned => "ปักหมุด",
             Group::Finished => "เสร็จแล้ว",
         }
     }
@@ -130,16 +141,36 @@ mod tests {
 
     #[test]
     fn threads_fall_into_the_groups_of_the_spec() {
-        assert_eq!(Group::of(&info(Status::Working, false)), Group::Working);
-        assert_eq!(Group::of(&info(Status::Asking, false)), Group::NeedsYou);
-        assert_eq!(Group::of(&info(Status::Failed, false)), Group::NeedsYou);
         assert_eq!(
-            Group::of(&info(Status::Interrupted, false)),
+            Group::of(&info(Status::Working, false), false),
+            Group::Working
+        );
+        assert_eq!(
+            Group::of(&info(Status::Asking, false), true),
             Group::NeedsYou
         );
-        assert_eq!(Group::of(&info(Status::Done, true)), Group::NeedsYou);
-        assert_eq!(Group::of(&info(Status::Done, false)), Group::Finished);
-        assert_eq!(Group::of(&info(Status::Stopped, false)), Group::Finished);
+        assert_eq!(
+            Group::of(&info(Status::Failed, false), false),
+            Group::NeedsYou
+        );
+        assert_eq!(
+            Group::of(&info(Status::Interrupted, false), false),
+            Group::NeedsYou
+        );
+        assert_eq!(Group::of(&info(Status::Done, true), true), Group::NeedsYou);
+        assert_eq!(
+            Group::of(&info(Status::Done, false), false),
+            Group::Finished
+        );
+        assert_eq!(Group::of(&info(Status::Done, false), true), Group::Pinned);
+        assert_eq!(
+            Group::of(&info(Status::Working, false), true),
+            Group::Working
+        );
+        assert_eq!(
+            Group::of(&info(Status::Stopped, false), false),
+            Group::Finished
+        );
     }
 
     #[test]

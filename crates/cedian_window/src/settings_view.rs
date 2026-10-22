@@ -16,6 +16,7 @@ use theme::ActiveTheme as _;
 use crate::{
     density::Density,
     desktop::{Desktop, ThemeMode, UI_FONT_SIZES},
+    sound::Sound,
     tokens,
     view_mode::ViewMode,
 };
@@ -158,6 +159,7 @@ impl SettingsView {
         let theme = self.choices("theme", desktop.theme, &ThemeMode::ALL, cx);
         let density = self.choices("density", desktop.density, &Density::ALL, cx);
         let view_mode = self.choices("view_mode", desktop.view_mode, &ViewMode::ALL, cx);
+        let sound = self.choices("sound", desktop.sound, &Sound::ALL, cx);
         let ui_size = self.size_control("ui_font_size", desktop.ui_font_size, cx);
         let code_size = self.size_control("code_font_size", desktop.code_font_size, cx);
         let fonts = format!(
@@ -191,6 +193,12 @@ impl SettingsView {
                 "โหมดดูเริ่มต้น",
                 Some("ของหน้า agent"),
                 view_mode.into_any_element(),
+            ))
+            .child(row(
+                cx,
+                "เสียง",
+                Some("ตอน thread จบ"),
+                sound.into_any_element(),
             ))
             .child(row(
                 cx,
