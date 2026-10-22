@@ -9,6 +9,7 @@ mod replay;
 mod review_pane;
 mod root_view;
 mod settings_view;
+mod settings_window;
 mod shell_pane;
 mod spike_view;
 mod thread_list;
@@ -117,7 +118,11 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     cx.on_action(|_: &zed_actions::Quit, cx| cx.quit());
     cx.set_menus([Menu {
         name: "cedian".into(),
-        items: vec![MenuItem::action("Quit cedian", zed_actions::Quit)],
+        items: vec![
+            MenuItem::action("Settings…", zed_actions::OpenSettings),
+            MenuItem::separator(),
+            MenuItem::action("Quit cedian", zed_actions::Quit),
+        ],
         disabled: false,
     }]);
     cx.on_window_closed(|cx, _| {
@@ -139,6 +144,7 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     });
     let options = WindowOptions {
         window_bounds: Some(bounds),
+        window_min_size: Some(size(px(1024.), px(640.))),
         ..Default::default()
     };
     cx.open_window(options, |window, cx| match mode {

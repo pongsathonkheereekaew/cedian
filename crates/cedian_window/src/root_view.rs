@@ -9,7 +9,7 @@ use futures::StreamExt as _;
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, Focusable as _, InteractiveElement as _,
     IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Task, Window, div, prelude::FluentBuilder as _, px,
+    Styled as _, Task, Window, WindowHandle, div, prelude::FluentBuilder as _, px,
 };
 use settings::Settings as _;
 use theme::ActiveTheme as _;
@@ -22,6 +22,7 @@ use crate::{
     layout::Layout,
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
+    settings_window::SettingsWindow,
     spike_view::SpikeView,
     thread_list::{self, Group},
 };
@@ -60,8 +61,7 @@ pub struct RootView {
     /// The right column shows the review instead of the editor and terminal.
     showing_review: bool,
     settings: Entity<SettingsView>,
-    /// The center column shows the settings instead of the thread.
-    showing_settings: bool,
+    settings_window: Option<WindowHandle<SettingsWindow>>,
     /// What the next window opens with; saved shortly after it changes.
     layout: Layout,
     saving_layout: Option<Task<()>>,
@@ -141,15 +141,11 @@ impl RootView {
         })
         .detach();
         let settings = cx.new(|_| SettingsView::default());
-        cx.subscribe(&settings, |view, _, event, cx| match event {
+        cx.subscribe(&settings, |view, _, event, _| match event {
             SettingsEvent::Set { key, value } => view.request(Request::SetDesktop {
                 key: (*key).to_owned(),
                 value: value.clone(),
             }),
-            SettingsEvent::Close => {
-                view.showing_settings = false;
-                cx.notify();
-            }
         })
         .detach();
         let review = cx.new(ReviewPane::new);
@@ -185,10 +181,16 @@ impl RootView {
             review,
             showing_review: false,
             settings,
-            showing_settings: false,
+            settings_window: None,
             layout: Layout::default(),
             saving_layout: None,
         }
+    }
+
+    fn open_settings(&mut self, cx: &mut Context<Self>) {
+        self.request(Request::Settings);
+        self.settings_window =
+            SettingsWindow::show(self.settings.clone(), self.settings_window.take(), cx);
     }
 
     fn request(&self, request: Request) {
@@ -699,11 +701,7 @@ impl RootView {
                             .id("open-settings")
                             .cursor_pointer()
                             .text_color(colors.text_accent)
-                            .on_click(cx.listener(|view, _, _, cx| {
-                                view.showing_settings = !view.showing_settings;
-                                view.request(Request::Settings);
-                                cx.notify();
-                            }))
+                            .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx)))
                             .child("Settings"),
                     ),
             )
@@ -746,7 +744,7 @@ impl Render for RootView {
             .current
             .as_ref()
             .and_then(|id| self.threads.iter().find(|t| &t.thread.id == id))
-            .filter(|t| t.status == Status::Asking && !self.showing_settings)
+            .filter(|t| t.status == Status::Asking)
             .and_then(|t| t.thread.question.clone())
             .map(|question| self.render_question(question, cx));
         let colors = cx.theme().colors();
@@ -756,11 +754,13 @@ impl Render for RootView {
             _ => None,
         };
         let notice = failure.or_else(|| self.error.clone());
-        let working = self.status == Some(Status::Working) && !self.showing_settings;
-        let live = live && !self.showing_settings;
+        let working = self.status == Some(Status::Working);
         div()
             .size_full()
             .flex()
+            .on_action(
+                cx.listener(|view, _: &zed_actions::OpenSettings, _, cx| view.open_settings(cx)),
+            )
             .font(
                 theme_settings::ThemeSettings::get_global(cx)
                     .ui_font
@@ -777,13 +777,7 @@ impl Render for RootView {
                     .flex_col()
                     .border_r_1()
                     .border_color(colors.border)
-                    .child(div().flex_grow(1.).min_h_0().map(|body| {
-                        if self.showing_settings {
-                            body.child(self.settings.clone())
-                        } else {
-                            body.child(self.agent.clone())
-                        }
-                    }))
+                    .child(div().flex_grow(1.).min_h_0().child(self.agent.clone()))
                     .when_some(notice, |column, notice| {
                         column.child(
                             div()

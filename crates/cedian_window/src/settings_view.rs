@@ -1,4 +1,4 @@
-//! The settings screen. There is no Save button: each change goes to the daemon, which writes
+//! The settings window's content (`⌘,`). There is no Save button: each change goes to the daemon, which writes
 //! the `desktop` key of cedia's settings file, and every window applies the result.
 
 use std::path::PathBuf;
@@ -18,7 +18,6 @@ use crate::{
 
 pub enum SettingsEvent {
     Set { key: &'static str, value: Value },
-    Close,
 }
 
 #[derive(Default)]
@@ -136,16 +135,7 @@ impl Render for SettingsView {
                     .py_2()
                     .border_b_1()
                     .border_color(border)
-                    .child("Settings")
-                    .child(
-                        div()
-                            .id("close-settings")
-                            .cursor_pointer()
-                            .text_sm()
-                            .text_color(accent)
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Close)))
-                            .child("Back to the thread"),
-                    ),
+                    .child("Settings"),
             )
             .child(
                 div()
