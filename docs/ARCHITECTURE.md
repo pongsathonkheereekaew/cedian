@@ -26,7 +26,7 @@ The native macOS desktop for [cedia](https://github.com/pongsathonkheereekaew/ce
                     snapshots/<worktree slug>/   (shadow git)
 ```
 
-- The daemon is always its own process, registered as a LaunchAgent (`SMAppService`). The window starts it when it is not running and talks to it only over the socket, in development too. Quitting the window never stops a thread.
+- The daemon is always its own process, registered as a LaunchAgent (`cedian-daemon install` until there is an app bundle, then `SMAppService`). The window starts it when it is not running and talks to it only over the socket, in development too. Quitting the window never stops a thread.
 - One prompt is one cedia run: `cedia -p <text> --thread <id> --output-format stream-json`, with the thread's worktree as `--cwd`. A thread with no running prompt has no process. Text typed while a run works goes in with `cedia threads send <id> <text>` and reaches the model at the next turn boundary. SIGTERM aborts. A long-lived `cedia serve` is added only when host tools need it.
 - `<slug>` is the project's: every worktree of a repository files its threads and sessions under the main worktree's root (cedia PR #19). Snapshots stay per worktree.
 - Pane kinds in v1: agent, terminal, file (text, image, video, PDF and Office through Quick Look, with a file tree), editor, review, browser. No agent sidebar: the agent is a pane of blocks.
@@ -77,15 +77,14 @@ cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon shows `wor
 
 ## What cedia needs to add
 
-Done in cedia PR #19: project identity across worktrees, the `desktop` key with unknown keys failing loudly, the protocol schema and session fixtures, `permission_reply` removed. Done in cedia PR #28 (pinned at `4716402`): `cedia --version --json` with version, protocol hash and capabilities; `threads rate` and `threads unsend` as thread events; a Keychain fallback for API keys (service `cedia`, the env var name as account); each check in a receipt names the thread that ran it; fixture thread ids are stable across re-records. Still to add, in the order cedian needs them:
+Done in cedia PR #19: project identity across worktrees, the `desktop` key with unknown keys failing loudly, the protocol schema and session fixtures, `permission_reply` removed. Done in cedia PR #28 (pinned at `4716402`): `cedia --version --json` with version, protocol hash and capabilities; `threads rate` and `threads unsend` as thread events; a Keychain fallback for API keys (service `cedia`, the env var name as account); each check in a receipt names the thread that ran it; fixture thread ids are stable across re-records. Done in cedia PR #31 (pinned at `427cfa8`): a `result` session event at the end of a run's last writer session, carrying the receipt, so a thread rebuilt from cedia's files shows it. Still to add, in the order cedian needs them:
 
-1. The run's result (the receipt, with its evidence) in the session log, so a thread rebuilt from cedia's files shows its last receipt after the daemon restarts; today only the live run's stream carries it (phase B).
-2. `threads delete`, and a `title` event for rename (phase C).
-3. `profiles` and `--profile` (phase C).
-4. `open_thread` for a coordinator, and per-project memory and files (phase C).
-5. `cedia serve` with `host_tools`, `host_call` and `host_result`, once a host tool is needed (phase C).
-6. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
-7. Media references (video frames, original file) in tool results (phase D).
+1. `threads delete`, and a `title` event for rename (phase C).
+2. `profiles` and `--profile` (phase C).
+3. `open_thread` for a coordinator, and per-project memory and files (phase C).
+4. `cedia serve` with `host_tools`, `host_call` and `host_result`, once a host tool is needed (phase C).
+5. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
+6. Media references (video frames, original file) in tool results (phase D).
 
 ## Projects
 
@@ -139,7 +138,9 @@ The daemon came first (2026-10-22). Three crates carry it:
 - `cedian_wire` is what the window and the daemon say over the socket: one JSON object per line, requests (`threads`, `open`, `close`, `prompt`, `send`, `stop`) one way and notices (`welcome`, `threads`, `started`, `line`, `caught`, `status`, `error`) the other.
 - `cedian_daemon` (binary `cedian-daemon`) listens on `daemon.sock` in cedian's state directory (`~/Library/Application Support/cedian` on macOS), never under `~/.cedia`. It reads the login shell's environment once, as Zed does (the shell runs the daemon with `--printenv`), and asks cedia for `--version --json`. Each prompt is one `cedia --print=<text> --output-format stream-json --cwd <dir> [--thread <id>]`; the run's first session event names its thread. A prompt to a thread whose run is alive goes in with `cedia threads send` instead, and Stop sends SIGTERM. The daemon keeps each thread's latest run's lines, so a window that opens the thread mid-run, or after it ends, gets all of it; older sessions come from cedia's session logs.
 
-The window connects to the daemon and starts it when nobody answers, in its own process group so quitting the window leaves it running. `cedian --cwd <dir>` shows that project's threads, opens the latest, and has a composer under the agent pane (Enter sends, Shift-Enter adds a line). Under Xvfb, with a fake cedia that plays the recorded fixtures (`crates/cedian_daemon/tests/fake/cedia`), a prompt typed in the composer runs and draws live, the thread is intact after the window quits and reopens, and after the daemon too is killed the thread rebuilds from cedia's files, without its receipt (item 1 in the list above). Still to do in phase B: the LaunchAgent, reconcile and keep-awake, worktrees, review, the settings UI, and the window and layout restored after quit.
+The window connects to the daemon and starts it when nobody answers, in its own process group so quitting the window leaves it running. `cedian --cwd <dir>` shows that project's threads, opens the latest, and has a composer under the agent pane (Enter sends, Shift-Enter adds a line). Under Xvfb, with a fake cedia that plays the recorded fixtures (`crates/cedian_daemon/tests/fake/cedia`), a prompt typed in the composer runs and draws live, the thread is intact after the window quits and reopens, and after the daemon too is killed the thread rebuilds from cedia's files. On the owner's Mac the same four checks passed against the compiled cedia on its faux model (`CEDIA_HOME` and the state directory in a scratch directory), with the window on screen 217 ms after launch and the daemon's start (login environment and `cedia --version`) hidden inside the window's opening.
+
+Then, the same day: the receipt survives a daemon restart, read from the `result` event cedia now logs. While any run works the daemon holds `caffeinate -i -w <daemon pid>`, so the Mac does not idle-sleep under a delegated thread. `cedian-daemon install` writes `~/Library/LaunchAgents/dev.cedian.daemon.plist` (run at login, restarted ten seconds after a crash, not after a clean exit, which means another daemon already serves) and loads it with `launchctl bootstrap`; `uninstall` undoes both. A bundled app will register the same agent with `SMAppService`. launchd starts agents without `SHELL`, so the daemon takes the account's shell from the password database. Still to do in phase B: reconcile (runs that outlive a daemon restart), worktrees, review, the settings UI, and the window and layout restored after quit.
 
 ## Learned from the Claude desktop app
 

@@ -60,3 +60,23 @@ fn a_missing_directory_has_no_threads() {
             .is_empty()
     );
 }
+
+#[test]
+fn a_thread_rebuilt_from_its_logs_ends_with_its_receipt() {
+    let dir = fixtures_dir().join("edit-and-check");
+    let thread = &list_threads(&dir.join("threads")).expect("threads")[0];
+    let mut transcript = cedian_agent::Transcript::default();
+    for session in &thread.sessions {
+        let path = dir
+            .join("sessions")
+            .join(format!("{}.jsonl", session.session_id));
+        for line in session_lines(&path).expect("session") {
+            transcript.apply(&Line::parse(&line).expect("line"));
+        }
+    }
+    assert!(
+        matches!(transcript.blocks().last(), Some(block @ cedian_agent::Block::Result { .. }) if block.verified()),
+        "{:#?}",
+        transcript.blocks().last()
+    );
+}

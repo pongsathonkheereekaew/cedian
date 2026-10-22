@@ -1,15 +1,20 @@
 //! `cedian-daemon`: serves windows on the socket in cedian's state directory until it is
-//! killed. `--printenv` prints this process's environment as JSON, for reading the login
-//! shell's environment.
+//! killed. `install` and `uninstall` register it as a LaunchAgent, or remove it. `--printenv`
+//! prints this process's environment as JSON, for reading the login shell's environment.
 
 use std::path::PathBuf;
 
-use cedian_daemon::{Cedia, Config, login_environment, serve};
+use cedian_daemon::{Cedia, Config, launch_agent, login_environment, serve};
 
 fn main() {
-    if std::env::args().nth(1).as_deref() == Some("--printenv") {
-        util::shell_env::print_env();
-        return;
+    match std::env::args().nth(1).as_deref() {
+        Some("--printenv") => return util::shell_env::print_env(),
+        Some(command @ ("install" | "uninstall")) => return agent(command),
+        Some(other) => {
+            eprintln!("usage: cedian-daemon [install | uninstall]; unknown argument {other:?}");
+            std::process::exit(2);
+        }
+        None => {}
     }
     // A parent that ignored SIGTERM passes that on through exec; launchd, logout and Stop
     // (which cedia inherits from here) all rely on the default.
@@ -33,6 +38,26 @@ fn main() {
     if let Err(error) = serve(config) {
         log::error!("{error:#}");
         std::process::exit(1);
+    }
+}
+
+fn agent(command: &str) {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let log = cedian_wire::state_dir().join("daemon.log");
+    let done = match command {
+        "install" => {
+            launch_agent::install(&home, &log).map(|path| format!("installed {}", path.display()))
+        }
+        _ => launch_agent::uninstall(&home).map(|path| format!("removed {}", path.display())),
+    };
+    match done {
+        Ok(message) => println!("{message}"),
+        Err(error) => {
+            eprintln!("cedian-daemon {command}: {error:#}");
+            std::process::exit(1);
+        }
     }
 }
 

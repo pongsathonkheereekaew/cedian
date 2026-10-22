@@ -10,13 +10,11 @@ use std::path::PathBuf;
 
 use anyhow::Context as _;
 use gpui::{
-    App, AppContext as _, Bounds, KeyBinding, WindowBounds, WindowOptions, actions, px, size,
+    App, AppContext as _, Bounds, KeyBinding, Menu, MenuItem, WindowBounds, WindowOptions, px, size,
 };
 use settings::KeymapFile;
 
 use crate::{agent_pane::AgentPane, root_view::RootView};
-
-actions!(cedian, [Quit]);
 
 enum Mode {
     /// The threads of a project, through the daemon.
@@ -90,13 +88,19 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     let bindings = KeymapFile::load_asset_allow_partial_failure(settings::DEFAULT_KEYMAP_PATH, cx)
         .context("loading the default keymap")?;
     cx.bind_keys(bindings);
-    cx.bind_keys([
-        KeyBinding::new("enter", composer::Submit, Some("Composer > Editor")),
-        KeyBinding::new("cmd-q", Quit, None),
-        KeyBinding::new("ctrl-q", Quit, None),
-    ]);
-    // Quitting the window never stops a thread: the daemon runs on.
-    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.bind_keys([KeyBinding::new(
+        "enter",
+        composer::Submit,
+        Some("Composer > Editor"),
+    )]);
+    // Zed's keymap binds cmd-q (ctrl-q on Linux) to zed::Quit; the app menu gives macOS its
+    // Quit item. Quitting the window never stops a thread: the daemon runs on.
+    cx.on_action(|_: &zed_actions::Quit, cx| cx.quit());
+    cx.set_menus([Menu {
+        name: "cedian".into(),
+        items: vec![MenuItem::action("Quit cedian", zed_actions::Quit)],
+        disabled: false,
+    }]);
     cx.on_window_closed(|cx, _| {
         if cx.windows().is_empty() {
             cx.quit();
