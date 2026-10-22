@@ -34,7 +34,7 @@ The native macOS desktop for [cedia](https://github.com/pongsathonkheereekaew/ce
 
 ## Thread states
 
-cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon shows `working` only while a run of the thread is alive, and adds `interrupted` for a thread whose last state is `working` but whose run is gone (crash, reboot), which can go on with `--thread`. There is no `waiting`, because cedia never stops to ask. Tabs show the state, with a notification and sound when a thread finishes or fails, and a `verified` badge when its last receipt has no unverified or flagged files.
+cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon shows `working` only while a run of the thread is alive, and adds `interrupted` for a thread whose last state is `working` but whose run is gone (crash, reboot), which can go on with `--thread`. There is no `waiting` yet, because cedia never stops to ask; the owner wants threads to ask only when something truly matters, which is a cedia change first (below). Tabs and the thread list show the state as badges, with an optional sound when a thread finishes or fails, and a `verified` badge when its last receipt has no unverified or flagged files (Interface, below).
 
 ## Decisions
 
@@ -61,6 +61,7 @@ cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon shows `wor
 | Platform | macOS on Apple silicon; standard macOS keys; macOS dictation in the composer |
 | Tests | Replay cedia's recorded fixtures; no model calls in tests |
 | Performance | Budgets are gates, measured from the outside the same way on cedian and the Claude desktop app: cold start, keystroke latency, scrolling a 10k-block thread at 120 fps, idle memory |
+| Look | Ink & Lime from the app icon, dark by default; Chrome-style project tabs, a tool panel on the right, badges instead of banners; type after the Claude desktop app with open faces (Interface, below) |
 | Reactions | cedian draws cedia's `message` and `delivered` events as reactions on your messages; your 👍/👎 on an answer goes in through `cedia threads rate` as an event for picking eval cases and never reaches the model |
 | Bots | A bot is a named profile in cedia's own `profiles` settings key (role, model, instructions, tools), started with `--profile`. Start a thread with one, or @mention one to send it work in its own thread through cedia's `message_thread`. Never several bots answering in one conversation (one session, one model) |
 
@@ -75,6 +76,151 @@ cedia writes four: `working`, `done`, `failed`, `stopped`. The daemon shows `wor
 - A hunk the person edited after the agent is STALE and never rejected.
 - When the agent writes a file whose buffer has unsaved edits, the disk keeps the agent's version and the buffer offers Override or Discard; Override tells the thread the same way.
 
+## Interface
+
+Decided 2026-10-22 with the owner over mockups (the "cedian UI design" canvas: agent pane at work, a finished thread with its receipt, diff review, settings, and the tokens). Built on Zed's theme tokens, which the window already draws from.
+
+### Principles
+
+1. Proof over prose: the `verified` badge, which check ran and which thread ran it, and evidence an edit outdated are UI, never buried in text.
+2. Money is always visible: live cost and rate on the thread header, cost on every thread row, today's total in the sidebar. Figures are mono with tabular digits.
+3. One timeline: sessions started in a terminal and in the window sit in one thread, split by a divider that says where each started; threads started from the CLI carry a `CLI` tag.
+4. Quiet until it matters: no spinners, a slowly pulsing dot for working, a caret while text streams; tool cards stay one line unless they fail or carry a diff.
+5. Thai is a first language: sizes and line heights are set for Thai marks first.
+6. Keyboard first: every action has a key, and nothing waits on an animation.
+
+### Layout
+
+```text
+┌ project tabs 42 (title bar, Chrome style): ● ● ● [cedian ●2 (2) ×] [aetheria ●1 (1) ×] [cedia ×] + ┐
+├ toolbar 44: folder · worktrees · omnibox ⌘K · Thread ใหม่ ──────────────────────────────────────────┤
+├ sidebar 264 ─┬ pane tabs 40 (open threads) ─────────────────────────────────────────────┬─────────┤
+│ กำลังทำ      │ agent pane (flex)                   │ tool panel 456 (open tools stack)   │ rail 48 │
+│ ต้องดู        │ header: title · $ · Stop             │ editor                              │ editor  │
+│ เสร็จแล้ว     │ chips: branch · model · context · view│                                     │ term    │
+│              │ timeline (answers ≤ 680)             ├─────────────────────────────────────┤ review  │
+│ today $      │ composer with queued messages        │ terminal                            │ ...     │
+├──────────────┴──────────────────────────────────────┴─────────────────────────────────────┴─────────┤
+│ status bar 26: daemon · cedia rev · runs · keep-awake · cursor · today $                           │
+└────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Project tabs**, drawn like Chrome's: one tab per open project (cedia's project, a repository with all its worktrees) on a darker strip in the title bar. A tab is 236 px wide, shrinking when there are many, 34 px tall, with 10 px top corners and curved flares where the active tab joins the toolbar; inactive tabs are transparent with a 1 px divider between them. Each tab has the project's icon and name, a pulsing count of working threads, a badge counting threads that need you (`failed` fill when any failed, else `accent`), and a close ×. `⌘T` or `+` opens a project, `⌘1`–`⌘9` and `⌃Tab` switch, `⌘W` closes a tab without stopping its threads, and tabs drag to reorder.
+- **Toolbar** under the tabs, in the active tab's color like Chrome's address bar: the project folder and its worktrees, a rounded omnibox (`⌘K`) that searches threads in every project or starts a thread when you type a task, and Thread ใหม่, the one primary button.
+- Each project keeps its own sidebar, open threads, tools and layout (`desktop.layout`, per project).
+- **Sidebar**: that project's threads in groups, กำลังทำ (working), ต้องดู (failed, interrupted, finished and not reviewed, asking), ปักหมุด (phase C), เสร็จแล้ว (done and stopped, newest first). A row is a state dot, the title, and a line with the state and time, cost, `verified` and `CLI`. A worktree is a branch chip on the thread, never a group. `⌘B` folds the sidebar to a 56 px rail of initials and state dots.
+- **Tool panel and rail** on the right: Editor, Terminal, Review (badge: files waiting), Files, Browser, Git, Thread details, and `+` for more (usage, background tasks, MCP in phase C). A click toggles a tool; open tools stack in rail order with draggable dividers, and follow the selected thread (its worktree, its shell, its review). `⌘⌥1`–`⌘⌥7` toggle tools and `⌘⌥0` hides the panel. Any tool drags out into the main area as a full pane, which is how a long review is read.
+- Settings is its own window (`⌘,`), as on any Mac app.
+- Minimum window 1024 × 640.
+
+### Agent pane
+
+- Header: the title (16/24, 600), live cost with its rate while working, Stop (`⌘.`). Chips: worktree branch, model and role, a context meter (`76k/200k`), and the view mode: คำตอบ, + ความคิด, ทุก tool.
+- Blocks: a session divider; the user's message as a right-aligned bubble with its delivery reactions under it; the agent's answer in the serif face, at most 680 px wide; thinking with a dashed border and its duration (hidden in คำตอบ); tool cards with a 30 px header (icon, tool, argument, then exit code, `+n −n` or duration), opened only for a failure's output or an edit's diff, tinted `working` while running, and folded into one chip (`3 tools · read, bash exit 101, edit +6 −1`) in the two narrower view modes.
+- Receipt: a card with an `accent` border; a header with `verified` (or a dashed `unverified n`), the verdict, and turns, time and cost; checks with the thread that ran each, and changed files against the first snapshot; next steps (รีวิว diff, เปิด PR, รวมเข้า main) and 👍/👎 for `cedia threads rate`.
+- Composer: queued messages sit above the text as chips (ส่งที่ turn ถัดไป, ส่งเลย, แก้, ลบ). Enter sends, Shift-Enter adds a line, `@` mentions a bot, `/` opens commands, and macOS dictation works.
+- Thread details (a tool): environment, sessions in order with where each started, cost by model, outputs, and the context meter split into system, tools and messages.
+
+### Diff review
+
+- Header: what it compares against ("snapshot แรกของ thread", never git HEAD), totals, unified or split, progress (`3/7 hunk`), รับที่เหลือทั้งหมด, and Commit และเปิด PR.
+- Files (280 px) with `+/−` and a tag: รอรีวิว, รับครบ, `stale n`.
+- Each hunk has รับ (`Y`) and ปฏิเสธ (`N`). Reject asks why, then writes the file and sends file, hunk and reason with `cedia threads send`. An accepted hunk folds to a `รับแล้ว` badge with undo. A STALE hunk has the warn tint and says in words why it cannot be rejected.
+- Evidence (280 px): for the open file, the checks that cover it after its last edit, and the ones a later edit outdated, with "ให้ thread รัน check ใหม่".
+- `J`/`K` move between hunks, `⌘O` opens the file in the editor.
+
+### Settings window
+
+Sections down the left; Bots and Models are marked `cedia`, because those are cedia's keys and are edited through its schema. There is no Save button: each change replaces the file atomically and takes effect at once, and a column on the right shows the file as it will be written, with the changed line marked. Appearance holds the theme (มืด by default, สว่าง, ตามระบบ), the fonts, the size, the density (สบายตา, กะทัดรัด), the default view mode, and the sound.
+
+### Notifications
+
+Badges only, as in other Mac apps, for now; banners wait until the rest of the app is done (owner, 2026-10-22). The project tab badges, the sidebar's ต้องดู group, and the Dock icon's count (threads that need you, across projects), plus an optional sound on finish or failure. A thread needs you when it failed, was interrupted, finished and is not reviewed, or asks a question. Opening it clears its share of every badge.
+
+Threads go on working and check their own work, and ask only when something truly matters (owner, 2026-10-22). cedia cannot ask yet; once it can (below), cedian shows the thread as ถามคุณ, counted in every badge, with the question above the composer.
+
+### Color
+
+Ink & Lime, from the app icon. Lime is the only accent and means verified or primary; nothing decorative uses it. Dark is the default theme.
+
+| Token | Dark | Light |
+| --- | --- | --- |
+| frame (tab strip) | `#060709` | `#DDE1D8` |
+| app | `#0B0D10` | `#F6F7F4` |
+| side (sidebar, toolbar, active tab) | `#0E1114` | `#EFF1EC` |
+| surface | `#111418` | `#FFFFFF` |
+| raised | `#171B21` | `#FAFBF8` |
+| hover | `#1E232B` | `#F0F2ED` |
+| sel | `#222932` | `#E4E8DF` |
+| border | `#242A33` | `#E3E5DF` |
+| border.strong | `#313845` | `#CDD1C8` |
+| code | `#0D1013` | `#FCFCFA` |
+| text | `#E8EAED` | `#0B0D10` |
+| text.muted | `#9BA3AF` (7.3:1) | `#545B66` (6.9:1) |
+| text.faint | `#7D8592` (5.0:1) | `#667080` (4.5:1 on app) |
+| accent fill | `#C6F432` | `#5E8A00` |
+| accent text | `#C6F432` (14.4:1) | `#4F7500` (5.4:1) |
+| primary button | `#C6F432`, ink text | `#0B0D10`, lime text |
+| working | `#5AA9FF` | `#1F6FD1` |
+| failed | `#FF6B57` | `#C93B22` |
+| warn (interrupted, stale) | `#E8B931` | `#946000` |
+| user.bubble | `#1A1F26` | `#F0F2ED` |
+
+Ratios are against `surface` unless noted. Soft tints are the hue at 8–14% alpha, lines at 35–40%. Diff lines carry `+` and `−` as well as their tint, so color is never the only signal.
+
+The tokens ship as two Zed theme files, "cedian Dark" and "cedian Light", loaded in place of `LoadThemes::JustBase`, so the window, Zed's `editor` and the terminal share them: `app` → `background`, `side` → `panel.background`, `surface` → `editor.background` and `elevated_surface.background`, `sel` → `element.selected`, `text.muted` → `text.muted`, `accent` → `text.accent` and `status.success`, `failed` → `status.error`, `warn` → `status.warning`, `working` → `status.info`; syntax keywords `working`, strings `accent`, comments `text.faint`. Tokens Zed has no key for (`frame`, `user.bubble`, the tints) live in one `cedian_window` file derived from the active theme.
+
+### Thread states as drawn
+
+| State | Dot | Word |
+| --- | --- | --- |
+| working | solid `working`, pulsing 1.4 s | กำลังทำ m:ss |
+| done | hollow `text.faint` | time since |
+| verified | done, plus the `verified` badge | |
+| failed | solid `failed` | ล้มเหลว |
+| stopped | solid `text.muted` | หยุดแล้ว |
+| interrupted | hollow `warn` | ขาดตอน |
+| asking (once cedia can) | `accent` ring | ถามคุณ |
+
+### Type
+
+The owner asked for type in the manner of the Claude desktop app: a plain sans for the interface and a serif for the agent's answers. Anthropic's own faces are not ours to ship, so cedian bundles open (OFL) ones and registers them with GPUI's text system at start, never reading the system's:
+
+- Interface: **Inter**, with **Noto Sans Thai** for Thai.
+- Agent answers: **Source Serif 4**, with **Noto Serif Thai** for Thai.
+- Code, tool output and terminal: **Lilex** (Zed's), with Noto Sans Thai for Thai.
+
+| Name | Size / line | Weight | Use |
+| --- | --- | --- | --- |
+| title | 22 / 30 | 600 | settings section title |
+| pane title | 16 / 24 | 600 | thread title |
+| answer | 15.5 / 26 serif | 400 | the agent's text |
+| message | 14 / 24 | 400 | the person's text, composer |
+| ui | 13 / 20 | 400 | lists, buttons, inputs |
+| meta | 12 / 18 | 400 | chips, secondary lines |
+| label | 11 / 16 | 600 | group headers, badges |
+| code | 12.5 / 20 | 400 | editor, tool output, terminal |
+
+Thai: line height at least 1.6 times the size for running text, no italics (use weight), capitals only on English labels, and line breaks by dictionary, not spaces. GPUI's line wrapper breaks at spaces and punctuation, so Thai would wrap mid-word; the first step of this work is word segmentation (ICU4X `icu_segmenter`) feeding the agent pane's wrap points, measured against the 10k-block scroll budget.
+
+### Spacing, radius, motion, access
+
+- Spacing 4, 8, 12, 16, 20, 24, 32. Radius 4 (badges, inline code), 6–7 (buttons, chips), 8 (cards, rows), 10 (tab tops), 12 (composer, receipt, window).
+- Heights: tab 34, toolbar 44, pane tab 32, tool card header 30, buttons 28 in a pane and 30 in a header, status bar 26.
+- Motion: 120 ms ease-out for hover and expand, the working pulse, the streaming caret; under Reduce Motion all of it stops and the working dot stays solid.
+- Text meets 4.5:1 at every size. Focus ring: 2 px `accent`. States differ by shape and word as well as color. Every control has a key and a VoiceOver name.
+
+### `desktop` keys
+
+`theme` (`dark` by default, `light`, `system`), `font.ui`, `font.answer`, `font.code`, `font.size`, `density` (`comfortable`, `compact`), `view_mode` (`answers`, `thinking`, `all`), `notifications.sound`, `keymap`, `layout` (per project: open tools, panes, sizes).
+
+### Order of work
+
+1. Thai word wrapping, the two Zed theme files, the bundled fonts (phase B, before review and settings land).
+2. Agent pane: header, tool cards, receipt, composer with the queue (phase B).
+3. Review and the settings window (phase B).
+4. Project tabs, toolbar, sidebar groups, tool panel and rail, badges (phase B for one project, phase C for many).
+
 ## What cedia needs to add
 
 Done in cedia PR #19: project identity across worktrees, the `desktop` key with unknown keys failing loudly, the protocol schema and session fixtures, `permission_reply` removed. Done in cedia PR #28 (pinned at `4716402`): `cedia --version --json` with version, protocol hash and capabilities; `threads rate` and `threads unsend` as thread events; a Keychain fallback for API keys (service `cedia`, the env var name as account); each check in a receipt names the thread that ran it; fixture thread ids are stable across re-records. Done in cedia PR #31 (pinned at `427cfa8`): a `result` session event at the end of a run's last writer session, carrying the receipt, so a thread rebuilt from cedia's files shows it. Still to add, in the order cedian needs them:
@@ -85,6 +231,7 @@ Done in cedia PR #19: project identity across worktrees, the `desktop` key with 
 4. `cedia serve` with `host_tools`, `host_call` and `host_result`, once a host tool is needed (phase C).
 5. `prompt.images` and the media route to Haiku 5.5 (phase D, deferred).
 6. Media references (video frames, original file) in tool results (phase D).
+7. A question event that ends a run with the thread waiting for the owner's answer, used only when something truly matters (owner, 2026-10-22); cedian draws it as `asking` (Interface).
 
 ## Projects
 
