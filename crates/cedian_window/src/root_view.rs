@@ -1,16 +1,18 @@
-//! The window: the project's threads, the open thread with its composer, and the editor and
-//! terminal beside them. It keeps only what the daemon can send again.
+//! The window: the project tab and the toolbar, the project's threads, the open thread with
+//! its composer, the tool panel and its rail, and the status bar. It keeps only what the daemon
+//! can send again.
 
 use std::{path::PathBuf, sync::Arc};
 
 use cedian_protocol::Line;
-use cedian_wire::{Notice, Request, Status, ThreadInfo};
+use cedian_wire::{HunkState, Notice, Request, Status, ThreadInfo};
+use editor::Editor;
 use futures::StreamExt as _;
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, Focusable as _, InteractiveElement as _,
-    IntoElement, MouseButton, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Task, Window, WindowControlArea, WindowHandle,
-    div, prelude::FluentBuilder as _, px,
+    AnyElement, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    MouseButton, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Task, Window, WindowControlArea, WindowHandle, div, prelude::FluentBuilder as _,
+    px,
 };
 use settings::Settings as _;
 use theme::ActiveTheme as _;
@@ -26,9 +28,13 @@ use crate::{
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
     settings_window::SettingsWindow,
-    spike_view::SpikeView,
+    shell_pane::ShellPane,
+    status_bar::{self, StatusLine},
     tab_strip::{self, ProjectTab},
+    thread_details::{self, Details},
     thread_list::{self, Group},
+    tool_rail::{self, HideTools, ToggleDetails, ToggleEditor, ToggleReview, ToggleTerminal, Tool},
+    toolbar::{FocusOmnibox, Found, Toolbar, ToolbarEvent},
     view_mode::ViewMode,
 };
 
@@ -61,10 +67,14 @@ pub struct RootView {
     error: Option<SharedString>,
     agent: Entity<AgentPane>,
     composer: Entity<Composer>,
-    tools: Entity<SpikeView>,
+    editor: Entity<Editor>,
+    shell: Entity<ShellPane>,
+    toolbar: Entity<Toolbar>,
     review: Entity<ReviewPane>,
-    /// The right column shows the review instead of the editor and terminal.
-    showing_review: bool,
+    /// The tools open in the panel, in rail order.
+    tools: Vec<Tool>,
+    /// Hunks of the open thread's review still waiting, for the rail's badge.
+    waiting_hunks: usize,
     /// The review fills the main area in place of the agent pane.
     review_wide: bool,
     settings: Entity<SettingsView>,
@@ -95,7 +105,7 @@ impl RootView {
     ) -> Self {
         let agent = cx.new(|_| AgentPane::new("new thread").with_view_mode(view_mode));
         let mut view = Self::new(cwd, agent, window, cx);
-        view.showing_review = layout.showing_review;
+        view.tools = layout.tools.clone();
         view.layout = layout;
         view.layout.bounds = Some(saved_bounds(window));
         cx.observe_window_bounds(window, |view, window, cx| {
@@ -151,7 +161,40 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> Self {
         let shell_cwd = (!cwd.as_os_str().is_empty()).then(|| cwd.clone());
-        let tools = cx.new(|cx| SpikeView::new(shell_cwd, window, cx));
+        let editor = cx.new(|cx| Editor::multi_line(window, cx));
+        let shell = cx.new(|cx| ShellPane::new(shell_cwd, window, cx));
+        let project: SharedString = cwd
+            .file_name()
+            .map_or_else(|| "cedian".to_owned(), |n| n.to_string_lossy().into_owned())
+            .into();
+        let toolbar = cx.new(|cx| Toolbar::new(project, window, cx));
+        cx.subscribe_in(&toolbar, window, |view, _, event, window, cx| match event {
+            ToolbarEvent::Open(thread) => {
+                view.select(thread.clone(), cx);
+                view.composer
+                    .update(cx, |composer, cx| composer.focus(window, cx));
+            }
+            ToolbarEvent::Start(task) => {
+                view.new_thread(cx);
+                view.submit(task.clone(), cx);
+            }
+            ToolbarEvent::NewThread => {
+                view.new_thread(cx);
+                view.composer
+                    .update(cx, |composer, cx| composer.focus(window, cx));
+            }
+            ToolbarEvent::Dismissed => view
+                .composer
+                .update(cx, |composer, cx| composer.focus(window, cx)),
+        })
+        .detach();
+        // Thread details reads the transcript.
+        cx.observe(&agent, |view, _, cx| {
+            if view.tools.contains(&Tool::Details) {
+                cx.notify();
+            }
+        })
+        .detach();
         let composer = cx.new(|cx| Composer::new(window, cx));
         cx.subscribe(&composer, |view, _, event, cx| match event {
             ComposerEvent::Submit(text) => view.submit(text.clone(), cx),
@@ -234,9 +277,12 @@ impl RootView {
             error: None,
             agent,
             composer,
-            tools,
+            editor,
+            shell,
+            toolbar,
             review,
-            showing_review: false,
+            tools: Layout::default().tools,
+            waiting_hunks: 0,
             review_wide: false,
             settings,
             settings_window: None,
@@ -342,6 +388,12 @@ impl RootView {
                 }
             }
             Notice::Review { thread, review } if self.current.as_ref() == Some(&thread) => {
+                self.waiting_hunks = review
+                    .files
+                    .iter()
+                    .flat_map(|f| &f.hunks)
+                    .filter(|h| h.state == HunkState::Pending)
+                    .count();
                 self.review
                     .update(cx, |pane, cx| pane.set_review(review, cx));
             }
@@ -374,6 +426,12 @@ impl RootView {
             },
             None => "new thread".to_owned(),
         };
+        let branch = info
+            .and_then(|t| t.cwd.as_deref())
+            .and_then(crate::agent_pane::branch_of);
+        let found = self.threads.iter().map(Found::of).collect();
+        self.toolbar
+            .update(cx, |toolbar, cx| toolbar.set(found, branch, cx));
         let header = Header {
             title: title.into(),
             status: self.status,
@@ -443,19 +501,38 @@ impl RootView {
     fn widen_review(&mut self, wide: bool, cx: &mut Context<Self>) {
         self.review_wide = wide;
         self.review.update(cx, |pane, cx| pane.set_wide(wide, cx));
-        if !wide {
-            self.show_review(true, cx);
-        } else {
-            self.refresh_review();
+        if !wide && !self.tools.contains(&Tool::Review) {
+            tool_rail::toggle(&mut self.tools, Tool::Review);
+            self.layout.tools = self.tools.clone();
+            self.save_layout(cx);
         }
+        self.refresh_review();
         cx.notify();
     }
 
     fn show_review(&mut self, on: bool, cx: &mut Context<Self>) {
-        self.showing_review = on;
-        self.layout.showing_review = on;
+        if self.tools.contains(&Tool::Review) != on {
+            self.toggle_tool(Tool::Review, cx);
+        }
+    }
+
+    fn toggle_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
+        if tool == Tool::Review && self.review_wide {
+            // The review is in the main area; its button brings it back to the panel.
+            self.widen_review(false, cx);
+            return;
+        }
+        tool_rail::toggle(&mut self.tools, tool);
+        self.layout.tools = self.tools.clone();
         self.save_layout(cx);
         self.refresh_review();
+        cx.notify();
+    }
+
+    fn hide_tools(&mut self, cx: &mut Context<Self>) {
+        self.tools.clear();
+        self.layout.tools.clear();
+        self.save_layout(cx);
         cx.notify();
     }
 
@@ -555,7 +632,8 @@ impl RootView {
     }
 
     fn refresh_review(&self) {
-        if let (true, Some(thread)) = (self.showing_review || self.review_wide, &self.current) {
+        // Asked for even while the review is closed: the rail's badge counts its hunks.
+        if let Some(thread) = &self.current {
             self.request(Request::Review {
                 cwd: self.cwd.clone(),
                 thread: thread.clone(),
@@ -563,65 +641,99 @@ impl RootView {
         }
     }
 
+    /// The panel's open tools stacked in rail order, beside the rail.
     fn render_tools(&self, cx: &mut Context<Self>) -> AnyElement {
-        let colors = cx.theme().colors();
+        let colors = cx.theme().colors().clone();
         let live = !matches!(self.connection, Connection::Replay);
-        // A widened review sits in the main area, so the column keeps the editor and terminal.
-        let showing_review = self.showing_review && !self.review_wide;
-        let tab = |id: &'static str, label: &'static str, on: bool| {
-            div()
-                .id(id)
-                .px_2()
-                .py_1()
-                .text_xs()
-                .cursor_pointer()
-                .text_color(if on { colors.text } else { colors.text_muted })
-                .when(on, |tab| tab.border_b_1().border_color(colors.text_accent))
-                .child(label)
-        };
-        div()
-            .w(px(460.))
+        // A widened review sits in the main area, so the panel keeps the rest.
+        let shown: Vec<Tool> = self
+            .tools
+            .iter()
+            .copied()
+            .filter(|t| !(*t == Tool::Review && (self.review_wide || !live)))
+            .collect();
+        let details = shown
+            .contains(&Tool::Details)
+            .then(|| Details::of(self.agent.read(cx).transcript()));
+        let info = self
+            .current
+            .as_ref()
+            .and_then(|id| self.threads.iter().find(|t| &t.thread.id == id));
+        let mut panel = div()
+            .w(px(tool_rail::PANEL_WIDTH))
             .flex_none()
             .h_full()
             .flex()
             .flex_col()
-            .when(live, |column| {
-                column.child(
+            .border_l_1()
+            .border_color(colors.border);
+        for (n, tool) in shown.iter().enumerate() {
+            let body: AnyElement = match tool {
+                Tool::Editor => div()
+                    .size_full()
+                    .p_2()
+                    .child(self.editor.clone())
+                    .into_any_element(),
+                Tool::Terminal => self.shell.clone().into_any_element(),
+                Tool::Review => self.review.clone().into_any_element(),
+                Tool::Details => div()
+                    .id("details")
+                    .size_full()
+                    .overflow_y_scroll()
+                    .child(thread_details::render(
+                        info,
+                        details.as_ref().unwrap_or(&Details::default()),
+                        cx,
+                    ))
+                    .into_any_element(),
+            };
+            let tool = *tool;
+            panel =
+                panel.child(
                     div()
+                        .flex_1()
+                        .min_h_0()
                         .flex()
-                        .flex_none()
-                        .gap_1()
-                        .px_1()
-                        .border_b_1()
-                        .border_color(colors.border)
-                        .bg(colors.panel_background)
+                        .flex_col()
+                        .when(n > 0, |section| {
+                            section.border_t_1().border_color(colors.border)
+                        })
                         .child(
-                            tab("tools-tab", "Editor and terminal", !showing_review).on_click(
-                                cx.listener(|view, _, _, cx| {
-                                    view.show_review(false, cx);
-                                }),
-                            ),
+                            div()
+                                .h(px(28.))
+                                .flex_none()
+                                .px_3()
+                                .flex()
+                                .items_center()
+                                .bg(colors.panel_background)
+                                .text_size(px(11.))
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(colors.text_muted)
+                                .child(div().flex_grow(1.).child(tool.label()))
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!("close-{}", tool.key())))
+                                        .px_1()
+                                        .cursor_pointer()
+                                        .hover(|c| c.text_color(colors.text))
+                                        .on_click(cx.listener(move |view, _, _, cx| {
+                                            view.toggle_tool(tool, cx)
+                                        }))
+                                        .child("×"),
+                                ),
                         )
-                        .child(
-                            tab("review-tab", "Review", showing_review).on_click(cx.listener(
-                                |view, _, window, cx| {
-                                    if view.review_wide {
-                                        view.widen_review(false, cx);
-                                    }
-                                    view.show_review(true, cx);
-                                    window.focus(&view.review.focus_handle(cx), cx);
-                                },
-                            )),
-                        ),
-                )
-            })
-            .child(div().flex_grow(1.).min_h_0().map(|body| {
-                if showing_review {
-                    body.child(self.review.clone())
-                } else {
-                    body.child(self.tools.clone())
-                }
-            }))
+                        .child(div().flex_1().min_h_0().child(body)),
+                );
+        }
+        let rail = tool_rail::rail(&self.tools, self.waiting_hunks, cx, |tool| {
+            Box::new(cx.listener(move |view, _, _, cx| view.toggle_tool(tool, cx)))
+        });
+        div()
+            .flex_none()
+            .h_full()
+            .flex()
+            .when(!shown.is_empty(), |row| row.child(panel))
+            .child(rail)
             .into_any_element()
     }
 
@@ -660,12 +772,6 @@ impl RootView {
     fn render_threads(&self, cx: &mut Context<Self>) -> AnyElement {
         let colors = cx.theme().colors();
         let status_colors = cx.theme().status();
-        let connection: SharedString = match &self.connection {
-            Connection::Replay => "replay".into(),
-            Connection::Connecting => "connecting to the daemon".into(),
-            Connection::Connected { cedia } => cedia.clone(),
-            Connection::Failed(_) => "daemon unreachable".into(),
-        };
         let now = chrono::Utc::now();
         let mut list = div()
             .id("threads")
@@ -673,6 +779,7 @@ impl RootView {
             .flex_col()
             .flex_grow(1.)
             .px_2()
+            .pb_2()
             .overflow_y_scroll();
         for group in Group::ALL {
             let members: Vec<&ThreadInfo> = self
@@ -780,48 +887,7 @@ impl RootView {
             .border_color(colors.border)
             .bg(colors.panel_background)
             .text_color(colors.text)
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .px_2()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(colors.border)
-                    .child(div().text_sm().child("Threads"))
-                    .child(
-                        div()
-                            .id("new-thread")
-                            .text_sm()
-                            .cursor_pointer()
-                            .text_color(colors.text_accent)
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.new_thread(cx);
-                                view.composer
-                                    .update(cx, |composer, cx| composer.focus(window, cx));
-                            }))
-                            .child("New"),
-                    ),
-            )
             .child(list)
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .px_2()
-                    .py_1()
-                    .text_xs()
-                    .text_color(colors.text_muted)
-                    .child(connection)
-                    .child(
-                        div()
-                            .id("open-settings")
-                            .cursor_pointer()
-                            .text_color(colors.text_accent)
-                            .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx)))
-                            .child("Settings"),
-                    ),
-            )
             .into_any_element()
     }
 }
@@ -947,8 +1013,34 @@ impl Render for RootView {
                     })
                     .when(!wide && live, |column| column.child(self.composer.clone())),
             )
-            // A widened review takes the tool column's width too.
-            .when(!wide, |body| body.child(self.render_tools(cx)));
+            // A widened review leaves the panel the other tools, and the rail.
+            .when(live, |body| body.child(self.render_tools(cx)));
+        let (daemon, connected, cedia): (SharedString, bool, Option<SharedString>) =
+            match &self.connection {
+                Connection::Replay => ("replay".into(), false, None),
+                Connection::Connecting => ("กำลังต่อ daemon".into(), false, None),
+                Connection::Connected { cedia } => ("daemon".into(), true, Some(cedia.clone())),
+                Connection::Failed(_) => ("ต่อ daemon ไม่ได้".into(), false, None),
+            };
+        let working = self
+            .threads
+            .iter()
+            .filter(|t| t.status == Status::Working)
+            .count();
+        let status = status_bar::bar(
+            StatusLine {
+                daemon,
+                connected,
+                cedia,
+                working,
+                waiting,
+            },
+            div()
+                .id("open-settings")
+                .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx)))
+                .child("Settings"),
+            cx,
+        );
         let tab = ProjectTab {
             name: project.into_owned().into(),
             working: self
@@ -992,6 +1084,23 @@ impl Render for RootView {
                 cx.listener(|view, _: &zed_actions::OpenSettings, _, cx| view.open_settings(cx)),
             )
             .on_action(cx.listener(|view, _: &StopRun, _, cx| view.stop(cx)))
+            .on_action(
+                cx.listener(|view, _: &ToggleEditor, _, cx| view.toggle_tool(Tool::Editor, cx)),
+            )
+            .on_action(
+                cx.listener(|view, _: &ToggleTerminal, _, cx| view.toggle_tool(Tool::Terminal, cx)),
+            )
+            .on_action(
+                cx.listener(|view, _: &ToggleReview, _, cx| view.toggle_tool(Tool::Review, cx)),
+            )
+            .on_action(
+                cx.listener(|view, _: &ToggleDetails, _, cx| view.toggle_tool(Tool::Details, cx)),
+            )
+            .on_action(cx.listener(|view, _: &HideTools, _, cx| view.hide_tools(cx)))
+            .on_action(cx.listener(|view, _: &FocusOmnibox, window, cx| {
+                view.toolbar
+                    .update(cx, |toolbar, cx| toolbar.focus(window, cx))
+            }))
             .font(
                 theme_settings::ThemeSettings::get_global(cx)
                     .ui_font
@@ -1000,6 +1109,8 @@ impl Render for RootView {
             .bg(background)
             .text_color(text)
             .child(strip)
+            .when(live, |root| root.child(self.toolbar.clone()))
             .child(body)
+            .when(live, |root| root.child(status))
     }
 }
