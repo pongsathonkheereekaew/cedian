@@ -24,6 +24,7 @@ impl SessionEvent {
             | SessionEvent::Permission { id, parent_id, .. }
             | SessionEvent::ToolIntent { id, parent_id, .. }
             | SessionEvent::ToolResult { id, parent_id, .. }
+            | SessionEvent::InputRepaired { id, parent_id, .. }
             | SessionEvent::Reminder { id, parent_id, .. }
             | SessionEvent::Effort { id, parent_id, .. }
             | SessionEvent::TurnEnd { id, parent_id, .. }

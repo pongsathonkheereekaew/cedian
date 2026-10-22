@@ -69,4 +69,14 @@ mod tests {
             Line::parse(text).err()
         );
     }
+
+    #[test]
+    fn a_member_cedia_adds_after_the_pin_is_read_past() {
+        let text = r#"{"type":"result","subtype":"success","sessionId":"s","numTurns":1,"usage":{"uncached":1,"cacheRead":0,"cacheWrite":0,"output":1},"costUsd":0,"cacheHitRatio":0,"result":"done","addedLater":{"any":"shape"}}"#;
+        assert!(
+            matches!(Line::parse(text), Ok(Line::Result(_))),
+            "{:?}",
+            Line::parse(text).err()
+        );
+    }
 }
