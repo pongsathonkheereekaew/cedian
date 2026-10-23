@@ -565,7 +565,7 @@ mod tests {
 
     fn choices() -> RunChoices {
         let models: ModelList = serde_json::from_str(
-            r#"{"default":"faux/a","models":[{"ref":"faux/a","alias":"a","label":"Faux A","provider":"faux","available":true,"contextWindow":1,"effort":false},{"ref":"x/think","label":"Think","provider":"x","available":true,"contextWindow":1,"effort":true,"effortLevels":["low","medium","high"],"defaultEffort":"medium"}]}"#,
+            r#"{"default":"faux/a","models":[{"ref":"faux/a","alias":"a","label":"Faux A","provider":"faux","available":true,"contextWindow":1,"effort":false},{"ref":"x/think","label":"Think","provider":"x","available":true,"contextWindow":1,"effort":true,"effortLevels":["low","medium","high"],"defaultEffort":"medium"}],"modes":[]}"#,
         )
         .expect("models");
         let permissions: PermissionList = serde_json::from_str(

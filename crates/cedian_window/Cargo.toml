@@ -42,6 +42,7 @@ semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 settings.workspace = true
+shlex.workspace = true
 task.workspace = true
 text.workspace = true
 terminal.workspace = true

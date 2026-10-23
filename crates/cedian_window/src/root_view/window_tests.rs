@@ -18,7 +18,7 @@ use crate::{agent_pane::AgentPane, thread_search};
 const MODELS: &str = r#"{"default":"faux/scripted","models":[
   {"ref":"faux/scripted","label":"Faux (scripted)","provider":"faux","available":true,"contextWindow":200000,"effort":false},
   {"ref":"anthropic/claude-opus-5-5-fast","alias":"opus-fast","label":"Claude Opus 5.5 (fast, a long name to shrink)","provider":"anthropic","available":true,"contextWindow":1000000,"effort":true,"effortLevels":["low","medium","high","xhigh","max"],"defaultEffort":"medium"},
-  {"ref":"opencode-go/deepseek-v4.1-flash","label":"DeepSeek V4.1 Flash","provider":"opencode-go","available":false,"reason":"OPENCODE_API_KEY is not set","contextWindow":1000000,"effort":false}]}"#;
+  {"ref":"opencode-go/deepseek-v4.1-flash","label":"DeepSeek V4.1 Flash","provider":"opencode-go","available":false,"reason":"OPENCODE_API_KEY is not set","contextWindow":1000000,"effort":false}],"modes":[]}"#;
 const PERMISSIONS: &str = r#"{"default":"workspace","modes":[
   {"mode":"read-only","label":"Read only","description":"Reads and runs nothing that writes."},
   {"mode":"plan","label":"Plan","description":"Reads, then ends with a plan and asks for the go-ahead."},

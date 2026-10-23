@@ -433,6 +433,7 @@ impl RootView {
                 key: (*key).to_owned(),
                 value: value.clone(),
             }),
+            SettingsEvent::Send(request) => view.request((**request).clone()),
         })
         .detach();
         let review = cx.new(|cx| {
@@ -623,6 +624,14 @@ impl RootView {
                 self.can_delete = cedia.as_ref().is_ok_and(|v| {
                     v.capabilities
                         .contains(&cedian_protocol::Capability::ThreadsDelete)
+                });
+                let can_mcp = cedia.as_ref().is_ok_and(|v| {
+                    v.capabilities
+                        .contains(&cedian_protocol::Capability::McpManage)
+                });
+                self.settings.update(cx, |view, cx| {
+                    view.mcp.capable = can_mcp;
+                    cx.notify();
                 });
                 let can_attach = cedia.as_ref().is_ok_and(|v| {
                     v.capabilities
@@ -856,6 +865,12 @@ impl RootView {
             Notice::Usage { cwd, since, report } => self
                 .usage
                 .update(cx, |pane, cx| pane.set_report(cwd, since, *report, cx)),
+            Notice::Mcp { list, refused } => self
+                .settings
+                .update(cx, |view, cx| view.set_mcp(list, refused, cx)),
+            Notice::McpChecked { check } => self
+                .settings
+                .update(cx, |view, cx| view.set_mcp_check(check, cx)),
             Notice::Browser { cwd, page } => self
                 .browser
                 .update(cx, |pane, cx| pane.set_page(cwd, page, cx)),

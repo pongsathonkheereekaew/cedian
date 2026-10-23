@@ -7,8 +7,8 @@ use std::{
 
 use anyhow::Context as _;
 use cedian_protocol::{
-    Capability, CommandList, ModelList, PermissionList, Rating, Restored, RewindResult, Schedule,
-    UsageReport, VersionInfo,
+    Capability, CommandList, McpCheck, McpList, ModelList, PermissionList, Rating, Restored,
+    RewindResult, Schedule, UsageReport, VersionInfo,
 };
 
 /// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--effort`,
@@ -144,6 +144,80 @@ impl Cedia {
             Some(_) => self.list_with(cwd, "usage", &range),
             None => self.list_with(None, "usage", &[range[0], range[1], "--all"]),
         }
+    }
+
+    /// `cedia mcp list --json`: the person's MCP servers, without the values of their
+    /// environments and headers.
+    pub fn mcp_list(&self) -> Result<McpList, String> {
+        self.list_with(None, "mcp", &["list"])
+    }
+
+    /// `cedia mcp check <name> --json`: starts the server, lists its tools and stops it. A
+    /// server that did not start is an answer too (exit 1 with `ok: false`).
+    pub fn mcp_check(&self, name: &str) -> Result<McpCheck, String> {
+        let output = self
+            .command(Path::new("/"))
+            .args(["mcp", "check", "--json", "--", name])
+            .output()
+            .map_err(|e| format!("running {}: {e}", self.bin.display()))?;
+        serde_json::from_slice(&output.stdout).map_err(|_| {
+            format!(
+                "cedia mcp check exited with {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            )
+        })
+    }
+
+    /// `cedia mcp add <name> (--command <c> --arg=<a>... --env=<K=V>... | --url <u>
+    /// --header=<K=V>...) [--read-only]`. `--arg=` keeps an argument that starts with `-` from
+    /// reading as a flag.
+    pub fn mcp_add(&self, name: &str, server: &cedian_wire::McpAdd) -> Result<(), String> {
+        let mut run = self.command(Path::new("/"));
+        run.args(["mcp", "add"]);
+        let pair = match &server.target {
+            cedian_wire::McpTarget::Command { command, args } => {
+                run.arg(format!("--command={command}"));
+                run.args(args.iter().map(|arg| format!("--arg={arg}")));
+                "env"
+            }
+            cedian_wire::McpTarget::Url { url } => {
+                run.arg(format!("--url={url}"));
+                "header"
+            }
+        };
+        run.args(
+            server
+                .pairs
+                .iter()
+                .map(|(key, value)| format!("--{pair}={key}={value}")),
+        );
+        if server.read_only {
+            run.arg("--read-only");
+        }
+        self.mcp_change(run.arg("--").arg(name), "add")
+    }
+
+    /// `cedia mcp remove <name>`.
+    pub fn mcp_remove(&self, name: &str) -> Result<(), String> {
+        let mut run = self.command(Path::new("/"));
+        self.mcp_change(run.args(["mcp", "remove", "--", name]), "remove")
+    }
+
+    /// Runs a change to `mcpServers`; cedia's refusal is its last line on stderr.
+    fn mcp_change(&self, run: &mut Command, verb: &str) -> Result<(), String> {
+        let output = run
+            .output()
+            .map_err(|e| format!("running {}: {e}", self.bin.display()))?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let line = stderr.trim().lines().last().unwrap_or_default();
+        Err(match line.strip_prefix("cedia: ") {
+            Some(reason) => reason.to_owned(),
+            None => format!("cedia mcp {verb} exited with {}: {line}", output.status),
+        })
     }
 
     /// `cedia <command> --json [--cwd <cwd>]`, read as `T`.
