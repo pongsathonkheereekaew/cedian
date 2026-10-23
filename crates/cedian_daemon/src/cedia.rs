@@ -27,6 +27,8 @@ pub struct Flags<'a> {
     /// The project's page in the shared browser (`--browser`), when it runs and this cedia can
     /// drive it.
     pub browser: Option<&'a str>,
+    /// How long the writer's cached prompt lasts (`--cache-ttl`), when this cedia can set it.
+    pub cache_ttl: Option<&'a str>,
 }
 
 /// How the daemon starts cedia: which binary, with which environment.
@@ -178,7 +180,7 @@ impl Cedia {
 
     /// One run: `cedia --print=<text> --output-format stream-json --cwd <cwd> [--thread <id>]
     /// [--profile <name>] [--model <ref>] [--permission <mode>] [--effort <level>] [--ask on]
-    /// [--todo on] [--browser <page>]`. `--print=`
+    /// [--todo on] [--browser <page>] [--cache-ttl <ttl>]`. `--print=`
     /// keeps a prompt that starts with `-` from reading as a flag.
     /// `ask` lets the run end on a question for the person, when this cedia can.
     pub fn prompt(
@@ -234,6 +236,9 @@ impl Cedia {
         // The page the person sees in the Browser block (core/tools/browser.ts in cedia).
         if let Some(page) = flags.browser {
             command.args(["--browser", page]);
+        }
+        if let Some(ttl) = flags.cache_ttl {
+            command.args(["--cache-ttl", ttl]);
         }
         command
             .spawn()
