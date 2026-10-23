@@ -114,9 +114,14 @@ fn the_composer_row_keeps_its_chips_inside_at_every_size() {
     let mut app = app();
     let (view, cx) = window(&mut app);
     // The faux writer takes no effort; a model that takes one shows it after its name.
+    // The second pass also turns helpers on, which the permission chip counts.
     for model in [None, Some("anthropic/claude-opus-5-5-fast")] {
         view.update(cx, |view, cx| {
-            view.choices.pick_mut(Some("t-00000001")).model = model.map(str::to_owned);
+            let pick = view.choices.pick_mut(Some("t-00000001"));
+            pick.model = model.map(str::to_owned);
+            // With helpers on, the permission chip says how many.
+            pick.roles[0] = model.map(|_| "none".to_owned());
+            pick.goal = model.is_some();
             cx.notify();
         });
         for (width, height) in SIZES {

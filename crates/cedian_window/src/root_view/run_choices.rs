@@ -1,7 +1,9 @@
 //! What the open thread's next run runs on, in the composer's bottom row: a model chip and a
 //! permission chip, each with a menu of what cedia lists (`cedia models`, `cedia permissions`).
 //! A model that takes an effort shows it after its name, and its menu starts with the levels.
-//! A pick holds for its thread until the window closes; a thread with none shows its writer's
+//! The permission menu ends with the helper roles around the writer (plan, review, advisor)
+//! and a goal, each cedia's flag; a role left at its setting sends nothing, so cedia's
+//! `roles` decide. A pick holds for its thread until the window closes; a thread with none shows its writer's
 //! model, the model's own effort and cedia's default mode, and cedia decides all three.
 
 use std::{
@@ -10,6 +12,7 @@ use std::{
 };
 
 use cedian_protocol::{Effort, ModelEntry, ModelList, PermissionList, PermissionSetting};
+use cedian_wire::Helpers;
 use gpui::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
     StatefulInteractiveElement as _, Styled as _, deferred, div, prelude::FluentBuilder as _, px,
@@ -48,7 +51,14 @@ pub(super) struct Pick {
     pub permission: Option<PermissionSetting>,
     /// Sent only while the model takes it: a pick made on another model waits.
     pub effort: Option<Effort>,
+    /// The helper roles: a model ref, `claude-code` or `none`; none sends nothing.
+    pub roles: [Option<String>; 3],
+    /// The run goes on until a judge finds its prompt done (`--goal <prompt>`).
+    pub goal: bool,
 }
+
+/// The helper roles' words, in `Pick::roles` order: `--plan`, `--review`, `--advisor`.
+const ROLES: [&str; 3] = ["วางแผนก่อนเขียน", "รีวิวเมื่อเสร็จ", "ที่ปรึกษาระหว่างทำ"];
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Menu {
@@ -126,6 +136,24 @@ impl RunChoices {
             permission.map(|p| p.to_string()),
             effort.map(|e| e.to_string()),
         )
+    }
+
+    /// The helper roles and goal a run of `thread` sends with `text`.
+    pub(super) fn helpers_for_run(&self, thread: Option<&str>, text: &str) -> Helpers {
+        let pick = self.pick(thread);
+        let [plan, review, advisor] = pick.roles.clone();
+        Helpers {
+            plan,
+            review,
+            advisor,
+            goal: pick.goal.then(|| text.to_owned()),
+        }
+    }
+
+    /// How many helpers the thread's pick turns on or off, for the permission chip.
+    fn helpers_set(&self, thread: Option<&str>) -> usize {
+        let pick = self.pick(thread);
+        pick.roles.iter().filter(|r| r.is_some()).count() + usize::from(pick.goal)
     }
 
     /// The model a run of `thread` takes: the pick, else the writer's, else cedia's default.
@@ -207,11 +235,11 @@ impl RunChoices {
             .modes
             .iter()
             .find(|m| m.mode == mode);
-        Some(
-            listed
-                .map_or_else(|| mode.to_string(), |m| m.label.clone())
-                .into(),
-        )
+        let label = listed.map_or_else(|| mode.to_string(), |m| m.label.clone());
+        Some(match self.helpers_set(thread) {
+            0 => label.into(),
+            n => format!("{label} +{n}").into(),
+        })
     }
 }
 
@@ -444,6 +472,73 @@ impl RootView {
                         })),
                     });
                 }
+                // The helpers: at cedia's setting, off, or a model; then the goal.
+                let available: Vec<(String, String)> = choices
+                    .models
+                    .iter()
+                    .flat_map(|m| &m.models)
+                    .filter(|m| m.available && m.provider != "faux")
+                    .map(|m| (m.ref_.clone(), m.label.clone()))
+                    .collect();
+                let pick = choices.pick(thread.as_deref()).clone();
+                for (n, words) in ROLES.iter().enumerate() {
+                    rows.extend([Row::Separator, Row::Label((*words).into())]);
+                    let options = [
+                        (None, "ตามค่าตั้งของ cedia".to_owned()),
+                        (Some("none".to_owned()), "ปิด".to_owned()),
+                        (
+                            Some("claude-code".to_owned()),
+                            "Claude Code ของคุณ".to_owned(),
+                        ),
+                    ]
+                    .into_iter()
+                    .chain(available.iter().map(|(r, l)| (Some(r.clone()), l.clone())));
+                    for (value, label) in options {
+                        let thread = thread.clone();
+                        let view = cx.entity().downgrade();
+                        rows.push(Row::Choice {
+                            chosen: pick.roles[n] == value,
+                            label: label.into(),
+                            note: None,
+                            detail: None,
+                            on_click: Some(Box::new(move |_, _, cx| {
+                                let value = value.clone();
+                                let thread = thread.clone();
+                                if let Err(error) = view.update(cx, |view, cx| {
+                                    view.choices.pick_mut(thread.as_deref()).roles[n] = value;
+                                    view.choices.menu = None;
+                                    cx.notify();
+                                }) {
+                                    log::warn!("helper pick: {error}");
+                                }
+                            })),
+                        });
+                    }
+                }
+                let goal = pick.goal;
+                let view = cx.entity().downgrade();
+                let thread = thread.clone();
+                rows.extend([
+                    Row::Separator,
+                    Row::Choice {
+                        chosen: goal,
+                        label: "ทำจนกว่าจะสำเร็จตามคำสั่ง".into(),
+                        note: None,
+                        detail: Some(
+                            "หลังบอกว่าเสร็จ ผู้ตรวจอีกตัวอ่านงานเทียบกับคำสั่ง ถ้ายังไม่ครบให้ทำต่อ".into(),
+                        ),
+                        on_click: Some(Box::new(move |_, _, cx| {
+                            let thread = thread.clone();
+                            if let Err(error) = view.update(cx, |view, cx| {
+                                view.choices.pick_mut(thread.as_deref()).goal = !goal;
+                                view.choices.menu = None;
+                                cx.notify();
+                            }) {
+                                log::warn!("goal pick: {error}");
+                            }
+                        })),
+                    },
+                ]);
             }
         }
         // From the chips' right edge leftwards: they sit left of the block's middle.
@@ -551,5 +646,27 @@ mod tests {
             Some("กลาง")
         );
         assert_eq!(choices.for_run(Some("t-1"), Some("x/think")).2, None);
+    }
+
+    #[test]
+    fn helpers_send_only_what_was_picked_and_the_goal_is_the_prompt() {
+        let mut choices = choices();
+        assert!(choices.helpers_for_run(None, "x").is_empty());
+        assert_eq!(choices.permission_label(None).as_deref(), Some("Read only"));
+        let pick = choices.pick_mut(Some("t-1"));
+        pick.roles[1] = Some("none".into());
+        pick.goal = true;
+        assert_eq!(
+            choices.helpers_for_run(Some("t-1"), "make it pass"),
+            Helpers {
+                review: Some("none".into()),
+                goal: Some("make it pass".into()),
+                ..Helpers::default()
+            }
+        );
+        assert_eq!(
+            choices.permission_label(Some("t-1")).as_deref(),
+            Some("Read only +2")
+        );
     }
 }

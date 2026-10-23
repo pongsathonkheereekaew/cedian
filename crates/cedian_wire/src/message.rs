@@ -47,6 +47,8 @@ pub enum Request {
         /// none keeps the model's own.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         effort: Option<String>,
+        #[serde(default, skip_serializing_if = "Helpers::is_empty")]
+        helpers: Helpers,
     },
     /// The `/` commands a run in the project can take (`cedia commands`), answered with
     /// `Notice::Commands` when this cedia lists them.
@@ -94,6 +96,8 @@ pub enum Request {
         permission: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         effort: Option<String>,
+        #[serde(default, skip_serializing_if = "Helpers::is_empty")]
+        helpers: Helpers,
     },
     /// A message the running thread sees at its next turn.
     Send {
@@ -154,6 +158,31 @@ pub enum Request {
         key: String,
         value: serde_json::Value,
     },
+}
+
+/// The roles a run adds around its writer, each cedia's flag: a model ref, `claude-code[:<model>]`
+/// or `none`; none keeps cedia's setting (`roles` in its settings).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Helpers {
+    /// `--plan`: a model plans before the writer starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    /// `--review`: a model reviews the change once the done gate passes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<String>,
+    /// `--advisor`: a model reads each writer turn and may leave a note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub advisor: Option<String>,
+    /// `--goal`: the run goes on until a judge finds this holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<String>,
+}
+
+impl Helpers {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// What the person decided about a hunk.
@@ -307,6 +336,7 @@ mod tests {
             model: None,
             permission: None,
             effort: None,
+            helpers: Helpers::default(),
         };
         let mut buffer = Vec::new();
         write_message(&mut buffer, &request).expect("write");

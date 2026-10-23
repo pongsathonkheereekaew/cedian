@@ -12,13 +12,14 @@ use cedian_protocol::{
 };
 
 /// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--effort`,
-/// `--ask on` and `--todo on`.
+/// the helper roles (`--plan`, `--review`, `--advisor`, `--goal`), `--ask on` and `--todo on`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Flags<'a> {
     pub profile: Option<&'a str>,
     pub model: Option<&'a str>,
     pub permission: Option<&'a str>,
     pub effort: Option<&'a str>,
+    pub helpers: Option<&'a cedian_wire::Helpers>,
     /// The run may end on a question for the person, when this cedia can.
     pub ask: bool,
     /// The writer keeps a todo list, when this cedia can.
@@ -207,6 +208,18 @@ impl Cedia {
         }
         if let Some(effort) = flags.effort {
             command.args(["--effort", effort]);
+        }
+        if let Some(helpers) = flags.helpers {
+            for (flag, value) in [
+                ("--plan", &helpers.plan),
+                ("--review", &helpers.review),
+                ("--advisor", &helpers.advisor),
+                ("--goal", &helpers.goal),
+            ] {
+                if let Some(value) = value {
+                    command.arg(flag).arg(value);
+                }
+            }
         }
         if flags.ask {
             command.args(["--ask", "on"]);

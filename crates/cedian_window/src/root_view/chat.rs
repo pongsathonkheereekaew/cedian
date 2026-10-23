@@ -219,6 +219,7 @@ impl RootView {
             model: None,
             permission: None,
             effort: None,
+            helpers: Default::default(),
         });
         if !self.showing(Kind::Chat) {
             self.open_kind(Kind::Chat, ToolTarget { against: None }, cx);
