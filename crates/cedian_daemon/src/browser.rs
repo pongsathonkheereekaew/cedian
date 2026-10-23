@@ -3,6 +3,7 @@
 //! page and the project's runs drive the same page through cedia's browser tool, so the person
 //! and the agent see one page. Its profile lives in the daemon's state directory, so sign-ins
 //! last; a daemon that restarts finds the Chromium still running there and keeps using it.
+//! The Chromium is the headless shell cedian ships beside the daemon, else an installed one.
 
 use std::{
     collections::HashMap,
@@ -20,7 +21,14 @@ use cedian_wire::BrowserPage;
 const START_TIMEOUT: Duration = Duration::from_secs(15);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Where Chromium is looked for, after `$CEDIAN_CHROMIUM`.
+/// The Chromium cedian ships (`script/fetch-chromium`), relative to the daemon's directory:
+/// in the app bundle's Resources, else beside the build output in development.
+const BUNDLED: [&str; 2] = [
+    "../Resources/chrome-headless-shell/chrome-headless-shell",
+    "../chrome-headless-shell/chrome-headless-shell",
+];
+
+/// Where an installed browser is looked for, after the bundled one.
 #[cfg(target_os = "macos")]
 const APPS: [&str; 5] = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -90,8 +98,13 @@ impl Browser {
     }
 
     fn start(&mut self) -> anyhow::Result<u16> {
-        let bin = find_chromium(&self.env).ok_or_else(|| {
-            anyhow!("ไม่พบ Chrome หรือ Chromium: ติดตั้ง Google Chrome หรือตั้ง CEDIAN_CHROMIUM")
+        let exe = std::env::current_exe()
+            .inspect_err(|e| log::warn!("the daemon's own path: {e}"))
+            .ok();
+        let bin = find_chromium(&self.env, exe.as_deref()).ok_or_else(|| {
+            anyhow!(
+                "ไม่พบ Chromium: รัน script/fetch-chromium, ติดตั้ง Google Chrome หรือตั้ง CEDIAN_CHROMIUM"
+            )
         })?;
         std::fs::create_dir_all(&self.profile)
             .with_context(|| format!("creating {}", self.profile.display()))?;
@@ -177,10 +190,16 @@ fn chromium_args(profile: &Path) -> Vec<String> {
         .collect()
 }
 
-/// `$CEDIAN_CHROMIUM`, else an installed Chrome-family browser, else one on the login PATH.
-pub fn find_chromium(env: &HashMap<String, String>) -> Option<PathBuf> {
+/// `$CEDIAN_CHROMIUM`, else the bundled headless shell beside `exe`, else an installed
+/// Chrome-family browser, else one on the login PATH.
+pub fn find_chromium(env: &HashMap<String, String>, exe: Option<&Path>) -> Option<PathBuf> {
     if let Some(path) = env.get("CEDIAN_CHROMIUM") {
         return Some(PathBuf::from(path));
+    }
+    if let Some(dir) = exe.and_then(Path::parent)
+        && let Some(bundled) = BUNDLED.iter().map(|p| dir.join(p)).find(|p| p.is_file())
+    {
+        return Some(bundled);
     }
     if let Some(app) = APPS.iter().map(PathBuf::from).find(|p| p.is_file()) {
         return Some(app);
@@ -247,7 +266,37 @@ mod tests {
     #[test]
     fn chromium_comes_from_the_environment_first() {
         let env = HashMap::from([("CEDIAN_CHROMIUM".to_owned(), "/opt/chrome".to_owned())]);
-        assert_eq!(find_chromium(&env), Some(PathBuf::from("/opt/chrome")));
+        assert_eq!(
+            find_chromium(&env, None),
+            Some(PathBuf::from("/opt/chrome"))
+        );
+    }
+
+    #[test]
+    fn the_bundled_shell_comes_before_an_installed_browser() {
+        let dir = tempfile::tempdir().expect("dir");
+        std::fs::create_dir_all(dir.path().join("MacOS")).expect("mkdir");
+        let exe = dir.path().join("MacOS/cedian-daemon");
+        let shell = dir
+            .path()
+            .join("Resources/chrome-headless-shell/chrome-headless-shell");
+        std::fs::create_dir_all(shell.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&shell, "").expect("write");
+        let env = HashMap::from([("PATH".to_owned(), "/nowhere".to_owned())]);
+        let found = |exe: &Path| {
+            find_chromium(&env, Some(exe)).map(|p| p.canonicalize().expect("canonical"))
+        };
+        assert_eq!(found(&exe), Some(shell.canonicalize().expect("canonical")));
+        // In development the build output's directory holds it.
+        let dev = tempfile::tempdir().expect("dir");
+        let shell = dev
+            .path()
+            .join("chrome-headless-shell/chrome-headless-shell");
+        std::fs::create_dir_all(shell.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&shell, "").expect("write");
+        std::fs::create_dir_all(dev.path().join("debug")).expect("mkdir");
+        let exe = dev.path().join("debug/cedian-daemon");
+        assert_eq!(found(&exe), Some(shell.canonicalize().expect("canonical")));
     }
 
     #[test]

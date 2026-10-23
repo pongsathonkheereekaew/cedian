@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Fetch the Chromium cedian ships: Chrome for Testing's chrome-headless-shell at the version
+# below, checked against its pinned SHA-256, unpacked into <dest>/chrome-headless-shell.
+# The daemon looks for it beside its own binary: <exe dir>/../Resources/chrome-headless-shell
+# in the app bundle, <exe dir>/../chrome-headless-shell in development (so target/).
+# Usage: script/fetch-chromium [platform] [dest]
+#   platform: mac-arm64, mac-x64 or linux64 (default: this machine's)
+#   dest: default target/
+set -euo pipefail
+
+VERSION=156.0.8078.47
+sha256_for() {
+  case "$1" in
+    mac-arm64) echo 2fd1c09a3e1ebde9e69e6aba92f1dd3f21ad247b55d9bf66e39213ff4205436d ;;
+    mac-x64) echo 5e230044c6ac989597f4a4e301a0a710d257e07d6f7754754da2bf62ea3d272c ;;
+    linux64) echo 0d5acc62c3e213f8c87d3c298d66ffcf9a236d12ea4b9f85318bf85dbc279daa ;;
+    *) echo "unknown platform: $1 (mac-arm64, mac-x64 or linux64)" >&2; exit 2 ;;
+  esac
+}
+
+if [[ $# -gt 2 ]]; then
+  echo "usage: script/fetch-chromium [platform] [dest]" >&2
+  exit 2
+fi
+platform="${1:-}"
+if [[ -z "$platform" ]]; then
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) platform=mac-arm64 ;;
+    Darwin-x86_64) platform=mac-x64 ;;
+    Linux-x86_64) platform=linux64 ;;
+    *) echo "no Chrome for Testing build for $(uname -s) $(uname -m)" >&2; exit 2 ;;
+  esac
+fi
+want="$(sha256_for "$platform")"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+dest="${2:-$root/target}"
+mkdir -p "$dest"
+dest="$(cd "$dest" && pwd)"
+
+if [[ "$(cat "$dest/chrome-headless-shell/VERSION" 2>/dev/null)" == "$VERSION $platform" ]]; then
+  echo "chrome-headless-shell $VERSION $platform already in $dest"
+  exit 0
+fi
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+url="https://storage.googleapis.com/chrome-for-testing-public/$VERSION/$platform/chrome-headless-shell-$platform.zip"
+echo "fetching $url"
+curl -fsSL -o "$tmp/shell.zip" "$url"
+if command -v sha256sum >/dev/null; then
+  got="$(sha256sum "$tmp/shell.zip" | cut -d' ' -f1)"
+else
+  got="$(shasum -a 256 "$tmp/shell.zip" | cut -d' ' -f1)"
+fi
+if [[ "$got" != "$want" ]]; then
+  echo "checksum mismatch for $platform: got $got, pinned $want" >&2
+  exit 1
+fi
+unzip -q "$tmp/shell.zip" -d "$tmp"
+rm -rf "$dest/chrome-headless-shell"
+mv "$tmp/chrome-headless-shell-$platform" "$dest/chrome-headless-shell"
+echo "$VERSION $platform" > "$dest/chrome-headless-shell/VERSION"
+echo "chrome-headless-shell $VERSION $platform in $dest/chrome-headless-shell"
