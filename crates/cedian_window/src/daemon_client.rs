@@ -45,7 +45,7 @@ impl DaemonClient {
                 socket.display(),
                 own.exe.display()
             );
-            match hand_over(&stream, &own.exe) {
+            match hand_over(&stream, &own.exe, &socket) {
                 Ok(()) => {
                     (stream, reader, welcome) = open(&socket)?;
                     if is_other_build(&welcome, own) {
@@ -127,7 +127,7 @@ fn is_other_build(welcome: &Notice, own: &Build) -> bool {
 /// Stops the daemon at the other end of `stream`, and, from an app bundle, points the
 /// LaunchAgent (when there is one) at `own`, so login starts this build too. Runs and the
 /// shared Chromium outlive the daemon, and the next one takes them over.
-fn hand_over(stream: &UnixStream, own: &Path) -> anyhow::Result<()> {
+fn hand_over(stream: &UnixStream, own: &Path, socket: &Path) -> anyhow::Result<()> {
     let pid = peer_pid(stream).context("asking the socket which process serves it")?;
     // SAFETY: kill only sends a signal.
     if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
@@ -156,6 +156,17 @@ fn hand_over(stream: &UnixStream, own: &Path) -> anyhow::Result<()> {
             .with_context(|| format!("running {} install", own.display()))?;
         if !status.success() {
             log::warn!("{} install exited with {status}", own.display());
+            return Ok(());
+        }
+        // launchd is starting the daemon; a second one started here would race it for the
+        // socket, and launchd would restart a loser every few seconds.
+        let start = Instant::now();
+        while UnixStream::connect(socket).is_err() {
+            if start.elapsed() > START_TIMEOUT {
+                log::warn!("the LaunchAgent's daemon did not answer; starting one");
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
         }
     }
     Ok(())
