@@ -1,31 +1,31 @@
 # Desktop settings
 
-cedian is supposed to read and write the `desktop` key in `~/.cedia/settings.json`. cedia owns the rest of the file. Theme, font, keymap, layout, notifications, and browser live under that key. API keys stay out of the file. The settings UI is phase B in `docs/ARCHITECTURE.md`. This checkout has no writer. `settings::init` in the window is Zed's settings init, not that file.
+cedian stores its settings in the `desktop` object of `$CEDIA_HOME/settings.json`. With `CEDIA_HOME` unset, that path is `~/.cedia/settings.json`. The daemon reads `desktop` and rewrites the file through a rename when one key changes. Every other top-level key stays, in the same order. The window reads the file once before the first frame, then applies the daemon's `settings` notices. It writes `layout` when the window moves. This drive plants `sandbox.mode` `off`, which this cedia pin accepts, and then sets `desktop.theme` to `light`.
 
 ## Sub-features
 
-- `settings-read` would show the current `desktop` values in the settings UI.
-- `settings-write` would save a change back to the same file.
-- `settings-isolated` would do that write in the verification data directory, not in the owner's `~/.cedia`.
+- `settings-read` leaves `desktop.layout` in the isolated file after launch.
+- `settings-write` sets `theme` to `light` through the daemon's `set_desktop` request.
+- `settings-isolated` keeps that file under `/tmp/verify-cedian/live/home` and leaves `sandbox.mode` at `off`. `~/.cedia` stays absent.
 
 ## How to get to it (user POV)
 
-- Launch cedian. The phase A window has no settings UI.
-- The isolated data directory stays empty. `~/.cedia` stays absent.
+- Launch cedian with the helper. The live home already contains `{"sandbox":{"mode":"off"}}`.
+- The window saves its bounds under `desktop.layout`.
+- The settings drive sets the theme. The file still has `sandbox.mode` `off`.
 
 ## Driving it with verify-cedian
 
 Preconditions:
 
-- Launch has created an empty `CEDIAN_DATA_DIR` that is not `~/.cedia`.
-- Doctor prints `home_cedia=absent`.
-- Do not launch a binary that writes the owner's settings file. This helper refuses that path.
+- Launch has a live window and a daemon socket.
+- Doctor prints `home_cedia=absent` and `ready=yes`.
 
-- **Read and write.** Run `bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh drive desktop-settings`. A passing run would print `ready=yes` and leave a `desktop` key in the isolated settings file. This checkout prints `settings_file=absent`, `desktop_key=unread`, and `exit=1`.
-- **Proof.** `/tmp/verify-cedian/evidence/desktop-settings.txt` has the command and the exit code. `home_cedia` is still `absent`.
+- **Read and write.** Run `bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh drive desktop-settings`. A passing run prints `settings_file=present`, `desktop_theme=light`, `sandbox=kept`, `layout=present`, and exits `0`.
+- **Proof.** `/tmp/verify-cedian/evidence/desktop-settings.txt` has the record and `settings_path`. That path is `$CEDIA_HOME/settings.json`.
 
 ## Gotchas
 
-- Do not create `~/.cedia/settings.json` to give the journey a file. The owner's file is out of bounds, and a file you plant there is not the settings UI.
-- API keys are not part of this journey. Do not write one into a settings file.
-- `window=started` means the phase A window is up. It does not mean a theme was saved.
+- Do not create `~/.cedia/settings.json`. Launch deletes `~/.cedia` if the binary creates it, and exits `1`.
+- API keys are not part of this journey. Do not write one into the file.
+- The settings window is `crates/cedian_window/src/settings_window.rs`. This drive changes the theme through the daemon request that window sends. It does not click the Settings control.
