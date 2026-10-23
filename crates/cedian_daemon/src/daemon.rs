@@ -14,7 +14,7 @@ use cedian_index::{
     read_thread, session_cwd, session_lines, session_path, threads_dir,
 };
 use cedian_protocol::{Line, SessionEvent, ThreadState, VersionInfo};
-use cedian_wire::{Notice, Request, Status, ThreadInfo};
+use cedian_wire::{Build, Notice, Request, Status, ThreadInfo};
 
 use crate::{
     Cedia, auto_archive,
@@ -54,6 +54,8 @@ pub struct Daemon {
     cedia: Cedia,
     home: PathBuf,
     version: Result<VersionInfo, String>,
+    /// This daemon's binary as it was when the daemon started, for `Notice::Welcome`.
+    build: Option<Build>,
     /// The models and permission modes this cedia lists, as `Notice::Choices`, sent to each
     /// window that connects.
     choices: Notice,
@@ -112,6 +114,7 @@ impl Daemon {
             cedia,
             home,
             version,
+            build: Build::current(),
             choices,
             clients: HashMap::new(),
             runs: HashMap::new(),
@@ -255,6 +258,7 @@ impl Daemon {
             Notice::Welcome {
                 daemon: env!("CARGO_PKG_VERSION").to_owned(),
                 cedia: self.version.clone(),
+                build: self.build.clone(),
             },
         );
         self.send(id, self.choices.clone());
