@@ -17,6 +17,7 @@ runtime_shaders = ["gpui_platform/runtime_shaders"]
 [dependencies]
 anyhow.workspace = true
 assets.workspace = true
+base64.workspace = true
 cedian_agent = { path = "../cedian_agent" }
 cedian_index = { path = "../cedian_index" }
 cedian_layout = { path = "../cedian_layout" }
@@ -29,6 +30,7 @@ fuzzy.workspace = true
 futures.workspace = true
 gpui.workspace = true
 icu_segmenter.workspace = true
+image.workspace = true
 gpui_platform.workspace = true
 log.workspace = true
 release_channel.workspace = true
@@ -40,6 +42,7 @@ settings.workspace = true
 task.workspace = true
 text.workspace = true
 terminal.workspace = true
+tungstenite.workspace = true
 theme.workspace = true
 theme_settings.workspace = true
 util.workspace = true
@@ -53,3 +56,4 @@ objc2-foundation.workspace = true
 [dev-dependencies]
 # Records debug selectors and gives the offline test window.
 gpui = { workspace = true, features = ["test-support"] }
+tempfile = "3"

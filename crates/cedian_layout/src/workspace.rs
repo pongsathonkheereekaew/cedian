@@ -99,8 +99,11 @@ impl Default for Workspace {
                         vec![(1.7, b(Kind::Agent)), (1., b(Kind::Terminal))],
                     ),
                 ),
-                // The browser comes in phase C; until then the preview reads the files.
-                (1.6, tabs(vec![b(Kind::Files), b(Kind::Editor)])),
+                // The page first, with the files beside it.
+                (
+                    1.6,
+                    tabs(vec![b(Kind::Browser), b(Kind::Files), b(Kind::Editor)]),
+                ),
             ],
         );
         let review = Node::split(

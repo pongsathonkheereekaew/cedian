@@ -10,6 +10,7 @@ license-file = "LICENSE"
 # Zed v1.25.2. Bump all of these together, and copy Zed's [patch] section at the same rev.
 [workspace.dependencies]
 anyhow = "1"
+base64 = "0.22"
 assets = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 collections = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 editor = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
@@ -17,6 +18,8 @@ futures = "0.3"
 fuzzy = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 icu_segmenter = "2"
+# The Browser block's screencast frames; the features GPUI already builds.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSDockTile", "NSAccessibility", "NSResponder", "NSWorkspace"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString"] }
@@ -34,6 +37,8 @@ text = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812
 task = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 terminal = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 theme = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
+# The Browser block's DevTools connection, plain ws:// to the local Chromium.
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 theme_settings = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 util = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38", features = ["debug-embed"] }
 zed_actions = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
