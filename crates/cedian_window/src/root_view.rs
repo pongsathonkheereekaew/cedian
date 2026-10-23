@@ -1,6 +1,7 @@
 //! The window: the project tabs over the front project's blocks (Interface, Blocks). It keeps
 //! only what the daemon can send again.
 
+mod background;
 mod blocks;
 mod chat;
 mod knowledge;
@@ -541,6 +542,9 @@ impl RootView {
                     self.request(Request::Threads {
                         cwd: project.cwd.clone(),
                     });
+                    self.request(Request::Background {
+                        cwd: project.cwd.clone(),
+                    });
                 }
                 self.request(Request::Settings);
             }
@@ -565,6 +569,16 @@ impl RootView {
                     .update(cx, |composer, cx| composer.set_commands(commands, cx));
             }
             Notice::Commands { .. } => {}
+            Notice::Background {
+                cwd,
+                schedules,
+                mcp,
+            } => {
+                if let Some(project) = self.projects.iter_mut().find(|p| p.cwd == cwd) {
+                    project.background = Some(crate::project::Background { schedules, mcp });
+                    cx.notify();
+                }
+            }
             Notice::Settings { path, desktop } => {
                 let settings = Desktop::from_value(&desktop);
                 settings.apply(cx);
@@ -906,6 +920,7 @@ impl RootView {
             Some(n) => n,
             None => {
                 self.request(Request::Threads { cwd: dir.clone() });
+                self.request(Request::Background { cwd: dir.clone() });
                 let mut project = Project::new(dir);
                 self.load_blocks(&mut project);
                 self.projects.push(project);

@@ -27,7 +27,7 @@ const STREAM: &str =
     include_str!("../../../cedian_protocol/cedia/sessions/edit-and-check/stream.jsonl");
 
 /// The sizes the window takes: its smallest, the default, and a wide one.
-const SIZES: [(f32, f32); 7] = [
+pub(super) const SIZES: [(f32, f32); 7] = [
     (1024., 640.),
     (1280., 800.),
     (1440., 900.),
@@ -38,7 +38,7 @@ const SIZES: [(f32, f32); 7] = [
     (2560., 1440.),
 ];
 
-fn app() -> TestAppContext {
+pub(super) fn app() -> TestAppContext {
     let text_system = gpui_platform::current_platform(true).text_system();
     let cx = TestAppContext::build_with_text_system(TestDispatcher::new(0), None, text_system);
     cx.update(|cx| {
@@ -54,7 +54,7 @@ fn app() -> TestAppContext {
 
 /// A window on one project with a thread open, as the daemon would leave it, but with no
 /// daemon: notices go straight to the view.
-fn window(cx: &mut TestAppContext) -> (gpui::Entity<RootView>, &mut VisualTestContext) {
+pub(super) fn window(cx: &mut TestAppContext) -> (gpui::Entity<RootView>, &mut VisualTestContext) {
     let cwd = PathBuf::from("/fixture/repo");
     let (view, cx) = cx.add_window_view(|window, cx| {
         let agent = cx.new(|_| AgentPane::new("fixture"));
@@ -86,13 +86,13 @@ fn window(cx: &mut TestAppContext) -> (gpui::Entity<RootView>, &mut VisualTestCo
     (view, cx)
 }
 
-fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> {
+pub(super) fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> {
     cx.debug_bounds(selector)
         .unwrap_or_else(|| panic!("{selector} was not drawn"))
 }
 
 #[track_caller]
-fn inside(part: &str, inner: Bounds<Pixels>, outer_name: &str, outer: Bounds<Pixels>) {
+pub(super) fn inside(part: &str, inner: Bounds<Pixels>, outer_name: &str, outer: Bounds<Pixels>) {
     // Half a pixel for rounding.
     let slack = px(0.5);
     assert!(
@@ -105,7 +105,7 @@ fn inside(part: &str, inner: Bounds<Pixels>, outer_name: &str, outer: Bounds<Pix
 }
 
 #[track_caller]
-fn apart(a_name: &str, a: Bounds<Pixels>, b_name: &str, b: Bounds<Pixels>) {
+pub(super) fn apart(a_name: &str, a: Bounds<Pixels>, b_name: &str, b: Bounds<Pixels>) {
     assert!(!a.intersects(&b), "{a_name} {a:?} overlaps {b_name} {b:?}");
 }
 

@@ -4,11 +4,13 @@ use std::{
 };
 
 use cedian_index::{MemoryNote, Output};
-use cedian_protocol::{CommandEntry, ModelList, PermissionList, Rating, UsageReport, VersionInfo};
+use cedian_protocol::{
+    CommandEntry, ModelList, PermissionList, Rating, Schedule, UsageReport, VersionInfo,
+};
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{Status, ThreadInfo};
+use crate::{McpServer, Status, ThreadInfo};
 
 /// From the window to the daemon.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -106,6 +108,17 @@ pub enum Request {
         hunk: String,
         decision: Decision,
     },
+    /// What the Background tasks block lists beside the threads: the project's scheduled runs
+    /// and the MCP servers cedia's settings name. Answered with `Notice::Background`, and again
+    /// whenever the schedules change.
+    Background { cwd: PathBuf },
+    /// Pauses or resumes one scheduled run (`cedia schedules pause|resume`); every window
+    /// showing the project's background gets `Notice::Background`.
+    Schedule {
+        cwd: PathBuf,
+        id: String,
+        enabled: bool,
+    },
     /// The `desktop` key of cedia's settings file, answered with `Notice::Settings`.
     Settings,
     /// Sets one key of `desktop`; `null` removes it. Every window gets `Notice::Settings`.
@@ -200,6 +213,13 @@ pub enum Notice {
     Commands {
         cwd: PathBuf,
         commands: Vec<CommandEntry>,
+    },
+    /// The project's scheduled runs (`cedia schedules`), `None` when this cedia has none, and
+    /// the MCP servers in cedia's settings.
+    Background {
+        cwd: PathBuf,
+        schedules: Option<Vec<Schedule>>,
+        mcp: Vec<McpServer>,
     },
     /// The answer to `Request::Usage`, with the request's `cwd` and `since`.
     Usage {

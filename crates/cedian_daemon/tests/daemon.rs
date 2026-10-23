@@ -995,3 +995,89 @@ fn a_prompt_that_names_a_model_and_a_mode_runs_on_them() {
         "{args:?}"
     );
 }
+
+#[test]
+fn the_window_gets_the_schedules_and_a_due_one_wakes_its_thread() {
+    let harness = start_with("edit-and-check", "\"schedules\"");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Prompt {
+        cwd: harness.cwd.clone(),
+        text: "make f.txt say good".into(),
+        thread: None,
+        worktree: false,
+        profile: None,
+        model: None,
+        permission: None,
+    });
+    window.until(status_is(Status::Done));
+    let state = harness.threads.join("..");
+    let schedule = r#"[{"id":"s-1","prompt":"summarise the night","thread":"t-00000001","every":1440,"enabled":true,"next":"2020-01-01T00:00:00.000Z","createdAt":"2019-12-31T00:00:00.000Z"}]"#;
+    std::fs::write(state.join("schedules.json"), schedule).expect("list");
+    window.ask(Request::Background {
+        cwd: harness.cwd.clone(),
+    });
+    let (_, seen) = window.until(|n| matches!(n, Notice::Background { .. }));
+    match seen.last() {
+        Some(Notice::Background { cwd, schedules, .. }) => {
+            assert_eq!(cwd, &harness.cwd);
+            let schedules = schedules.as_ref().expect("this cedia has schedules");
+            assert_eq!(schedules.len(), 1);
+            assert_eq!(schedules[0].prompt, "summarise the night");
+        }
+        other => panic!("{other:?}"),
+    }
+
+    // Due once: the daemon fires it and runs its prompt on its thread.
+    std::fs::write(state.join("due.json"), schedule).expect("due");
+    window.ask(Request::Threads {
+        cwd: harness.cwd.clone(),
+    });
+    let args_file = state.join("args");
+    for _ in 0..100 {
+        if std::fs::read_to_string(&args_file).is_ok_and(|a| a.contains("night")) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let args = std::fs::read_to_string(&args_file).expect("args");
+    let args: Vec<&str> = args.lines().collect();
+    assert!(args.contains(&"--print=summarise the night"), "{args:?}");
+    assert!(
+        args.windows(2).any(|w| w == ["--thread", "t-00000001"]),
+        "{args:?}"
+    );
+    let calls = std::fs::read_to_string(state.join("schedule-calls")).expect("calls");
+    assert!(
+        calls.lines().any(|c| c.starts_with("schedules fire s-1")),
+        "{calls}"
+    );
+
+    window.ask(Request::Schedule {
+        cwd: harness.cwd.clone(),
+        id: "s-1".into(),
+        enabled: false,
+    });
+    // The pause is answered with the list again; one may already be on its way from the fire.
+    let paused = || {
+        std::fs::read_to_string(state.join("schedule-calls"))
+            .is_ok_and(|calls| calls.lines().any(|c| c.starts_with("schedules pause s-1")))
+    };
+    window.until(|n| matches!(n, Notice::Background { .. }) && paused());
+    assert!(paused());
+}
+
+#[test]
+fn a_cedia_without_schedules_lists_none() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Background {
+        cwd: harness.cwd.clone(),
+    });
+    assert!(matches!(
+        window.next(),
+        Notice::Background {
+            schedules: None,
+            ..
+        }
+    ));
+}

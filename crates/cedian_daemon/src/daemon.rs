@@ -1,6 +1,8 @@
 //! The daemon's state: connected windows, runs, and which window reads which thread. Every
 //! piece can be rebuilt from cedia's files except the lines of a run in progress.
 
+mod background;
+
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -43,6 +45,8 @@ struct Client {
     open: HashSet<String>,
     /// Projects whose thread lists this client shows: cwd to project key.
     watching: HashMap<PathBuf, String>,
+    /// Projects whose Background tasks block this client shows: cwd to project key.
+    background: HashMap<PathBuf, String>,
 }
 
 pub struct Daemon {
@@ -65,6 +69,8 @@ pub struct Daemon {
     /// Queued threads this daemon has started, by project slug and id, so a slow first run
     /// is not started twice.
     started: HashSet<(String, String)>,
+    /// Each shown project's scheduled runs, as last listed.
+    schedules: background::Schedules,
     next_id: u64,
 }
 
@@ -111,6 +117,7 @@ impl Daemon {
             prints: Fingerprints::default(),
             seen: Seen::new(state_dir),
             started: HashSet::new(),
+            schedules: background::Schedules::default(),
             next_id: 1,
         }
     }
@@ -234,6 +241,7 @@ impl Daemon {
                 tx,
                 open: HashSet::new(),
                 watching: HashMap::new(),
+                background: HashMap::new(),
             },
         );
         self.send(
@@ -474,6 +482,10 @@ impl Daemon {
                     ),
                     Err(error) => log::warn!("{error}"),
                 }
+            }
+            Request::Background { cwd } => Self::background(shared, client, cwd),
+            Request::Schedule { cwd, id, enabled } => {
+                Self::set_schedule(shared, client, &cwd, &id, enabled)
             }
             Request::Usage { cwd, since } => {
                 let (cedia, can) = {

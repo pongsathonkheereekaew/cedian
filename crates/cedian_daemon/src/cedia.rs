@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Context as _;
 use cedian_protocol::{
-    Capability, CommandList, ModelList, PermissionList, Rating, UsageReport, VersionInfo,
+    Capability, CommandList, ModelList, PermissionList, Rating, Schedule, UsageReport, VersionInfo,
 };
 
 /// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--ask on`
@@ -87,6 +87,42 @@ impl Cedia {
     /// `cedia commands --json --cwd <cwd>`: the project's `/` commands.
     pub fn commands(&self, cwd: &Path) -> Result<CommandList, String> {
         self.list(Some(cwd), "commands")
+    }
+
+    /// `cedia schedules --json --cwd <cwd>`: the project's scheduled runs.
+    pub fn schedules(&self, cwd: &Path) -> Result<Vec<Schedule>, String> {
+        self.list(Some(cwd), "schedules")
+    }
+
+    /// `cedia schedules <verb> [<id>] --json --cwd <cwd>`: `due` lists the runs due now,
+    /// `fire <id>` marks one started, `pause <id>` and `resume <id>` turn one off and on.
+    /// `fire` and `due` print the schedules they touch; the others print a line, not read.
+    pub fn schedule(
+        &self,
+        cwd: &Path,
+        verb: &str,
+        id: Option<&str>,
+    ) -> Result<Vec<Schedule>, String> {
+        let mut run = self.command(cwd);
+        run.args(["schedules", verb]).args(id).arg("--cwd").arg(cwd);
+        if matches!(verb, "due" | "fire") {
+            run.arg("--json");
+        }
+        let output = run
+            .output()
+            .map_err(|e| format!("running {}: {e}", self.bin.display()))?;
+        if !output.status.success() {
+            return Err(format!(
+                "{} schedules {verb} exited with {}: {}",
+                self.bin.display(),
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        if !matches!(verb, "due" | "fire") {
+            return Ok(Vec::new());
+        }
+        serde_json::from_slice(&output.stdout).map_err(|e| format!("cedia schedules {verb}: {e}"))
     }
 
     /// `cedia usage --json --since <since> (--cwd <cwd> | --all)`: the spend in the range, in

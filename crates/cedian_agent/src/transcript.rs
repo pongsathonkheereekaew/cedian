@@ -28,6 +28,8 @@ pub struct Transcript {
     changed_from: Option<usize>,
     /// Tokens the latest turn held: its prompt and its answer.
     context: Option<u64>,
+    /// The tools the latest `code` session was given, by name.
+    tools: Vec<String>,
 }
 
 impl Transcript {
@@ -60,6 +62,12 @@ impl Transcript {
             Block::Session { model, role } if role == "code" => Some(model.as_str()),
             _ => None,
         })
+    }
+
+    /// The tools the thread's writer was given in its latest session: cedia's own and, named
+    /// `mcp__<server>__<tool>`, those of each MCP server that connected for the run.
+    pub fn tools(&self) -> &[String] {
+        &self.tools
     }
 
     /// This transcript's thread id, once its first session event has arrived.
@@ -171,10 +179,17 @@ impl Transcript {
 
     fn apply_event(&mut self, event: &SessionEvent) {
         match event {
-            SessionEvent::Session { model, role, .. } => self.push(Block::Session {
-                model: model.clone(),
-                role: role.clone(),
-            }),
+            SessionEvent::Session {
+                model, role, tools, ..
+            } => {
+                if role == "code" {
+                    self.tools = tools.iter().map(|t| t.name.clone()).collect();
+                }
+                self.push(Block::Session {
+                    model: model.clone(),
+                    role: role.clone(),
+                })
+            }
             SessionEvent::User { text, .. } => self.push(Block::User { text: text.clone() }),
             SessionEvent::Result { result, .. } => self.push_result(result),
             SessionEvent::Assistant { blocks, usage, .. } => {
