@@ -7,7 +7,8 @@ use std::{
 
 use anyhow::Context as _;
 use cedian_protocol::{
-    Capability, CommandList, ModelList, PermissionList, Rating, Schedule, UsageReport, VersionInfo,
+    Capability, CommandList, ModelList, PermissionList, Rating, Restored, RewindResult, Schedule,
+    UsageReport, VersionInfo,
 };
 
 /// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--effort`,
@@ -257,6 +258,53 @@ impl Cedia {
         let forked: Forked =
             serde_json::from_slice(&output).context("reading cedia threads fork --json")?;
         Ok(forked.thread)
+    }
+
+    /// `cedia threads undo|redo <id> --json [--force]`: the files of the thread's last turn that
+    /// changed files it moved, and the ones it left because they changed since.
+    pub fn restore(
+        &self,
+        cwd: &Path,
+        thread: &str,
+        redo: bool,
+        force: bool,
+    ) -> anyhow::Result<Restored> {
+        let mut args = vec![if redo { "redo" } else { "undo" }, thread, "--json"];
+        if force {
+            args.push("--force");
+        }
+        let output = self.threads_output(cwd, &args)?;
+        serde_json::from_slice(&output).context("reading cedia threads undo --json")
+    }
+
+    /// `cedia threads rewind <id> <n> --json [--force]`: what it put back, or why it did not.
+    /// cedia prints a refusal too, and exits 1.
+    pub fn rewind(
+        &self,
+        cwd: &Path,
+        thread: &str,
+        n: u32,
+        force: bool,
+    ) -> anyhow::Result<RewindResult> {
+        let n = n.to_string();
+        let mut args = vec!["rewind", thread, n.as_str(), "--json"];
+        if force {
+            args.push("--force");
+        }
+        let output = self
+            .command(cwd)
+            .args(["threads", "--cwd"])
+            .arg(cwd)
+            .args(&args)
+            .output()
+            .with_context(|| format!("running {}", self.bin.display()))?;
+        serde_json::from_slice(&output.stdout).with_context(|| {
+            format!(
+                "cedia threads rewind exited with {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            )
+        })
     }
 
     /// `cedia threads --cwd <cwd> <args>`, which writes one event to a thread's file.

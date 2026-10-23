@@ -1,6 +1,6 @@
 //! What the open thread's next run runs on, in the composer's bottom row: a model chip and a
 //! permission chip, each with a menu of what cedia lists (`cedia models`, `cedia permissions`).
-//! A model that takes an effort shows it after its name, and its menu ends with the levels.
+//! A model that takes an effort shows it after its name, and its menu starts with the levels.
 //! A pick holds for its thread until the window closes; a thread with none shows its writer's
 //! model, the model's own effort and cedia's default mode, and cedia decides all three.
 
@@ -325,11 +325,46 @@ impl RootView {
         let mut rows = Vec::new();
         match menu {
             Menu::Model => {
+                // A model that takes an effort starts its menu with the levels, above the
+                // models' long list.
+                let writer = writer.as_deref();
+                let levels = choices.effort_levels(thread.as_deref(), writer);
+                if !levels.is_empty() {
+                    rows.push(Row::Label("การคิด".into()));
+                }
+                let shown = choices.effort(thread.as_deref(), writer);
+                let own = choices
+                    .model_name(thread.as_deref(), writer)
+                    .and_then(|name| choices.entry(name))
+                    .and_then(|m| m.default_effort);
+                for &level in levels {
+                    let thread = thread.clone();
+                    let view = cx.entity().downgrade();
+                    rows.push(Row::Choice {
+                        chosen: shown == Some(level),
+                        label: effort_word(level).into(),
+                        note: (own == Some(level)).then(|| "ค่าเริ่มต้น".into()),
+                        detail: None,
+                        on_click: Some(Box::new(move |_, _, cx| {
+                            let thread = thread.clone();
+                            if let Err(error) = view.update(cx, |view, cx| {
+                                view.choices.pick_mut(thread.as_deref()).effort = Some(level);
+                                view.choices.menu = None;
+                                cx.notify();
+                            }) {
+                                log::warn!("effort pick: {error}");
+                            }
+                        })),
+                    });
+                }
+                if !levels.is_empty() {
+                    rows.push(Row::Separator);
+                }
                 let shown = choices
                     .pick(thread.as_deref())
                     .model
                     .clone()
-                    .or(writer.clone())
+                    .or(writer.map(str::to_owned))
                     .or(choices.models.as_ref().map(|m| m.default.clone()));
                 // Under a label per provider, in cedia's order.
                 let models = choices.models.iter().flat_map(|m| &m.models);
@@ -337,7 +372,7 @@ impl RootView {
                 for entry in models {
                     if provider != Some(&entry.provider) {
                         provider = Some(&entry.provider);
-                        if rows.is_empty() {
+                        if rows.is_empty() || matches!(rows.last(), Some(Row::Separator)) {
                             rows.push(Row::Label(entry.provider.clone().into()));
                         } else {
                             rows.extend([
@@ -381,37 +416,6 @@ impl RootView {
                                 },
                             ) as OnClick
                         }),
-                    });
-                }
-                // A model that takes an effort ends its menu with the levels.
-                let writer = writer.as_deref();
-                let levels = choices.effort_levels(thread.as_deref(), writer);
-                if !levels.is_empty() {
-                    rows.extend([Row::Separator, Row::Label("การคิด".into())]);
-                }
-                let shown = choices.effort(thread.as_deref(), writer);
-                let own = choices
-                    .model_name(thread.as_deref(), writer)
-                    .and_then(|name| choices.entry(name))
-                    .and_then(|m| m.default_effort);
-                for &level in levels {
-                    let thread = thread.clone();
-                    let view = cx.entity().downgrade();
-                    rows.push(Row::Choice {
-                        chosen: shown == Some(level),
-                        label: effort_word(level).into(),
-                        note: (own == Some(level)).then(|| "ค่าเริ่มต้น".into()),
-                        detail: None,
-                        on_click: Some(Box::new(move |_, _, cx| {
-                            let thread = thread.clone();
-                            if let Err(error) = view.update(cx, |view, cx| {
-                                view.choices.pick_mut(thread.as_deref()).effort = Some(level);
-                                view.choices.menu = None;
-                                cx.notify();
-                            }) {
-                                log::warn!("effort pick: {error}");
-                            }
-                        })),
                     });
                 }
             }

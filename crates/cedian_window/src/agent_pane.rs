@@ -37,6 +37,7 @@ pub struct Header {
     pub rating: Option<Rating>,
 }
 
+#[derive(Clone)]
 pub enum AgentEvent {
     Rate(Rating),
     ViewMode(ViewMode),
@@ -44,6 +45,26 @@ pub enum AgentEvent {
     Review,
     /// Edit the person's message with this text and send it again, in a fork.
     Edit(String),
+    /// Take the thread back to just before the run this message of the person's started.
+    Rewind(String),
+    /// Put the files of the thread's last turn back (`false`), or forward again (`true`).
+    Restore {
+        redo: bool,
+    },
+}
+
+/// What a message of the person's that started a run offers on hover, and the latest
+/// receipt's undo.
+#[derive(Clone, Default, PartialEq)]
+pub struct RunOffers {
+    /// The prompts of the thread's runs.
+    pub prompts: Vec<String>,
+    /// แก้ไข: a fork sends it again, edited.
+    pub edit: bool,
+    /// ย้อนมาตรงนี้: the thread goes back to just before it.
+    pub rewind: bool,
+    /// The latest receipt undoes its turn's files; `Some(true)` once undone, to redo.
+    pub undone: Option<bool>,
 }
 
 impl EventEmitter<AgentEvent> for AgentPane {}
@@ -59,9 +80,9 @@ pub struct AgentPane {
     /// Runs of tool calls opened from their chip, by the index of their first block.
     unfolded: HashSet<usize>,
     density: Density,
-    /// The prompts of the thread's runs, when it can be forked at one: a message of the
-    /// person's that started a run offers แก้ไข.
-    editable: Vec<String>,
+    /// What the thread's runs offer: a message of the person's that started one offers แก้ไข
+    /// and ย้อนมาตรงนี้.
+    offers: RunOffers,
 }
 
 impl AgentPane {
@@ -76,22 +97,29 @@ impl AgentPane {
             view_mode: ViewMode::default(),
             unfolded: HashSet::new(),
             density: Density::default(),
-            editable: Vec::new(),
+            offers: RunOffers::default(),
         }
     }
 
-    pub fn set_editable(&mut self, prompts: Vec<String>, cx: &mut Context<Self>) {
-        if prompts != self.editable {
-            self.editable = prompts;
-            // A message that offers แก้ไข is taller.
+    #[cfg(test)]
+    pub fn offers(&self) -> &RunOffers {
+        &self.offers
+    }
+
+    pub fn set_offers(&mut self, offers: RunOffers, cx: &mut Context<Self>) {
+        if offers != self.offers {
+            self.offers = offers;
+            // A message that offers แก้ไข is taller, and a receipt with undo.
             self.list.reset(self.transcript.blocks().len());
             cx.notify();
         }
     }
 
-    /// Whether the message started one of the thread's runs, which a fork can go back to.
-    fn editable(&self, text: &str) -> bool {
-        self.editable
+    /// Whether the message started one of the thread's runs, which a fork or a rewind can go
+    /// back to.
+    fn started_a_run(&self, text: &str) -> bool {
+        self.offers
+            .prompts
             .iter()
             .any(|p| !p.is_empty() && text.starts_with(p.as_str()))
     }
@@ -245,12 +273,14 @@ impl AgentPane {
                 .child(div().flex_grow(1.).h(px(1.)).bg(colors.border)),
             Block::User { text } => {
                 let group = SharedString::from(format!("user-{index}"));
-                let edit = self.editable(text).then(|| {
+                let started = self.started_a_run(text);
+                // Shown on hover, their room kept so the list does not move.
+                let offer = |id: &'static str, word: &'static str, event: AgentEvent| {
                     let emit = Self::emitter(pane);
-                    let text = text.clone();
-                    // Shown on hover, its room kept so the list does not move.
+                    let event = Rc::new(event);
                     div()
-                        .id(("edit-message", index))
+                        .id((id, index))
+                        .debug_selector(move || format!("{id}-{index}"))
                         .h(px(22.))
                         .px_2()
                         .flex()
@@ -262,9 +292,20 @@ impl AgentPane {
                         .opacity(0.)
                         .group_hover(group.clone(), |b| b.opacity(1.))
                         .hover(|b| b.bg(colors.element_hover).text_color(colors.text))
-                        .on_click(move |_, _, cx| emit(AgentEvent::Edit(text.clone()), cx))
-                        .child("แก้ไข")
+                        .on_click(move |_, _, cx| emit(event.as_ref().clone(), cx))
+                        .child(word)
+                };
+                let edit = (started && self.offers.edit)
+                    .then(|| offer("edit-message", "แก้ไข", AgentEvent::Edit(text.clone())));
+                let rewind = (started && self.offers.rewind).then(|| {
+                    offer(
+                        "rewind-message",
+                        "ย้อนมาตรงนี้",
+                        AgentEvent::Rewind(text.clone()),
+                    )
                 });
+                let offers = (edit.is_some() || rewind.is_some())
+                    .then(|| div().flex().gap_1().children(rewind).children(edit));
                 div()
                     .group(group)
                     .flex()
@@ -281,7 +322,7 @@ impl AgentPane {
                             .text_message()
                             .child(wrapped(text)),
                     )
-                    .children(edit)
+                    .children(offers)
             }
             Block::Text { text, streaming } => div()
                 .font(tokens::answer_font())
@@ -360,6 +401,7 @@ impl AgentPane {
                         thread: self.transcript.thread(),
                         actions: latest.then(|| Actions {
                             rating: self.header.rating,
+                            undone: self.offers.undone,
                             emit: Self::emitter(pane),
                         }),
                     }

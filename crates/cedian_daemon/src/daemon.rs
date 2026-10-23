@@ -556,6 +556,53 @@ impl Daemon {
                     Err(error) => lock(shared).error(client, format!("{error:#}")),
                 }
             }
+            Request::Restore {
+                cwd,
+                thread,
+                redo,
+                force,
+            } => {
+                let (cedia, can) =
+                    Self::can(shared, cedian_protocol::Capability::ThreadsRestoreJson);
+                if !can {
+                    return lock(shared).error(client, "this cedia cannot undo a turn here".into());
+                }
+                match cedia.restore(&cwd, &thread, redo, force) {
+                    Ok(result) => lock(shared).send(
+                        client,
+                        Notice::Restored {
+                            cwd,
+                            thread,
+                            result,
+                        },
+                    ),
+                    Err(error) => lock(shared).error(client, format!("{error:#}")),
+                }
+            }
+            Request::Rewind {
+                cwd,
+                thread,
+                n,
+                force,
+            } => {
+                let (cedia, can) =
+                    Self::can(shared, cedian_protocol::Capability::ThreadsRestoreJson);
+                if !can {
+                    return lock(shared).error(client, "this cedia cannot rewind here".into());
+                }
+                match cedia.rewind(&cwd, &thread, n, force) {
+                    Ok(result) => lock(shared).send(
+                        client,
+                        Notice::Rewound {
+                            cwd,
+                            thread,
+                            n,
+                            result,
+                        },
+                    ),
+                    Err(error) => lock(shared).error(client, format!("{error:#}")),
+                }
+            }
             Request::Send { cwd, thread, text } => {
                 Self::message(shared, client, &cwd, &thread, &text)
             }
@@ -1021,6 +1068,16 @@ impl Daemon {
             },
         );
         self.refresh(&slug);
+    }
+
+    /// cedia, and whether it offers `capability`.
+    fn can(shared: &Shared, capability: cedian_protocol::Capability) -> (Cedia, bool) {
+        let daemon = lock(shared);
+        let can = daemon
+            .version
+            .as_ref()
+            .is_ok_and(|v| v.capabilities.contains(&capability));
+        (daemon.cedia.clone(), can)
     }
 
     fn message(shared: &Shared, client: ClientId, cwd: &Path, thread: &str, text: &str) {

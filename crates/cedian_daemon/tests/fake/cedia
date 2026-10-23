@@ -70,6 +70,26 @@ if [[ "${1:-}" == "threads" && "${4:-}" == "fork" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "threads" && ( "${4:-}" == "undo" || "${4:-}" == "redo" ) ]]; then
+  # threads --cwd <dir> undo|redo <id> --json [--force]: f.txt left unless forced.
+  if [[ "${7:-}" == "--force" ]]; then
+    printf '{"action":"%s","restored":["f.txt"],"skipped":[]}\n' "$4"
+  else
+    printf '{"action":"%s","restored":[],"skipped":["f.txt"]}\n' "$4"
+  fi
+  exit 0
+fi
+
+if [[ "${1:-}" == "threads" && "${4:-}" == "rewind" ]]; then
+  # threads --cwd <dir> rewind <id> <n> --json [--force]: refused unless forced, with exit 1.
+  if [[ "${8:-}" == "--force" ]]; then
+    printf '{"run":"r-%s","restored":["f.txt"]}\n' "$6"
+    exit 0
+  fi
+  echo '{"error":"f.txt changed since the run that last wrote it","force":true}'
+  exit 1
+fi
+
 if [[ "${1:-}" == "threads" && "${4:-}" == "unsend" ]]; then
   # threads --cwd <dir> unsend <id> <message>...
   id="$5"

@@ -5,7 +5,8 @@ use std::{
 
 use cedian_index::{MemoryNote, Output};
 use cedian_protocol::{
-    CommandEntry, ModelList, PermissionList, Rating, Schedule, UsageReport, VersionInfo,
+    CommandEntry, ModelList, PermissionList, Rating, Restored, RewindResult, Schedule, UsageReport,
+    VersionInfo,
 };
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -57,6 +58,27 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<PathBuf>,
         since: String,
+    },
+    /// Puts the files of `thread`'s last turn that changed files back (`cedia threads undo`),
+    /// or forward again with `redo`; `force` also moves a file changed since. The client is
+    /// sent `Restored`, when this cedia offers `threads.restore-json`.
+    Restore {
+        cwd: PathBuf,
+        thread: String,
+        #[serde(default)]
+        redo: bool,
+        #[serde(default)]
+        force: bool,
+    },
+    /// Takes `thread` back to just before its run `n`, from 1, conversation and files
+    /// together (`cedia threads rewind`); `force` goes past a refusal that allows it. The
+    /// client is sent `Rewound`.
+    Rewind {
+        cwd: PathBuf,
+        thread: String,
+        n: u32,
+        #[serde(default)]
+        force: bool,
     },
     /// Edit and resend: a new thread whose conversation is `thread`'s just before `run`
     /// (`cedia threads fork`), then `text` as its next run. The client is sent `Forked`, then
@@ -226,6 +248,19 @@ pub enum Notice {
         cwd: PathBuf,
         schedules: Option<Vec<Schedule>>,
         mcp: Vec<McpServer>,
+    },
+    /// What `Request::Restore` moved, and what it left.
+    Restored {
+        cwd: PathBuf,
+        thread: String,
+        result: Restored,
+    },
+    /// What `Request::Rewind` did, or why it did not.
+    Rewound {
+        cwd: PathBuf,
+        thread: String,
+        n: u32,
+        result: RewindResult,
     },
     /// The answer to `Request::Usage`, with the request's `cwd` and `since`.
     Usage {

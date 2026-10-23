@@ -507,3 +507,75 @@ fn the_usage_block_draws_the_report_inside_itself_and_toggles_a_table() {
     assert!(cx.debug_bounds("usage-table").is_some(), "the table shows");
     assert!(cx.debug_bounds("usage-chart").is_none());
 }
+
+#[test]
+fn the_receipt_undoes_its_turn_and_a_message_rewinds_to_before_it() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    view.update(cx, |view, cx| {
+        view.can_restore = true;
+        let info: cedian_wire::ThreadInfo = serde_json::from_value(serde_json::json!({
+            "id": "t-00000001", "title": "f", "task": "f", "state": "done", "result": null,
+            "parent": null, "archived": false, "sessions": [], "messages": [], "pending": [],
+            "updated_at": "2026-10-22T01:00:00.000Z", "status": "done",
+            "runs": [{"id": "r-1", "prompt": "make f.txt say good"}],
+            "last_turn": {"cwd": "/repo", "before": "t0", "after": "t1", "sessions": [], "at": "x"}
+        }))
+        .expect("info");
+        view.projects[0].set_threads(vec![info]);
+        view.show_offers(cx);
+    });
+    cx.run_until_parked();
+    let undo = bounds(cx, "receipt-undo");
+    let block = bounds(cx, "agent-block");
+    inside("the undo button", undo, "the Agent block", block);
+    // cedia left a file the person changed since: the card says so and offers to force it.
+    view.update(cx, |view, cx| {
+        let result =
+            serde_json::from_str(r#"{"action":"undo","restored":["g.txt"],"skipped":["f.txt"]}"#)
+                .expect("restored");
+        view.on_notice(
+            Notice::Restored {
+                cwd: view.project().cwd.clone(),
+                thread: "t-00000001".into(),
+                result,
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    inside(
+        "the restore card",
+        bounds(cx, "restore-card"),
+        "the Agent block",
+        block,
+    );
+    assert!(cx.debug_bounds("restore-force").is_some());
+    // A whole undo turns the receipt's button into redo.
+    view.update(cx, |view, cx| {
+        let result = serde_json::from_str(r#"{"action":"undo","restored":["f.txt"],"skipped":[]}"#)
+            .expect("restored");
+        view.on_notice(
+            Notice::Restored {
+                cwd: view.project().cwd.clone(),
+                thread: "t-00000001".into(),
+                result,
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("restore-force").is_none());
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.agent.read(cx).offers().undone),
+        Some(true)
+    );
+    // The message that started the run asks before it rewinds.
+    view.update(cx, |view, cx| view.ask_rewind("make f.txt say good", cx));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("restore-go").is_some());
+    let close = bounds(cx, "restore-close").center();
+    cx.simulate_click(close, gpui::Modifiers::none());
+    assert!(cx.debug_bounds("restore-card").is_none());
+}

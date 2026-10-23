@@ -10,7 +10,7 @@ use std::{
 };
 
 use cedian_daemon::{Cedia, Config, serve};
-use cedian_protocol::fixtures_dir;
+use cedian_protocol::{RewindResult, fixtures_dir};
 use cedian_wire::{Decision, HunkState, Notice, Request, Status, read_message, write_message};
 
 struct Harness {
@@ -280,6 +280,77 @@ fn a_cedia_without_usage_says_so() {
     window.ask(Request::Usage {
         cwd: None,
         since: "7d".into(),
+    });
+    assert!(matches!(window.next(), Notice::Error { .. }));
+}
+
+#[test]
+fn undo_and_rewind_answer_with_what_cedia_moved_or_why_not() {
+    let harness = start_with("edit-and-check", "\"threads.restore-json\"");
+    let mut window = Window::connect(&harness);
+    let restore = |force| Request::Restore {
+        cwd: harness.cwd.clone(),
+        thread: "t-1".into(),
+        redo: false,
+        force,
+    };
+    window.ask(restore(false));
+    let (_, seen) = window.until(|n| matches!(n, Notice::Restored { .. }));
+    let notice = seen.last().expect("notice");
+    assert!(
+        matches!(notice, Notice::Restored { result, .. }
+            if result.restored.is_empty() && result.skipped == ["f.txt"]),
+        "{notice:?}"
+    );
+    window.ask(restore(true));
+    let (_, seen) = window.until(|n| matches!(n, Notice::Restored { .. }));
+    let notice = seen.last().expect("notice");
+    assert!(
+        matches!(notice, Notice::Restored { result, .. } if result.restored == ["f.txt"]),
+        "{notice:?}"
+    );
+    let rewind = |force| Request::Rewind {
+        cwd: harness.cwd.clone(),
+        thread: "t-1".into(),
+        n: 2,
+        force,
+    };
+    // A refusal is an answer, with whether --force goes past it.
+    window.ask(rewind(false));
+    let (_, seen) = window.until(|n| matches!(n, Notice::Rewound { .. }));
+    let notice = seen.last().expect("notice");
+    assert!(
+        matches!(
+            notice,
+            Notice::Rewound {
+                n: 2,
+                result: RewindResult::Variant1 {
+                    force: Some(true),
+                    ..
+                },
+                ..
+            }
+        ),
+        "{notice:?}"
+    );
+    window.ask(rewind(true));
+    let (_, seen) = window.until(|n| matches!(n, Notice::Rewound { .. }));
+    let notice = seen.last().expect("notice");
+    assert!(
+        matches!(notice, Notice::Rewound { result: RewindResult::Variant0 { run, .. }, .. } if run == "r-2"),
+        "{notice:?}"
+    );
+}
+
+#[test]
+fn an_older_cedia_is_not_asked_to_undo() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Restore {
+        cwd: harness.cwd.clone(),
+        thread: "t-1".into(),
+        redo: false,
+        force: false,
     });
     assert!(matches!(window.next(), Notice::Error { .. }));
 }

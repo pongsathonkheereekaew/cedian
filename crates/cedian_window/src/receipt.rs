@@ -33,6 +33,8 @@ pub struct Receipt<'a> {
 
 pub struct Actions {
     pub rating: Option<Rating>,
+    /// The turn's files can be put back; `Some(true)` once they were, to put them forward.
+    pub undone: Option<bool>,
     pub emit: Emit,
 }
 
@@ -206,6 +208,18 @@ impl Actions {
                 .on_click(move |_, _, cx| emit(AgentEvent::Rate(rating), cx))
         };
         let review = self.emit.clone();
+        let restore = self.emit.clone();
+        // Undo is the whole turn's: cedia puts back every file it changed, from its snapshots.
+        let undo = self.undone.filter(|_| changed).map(|undone| {
+            button("receipt-undo")
+                .debug_selector(|| "receipt-undo".into())
+                .child(if undone {
+                    "ทำซ้ำ"
+                } else {
+                    "ย้อนไฟล์รอบนี้"
+                })
+                .on_click(move |_, _, cx| restore(AgentEvent::Restore { redo: undone }, cx))
+        });
         div()
             .flex()
             .gap_2()
@@ -217,6 +231,7 @@ impl Actions {
                         .on_click(move |_, _, cx| review(AgentEvent::Review, cx)),
                 )
             })
+            .children(undo)
             .child(div().flex_grow(1.))
             .child(thumb("rate-up", Rating::Up, "icons/thumbs_up.svg"))
             .child(thumb("rate-down", Rating::Down, "icons/thumbs_down.svg"))
