@@ -1,32 +1,31 @@
 # Agent pane
 
-The agent pane is the thread, drawn as blocks. Phase A plays a recorded cedia stream into that pane with `cedian --replay`. cedian does not run an agent loop of its own. The header is the replay path. There is no tab and no thread file.
+The agent pane is one conversation of blocks folded from cedia stream-json. `cedian --cwd` shows it for the open thread after a prompt. `cedian --replay <stream.jsonl>` shows one recorded conversation and does not start the daemon. This drive uses the live window. cedian has no agent loop of its own.
 
 ## Sub-features
 
-- `agent-open` shows one recorded thread as blocks in the left half of the window.
-- `agent-state` would show idle, working, done, failed, or stopped on a tab. This checkout has no tab. The drive records `agent_state=not-shown`.
-- `agent-reopen` would show the same thread after the window quits. This checkout writes no thread file, so a later launch cannot restore one.
+- `agent-open` shows the prompt text in the conversation.
+- `agent-state` is the thread's state on the live window. The drive does not require a particular state word, because the labels are Thai and OCR misses them.
+- `agent-reopen` would quit and open the same thread from cedia's files. This drive does not quit until cleanup.
 
 ## How to get to it (user POV)
 
-- Build cedian with `cargo build -p cedian_window`.
-- Launch with the helper. It starts `cedian --replay` on `crates/cedian_protocol/cedia/sessions/edit-and-check/stream.jsonl`.
-- Read the left pane. The prompt is `make f.txt say good`. The receipt shows `verified` when the fixture's evidence has no unverified paths.
+- Build with `cargo build -p cedian_window -p cedian_daemon`.
+- Launch with the helper. The window opens on an empty project.
+- The agent drive sends `make f.txt say good`. The fake stand-in plays `crates/cedian_protocol/cedia/sessions/edit-and-check/stream.jsonl`. A pinned cedia answers with the faux line `say good`.
 
 ## Driving it with verify-cedian
 
 Preconditions:
 
-- `bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh launch` has created an empty `CEDIAN_DATA_DIR` and a live window.
+- `bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh launch` has a live window and a daemon socket.
 - `bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh doctor` prints `ready=yes` and `home_cedia=absent`.
 
-- **Open the pane.** Run `bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh drive agent-pane`. A passing run prints `ready=yes`, `window=started`, `ocr_blocks=yes`, `thread_file=absent`, and `agent_state=not-shown`, and exits `0`.
-- **Proof.** The evidence file is `/tmp/verify-cedian/evidence/agent-pane.txt`. The screenshot is `/tmp/verify-cedian/evidence/agent-pane.png`. OCR of that PNG contains `say good` or `verified`. Tesseract often drops the dot in `f.txt`, so the check does not require the characters `f.txt`.
+- **Open the pane.** Run `bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh drive agent-pane`. A passing run prints `ready=yes`, `window=started`, `prompt=sent`, `ocr_prompt=yes`, and `thread_file=present`, and exits `0`.
+- **Proof.** `/tmp/verify-cedian/evidence/agent-pane.txt` has the record. `/tmp/verify-cedian/evidence/agent-pane.png` is the 1280x800 window. OCR contains `say good`. The thread file is under `$CEDIA_HOME/projects/<slug>/threads`, not under `CEDIAN_DATA_DIR`.
 
 ## Gotchas
 
-- `Cargo.toml` is at the repo root. Before the binary exists, the drive prints `ready=no` and `reason=no cedian binary; cargo build -p cedian_window from the repo root`.
-- Do not open the JSONL in an editor and call that the pane. The screenshot is the pane.
-- `agent-state` and `agent-reopen` are not in this checkout. A passing drive does not claim them.
-- The fixture is cedia's recorded faux run. The drive does not call a model API.
+- `thread_file=present` is a file cedia or the fake stand-in wrote. `data_dir_entries=0` means `CEDIAN_DATA_DIR` stayed empty.
+- Do not pass `--replay` for this drive. Replay does not start the daemon, so the prompt has nowhere to go.
+- The drive does not call a model API.

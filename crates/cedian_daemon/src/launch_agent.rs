@@ -9,15 +9,12 @@ use std::{
 
 use anyhow::Context as _;
 
-pub const LABEL: &str = "dev.cedian.daemon";
+pub use cedian_wire::LAUNCH_AGENT_LABEL as LABEL;
 
 /// Seconds launchd waits before starting the daemon again after it exits with an error.
 const THROTTLE_SECONDS: u32 = 10;
 
-pub fn plist_path(home: &Path) -> PathBuf {
-    home.join("Library/LaunchAgents")
-        .join(format!("{LABEL}.plist"))
-}
+pub use cedian_wire::launch_agent_plist as plist_path;
 
 /// The agent: run `daemon` at login, again after a crash (not after a clean exit, which
 /// means another daemon already serves), logging to `log`.

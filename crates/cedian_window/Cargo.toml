@@ -31,6 +31,7 @@ futures.workspace = true
 gpui.workspace = true
 icu_segmenter.workspace = true
 image.workspace = true
+libc.workspace = true
 gpui_platform.workspace = true
 log.workspace = true
 release_channel.workspace = true
