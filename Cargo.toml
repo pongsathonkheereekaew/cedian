@@ -73,8 +73,11 @@ codegen-units = 16
 
 # What ships (script/bundle-mac), set as Zed sets its own: thin LTO over one codegen unit
 # for the smallest, fastest binary, and limited debug info, which on macOS goes to a dSYM
-# beside the build and is stripped from what ships.
+# beside the build and is stripped from what ships. "packed" has rustc run dsymutil at link
+# time, while thin LTO's object files still exist; Cargo's macOS default leaves them unpacked,
+# and they are gone by the time the bundle script could collect them.
 [profile.release]
 debug = "limited"
+split-debuginfo = "packed"
 lto = "thin"
 codegen-units = 1

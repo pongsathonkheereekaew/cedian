@@ -14,3 +14,9 @@ covered by the all-rights-reserved terms in LICENSE.
 - Fonts in crates/cedian_window/assets/fonts (Inter, Noto Sans Thai, Noto
   Serif Thai, Source Serif 4): SIL Open Font License 1.1, each with its
   OFL.txt.
+
+- In the app bundle (script/bundle-mac): Chromium, as Chrome for Testing's
+  chrome-headless-shell, under its own licenses in
+  Contents/Resources/chromium/LICENSE.headless_shell; and cedia, compiled
+  with `bun build --compile`, which carries the Bun runtime (MIT, with its
+  own third-party parts listed at https://bun.sh/docs/project/licensing).
