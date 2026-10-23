@@ -215,6 +215,16 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         KeyBinding::new("down", file_finder::Next, Some("FileFinder > Editor")),
         KeyBinding::new("enter", file_finder::Pick, Some("FileFinder > Editor")),
         KeyBinding::new("enter", browser_pane::Go, Some("BrowserUrl > Editor")),
+        KeyBinding::new(
+            "enter",
+            root_view::ConfirmRename,
+            Some("ThreadRename > Editor"),
+        ),
+        KeyBinding::new(
+            "escape",
+            root_view::CancelRename,
+            Some("ThreadRename > Editor"),
+        ),
         KeyBinding::new(SEARCH_CONTENTS_KEY, content_search::SearchContents, None),
         KeyBinding::new(
             SEARCH_CONTENTS_KEY,

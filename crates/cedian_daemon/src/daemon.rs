@@ -669,6 +669,18 @@ impl Daemon {
                     Err(error) => lock(shared).error(client, format!("{error:#}")),
                 }
             }
+            Request::Rename { cwd, thread, title } => {
+                let cedia = lock(shared).cedia.clone();
+                if let Err(error) = cedia.rename(&cwd, &thread, &title) {
+                    lock(shared).error(client, format!("{error:#}"));
+                }
+            }
+            Request::Delete { cwd, thread } => {
+                let cedia = lock(shared).cedia.clone();
+                if let Err(error) = cedia.delete(&cwd, &thread) {
+                    lock(shared).error(client, format!("{error:#}"));
+                }
+            }
             Request::Browser { cwd } => {
                 let browser = lock(shared).browser.clone();
                 let page = browser

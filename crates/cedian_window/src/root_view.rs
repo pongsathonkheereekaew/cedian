@@ -9,6 +9,9 @@ mod knowledge;
 mod restore;
 mod run_choices;
 mod tear_off;
+mod thread_edit;
+
+pub(crate) use thread_edit::{CancelRename, ConfirmRename};
 #[cfg(test)]
 mod window_tests;
 
@@ -164,6 +167,13 @@ pub struct RootView {
     can_fork: bool,
     /// cedia undoes a turn and rewinds a thread for a client (`threads.restore-json`).
     can_restore: bool,
+    /// cedia renames and deletes threads (`threads.rename`, `threads.delete`).
+    can_rename: bool,
+    can_delete: bool,
+    /// The thread list's row whose title is being edited.
+    renaming: Option<thread_edit::Renaming>,
+    /// The row asking whether to delete its thread.
+    deleting: Option<String>,
     /// The card over the composer saying what an undo or a rewind did, or asking first.
     restore: Option<restore::RestoreCard>,
     /// Threads whose last turn was undone, with that turn's tree after it: the receipt offers
@@ -521,6 +531,10 @@ impl RootView {
             dock_badge: None,
             can_fork: false,
             can_restore: false,
+            can_rename: false,
+            can_delete: false,
+            renaming: None,
+            deleting: None,
             restore: None,
             undone: std::collections::HashMap::new(),
             editing: None,
@@ -601,6 +615,14 @@ impl RootView {
                 self.can_restore = cedia.as_ref().is_ok_and(|v| {
                     v.capabilities
                         .contains(&cedian_protocol::Capability::ThreadsRestoreJson)
+                });
+                self.can_rename = cedia.as_ref().is_ok_and(|v| {
+                    v.capabilities
+                        .contains(&cedian_protocol::Capability::ThreadsRename)
+                });
+                self.can_delete = cedia.as_ref().is_ok_and(|v| {
+                    v.capabilities
+                        .contains(&cedian_protocol::Capability::ThreadsDelete)
                 });
                 let can_attach = cedia.as_ref().is_ok_and(|v| {
                     v.capabilities
@@ -1564,8 +1586,8 @@ impl RootView {
         let archived = self.render_archived(cx);
         let foot = self.render_foot(cx);
         let searching = self.search.read(cx).searching(cx);
-        let colors = cx.theme().colors();
-        let status_colors = cx.theme().status();
+        let colors = cx.theme().colors().clone();
+        let status_colors = cx.theme().status().clone();
         let now = chrono::Utc::now();
         let mut list = div()
             .id("threads")
@@ -1619,7 +1641,14 @@ impl RootView {
                 let id = info.thread.id.clone();
                 let pin_id = id.clone();
                 let archive_id = id.clone();
+                let rename_id = id.clone();
+                let delete_id = id.clone();
                 let archivable = info.status != Status::Working;
+                let rename_field = self.render_rename_field(&id, cx);
+                let delete_confirm = self.render_delete_confirm(&id, cx);
+                let editing = rename_field.is_some() || delete_confirm.is_some();
+                let can_rename = self.can_rename;
+                let can_delete = self.can_delete && archivable;
                 let pinned = self.is_pinned(&id);
                 let selected = self.project().current.as_ref() == Some(&id);
                 // One line: the dot says the state; the meta says what a word must.
@@ -1668,89 +1697,148 @@ impl RootView {
                         .hover(|row| row.bg(colors.element_hover))
                         .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
                         .child(thread_list::dot(info.status, cx))
-                        .child(
-                            crate::tooltip::cut("title", info.thread.title.clone())
-                                .flex_grow(1.)
-                                .text_ui()
-                                .when(info.needs_you, |title| {
-                                    title.font_weight(gpui::FontWeight::SEMIBOLD)
-                                }),
-                        )
-                        .when(!meta.is_empty() && !narrow, |row| {
+                        .children(rename_field)
+                        .children(delete_confirm)
+                        .when(!editing, |row| {
                             row.child(
-                                div()
-                                    .flex_none()
-                                    .font(tokens::numeric_font())
-                                    .text_label()
-                                    .text_color(meta_color)
-                                    .child(meta),
+                                crate::tooltip::cut("title", info.thread.title.clone())
+                                    .flex_grow(1.)
+                                    .text_ui()
+                                    .when(info.needs_you, |title| {
+                                        title.font_weight(gpui::FontWeight::SEMIBOLD)
+                                    }),
                             )
-                        })
-                        // Pin and archive, over the meta while the pointer is on the row.
-                        .child(
-                            div()
-                                .absolute()
-                                .right(px(4.))
-                                .top_0()
-                                .h_full()
-                                .pl_1()
-                                .flex()
-                                .items_center()
-                                .gap_0p5()
-                                .bg(colors.background)
-                                .rounded(px(6.))
-                                .opacity(0.)
-                                .group_hover("thread-row", |b| b.opacity(1.))
-                                .child(
+                            .when(!meta.is_empty() && !narrow, |row| {
+                                row.child(
                                     div()
-                                        .id(SharedString::from(format!("pin-{pin_id}")))
-                                        .p_1()
-                                        .rounded(px(4.))
-                                        .hover(|pin| pin.bg(colors.element_selected))
-                                        .on_click(cx.listener(move |view, _, _, cx| {
-                                            cx.stop_propagation();
-                                            view.toggle_pin(&pin_id, cx)
-                                        }))
-                                        .child(
-                                            svg()
-                                                .path(if pinned {
-                                                    "icons/unpin.svg"
-                                                } else {
-                                                    "icons/pin.svg"
-                                                })
-                                                .size(px(12.))
-                                                .text_color(colors.text_muted),
-                                        ),
+                                        .flex_none()
+                                        .font(tokens::numeric_font())
+                                        .text_label()
+                                        .text_color(meta_color)
+                                        .child(meta),
                                 )
-                                // A working thread is not archived from here: stop it first.
-                                .when(archivable, |actions| {
-                                    actions.child(
+                            })
+                            // Pin, rename, archive and delete, over the meta while the pointer is on the row.
+                            .child(
+                                div()
+                                    .absolute()
+                                    .right(px(4.))
+                                    .top_0()
+                                    .h_full()
+                                    .pl_1()
+                                    .flex()
+                                    .items_center()
+                                    .gap_0p5()
+                                    .bg(colors.background)
+                                    .rounded(px(6.))
+                                    .opacity(0.)
+                                    .group_hover("thread-row", |b| b.opacity(1.))
+                                    .child(
                                         div()
-                                            .id(SharedString::from(format!("archive-{archive_id}")))
+                                            .id(SharedString::from(format!("pin-{pin_id}")))
                                             .p_1()
                                             .rounded(px(4.))
-                                            .hover(|b| b.bg(colors.element_selected))
+                                            .hover(|pin| pin.bg(colors.element_selected))
                                             .on_click(cx.listener(move |view, _, _, cx| {
                                                 cx.stop_propagation();
-                                                view.archive(&archive_id, cx)
+                                                view.toggle_pin(&pin_id, cx)
                                             }))
                                             .child(
                                                 svg()
-                                                    .path("icons/archive.svg")
+                                                    .path(if pinned {
+                                                        "icons/unpin.svg"
+                                                    } else {
+                                                        "icons/pin.svg"
+                                                    })
                                                     .size(px(12.))
                                                     .text_color(colors.text_muted),
                                             ),
                                     )
-                                }),
-                        )
-                        .when(info.needs_you, |row| {
-                            row.child(div().flex_none().size(px(6.)).rounded_full().bg(
-                                if info.status == Status::Failed {
-                                    status_colors.error
-                                } else {
-                                    colors.text
-                                },
-                            ))
+                                    .when(can_rename, |actions| {
+                                        actions.child(
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "rename-{rename_id}"
+                                                )))
+                                                .debug_selector({
+                                                    let id = rename_id.clone();
+                                                    move || format!("thread-rename-{id}")
+                                                })
+                                                .p_1()
+                                                .rounded(px(4.))
+                                                .hover(|b| b.bg(colors.element_selected))
+                                                .on_click(cx.listener(
+                                                    move |view, _, window, cx| {
+                                                        cx.stop_propagation();
+                                                        view.start_rename(&rename_id, window, cx)
+                                                    },
+                                                ))
+                                                .child(
+                                                    svg()
+                                                        .path("icons/pencil.svg")
+                                                        .size(px(12.))
+                                                        .text_color(colors.text_muted),
+                                                ),
+                                        )
+                                    })
+                                    // A working thread is not archived from here: stop it first.
+                                    .when(archivable, |actions| {
+                                        actions.child(
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "archive-{archive_id}"
+                                                )))
+                                                .p_1()
+                                                .rounded(px(4.))
+                                                .hover(|b| b.bg(colors.element_selected))
+                                                .on_click(cx.listener(move |view, _, _, cx| {
+                                                    cx.stop_propagation();
+                                                    view.archive(&archive_id, cx)
+                                                }))
+                                                .child(
+                                                    svg()
+                                                        .path("icons/archive.svg")
+                                                        .size(px(12.))
+                                                        .text_color(colors.text_muted),
+                                                ),
+                                        )
+                                    })
+                                    // Deleting asks in the row first; a working thread is stopped first.
+                                    .when(can_delete, |actions| {
+                                        actions.child(
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "delete-{delete_id}"
+                                                )))
+                                                .debug_selector({
+                                                    let id = delete_id.clone();
+                                                    move || format!("thread-delete-{id}")
+                                                })
+                                                .p_1()
+                                                .rounded(px(4.))
+                                                .hover(|b| b.bg(colors.element_selected))
+                                                .on_click(cx.listener(move |view, _, _, cx| {
+                                                    cx.stop_propagation();
+                                                    view.ask_delete(&delete_id, cx)
+                                                }))
+                                                .child(
+                                                    svg()
+                                                        .path("icons/trash.svg")
+                                                        .size(px(12.))
+                                                        .text_color(colors.text_muted),
+                                                ),
+                                        )
+                                    }),
+                            )
+                            .when(info.needs_you, |row| {
+                                row.child(div().flex_none().size(px(6.)).rounded_full().bg(
+                                    if info.status == Status::Failed {
+                                        status_colors.error
+                                    } else {
+                                        colors.text
+                                    },
+                                ))
+                            })
                         }),
                 );
             }

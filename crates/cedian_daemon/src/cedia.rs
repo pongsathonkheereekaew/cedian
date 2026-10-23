@@ -269,6 +269,16 @@ impl Cedia {
         self.threads(cwd, &[verb, thread])
     }
 
+    /// `cedia threads rename <id> <title>`.
+    pub fn rename(&self, cwd: &Path, thread: &str, title: &str) -> anyhow::Result<()> {
+        self.threads(cwd, &["rename", thread, "--", title])
+    }
+
+    /// `cedia threads delete <id>`: the thread, its sub-threads and their session logs.
+    pub fn delete(&self, cwd: &Path, thread: &str) -> anyhow::Result<()> {
+        self.threads(cwd, &["delete", thread])
+    }
+
     /// `cedia threads rate <id> up|down`.
     pub fn rate(&self, cwd: &Path, thread: &str, rating: Rating) -> anyhow::Result<()> {
         let word = match rating {
