@@ -254,3 +254,63 @@ fn the_model_is_the_latest_writer_sessions() {
         assert_eq!(transcript.model().map(str::to_owned), latest, "{name}");
     }
 }
+
+#[test]
+fn a_runs_cost_grows_with_each_reply_until_its_receipt() {
+    for name in fixture_names() {
+        let stream = fs::read_to_string(fixtures_dir().join(&name).join("stream.jsonl"))
+            .expect("stream.jsonl");
+        let mut transcript = Transcript::default();
+        let mut seen = Vec::new();
+        for text in stream.lines() {
+            let line = Line::parse(text).expect("line");
+            if let Line::Result(result) = &line {
+                let spent = transcript.run_cost();
+                assert!(
+                    (spent - result.cost_usd).abs() < 1e-9,
+                    "{name}: replies add up to {spent}, the receipt says {}",
+                    result.cost_usd
+                );
+            }
+            transcript.apply(&line);
+            seen.push(transcript.run_cost());
+        }
+        assert!(
+            seen.windows(2).any(|w| w[1] > w[0]),
+            "{name}: the cost grew"
+        );
+        assert_eq!(transcript.run_cost(), 0., "{name}: the receipt took over");
+    }
+}
+
+#[test]
+fn a_thinking_block_says_how_long_it_took() {
+    let mut transcript = Transcript::default();
+    for text in [
+        r#"{"type":"stream","event":{"type":"start"}}"#,
+        r#"{"type":"stream","event":{"type":"thinking_start","index":0}}"#,
+        r#"{"type":"stream","event":{"type":"thinking_delta","index":0,"delta":"Look at a."}}"#,
+    ] {
+        transcript.apply(&Line::parse(text).expect("line"));
+    }
+    assert!(matches!(
+        transcript.blocks().last(),
+        Some(Block::Thinking {
+            streaming: true,
+            ms: None,
+            ..
+        })
+    ));
+    transcript.apply(
+        &Line::parse(
+            r#"{"type":"event","event":{"kind":"assistant","wire":"anthropic-messages","model":"anthropic/claude-opus-5-5","blocks":[{"type":"thinking","text":"Look at a.","ms":4200}],"stop":"end_turn","usage":{"uncached":1,"cacheRead":0,"cacheWrite":0,"output":1},"costUsd":0.002,"id":"a1","parentId":null,"at":"2026-10-23T00:00:00.000Z"}}"#,
+        )
+        .expect("assistant"),
+    );
+    let Some(Block::Thinking { streaming, ms, .. }) = transcript.blocks().last() else {
+        panic!("expected thinking, got {:?}", transcript.blocks().last());
+    };
+    assert!(!streaming);
+    assert_eq!(*ms, Some(4200.));
+    assert_eq!(transcript.run_cost(), 0.002);
+}

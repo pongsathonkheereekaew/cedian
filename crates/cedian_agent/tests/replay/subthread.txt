@@ -1,6 +1,6 @@
 session code on faux/scripted
 user: make f.txt say good
-tool spawn [s1] allowed by mode:workspace: completed: <subthread thread="t-00000002" kind="work" model="faux/scripted" ended="success" cost="$0.0010">
+tool spawn [s1] allowed by mode:workspace: completed: <subthread thread="t-00000002" kind="work" model="faux/scripted" ended="success" cost="$0.0011">
 tool bash [c3] allowed by effect:read: completed exit 0: (no output)
 text: done, checked
 result success after 6 turns, verified: done, checked

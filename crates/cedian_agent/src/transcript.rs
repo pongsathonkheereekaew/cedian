@@ -30,6 +30,9 @@ pub struct Transcript {
     context: Option<u64>,
     /// The tools the latest `code` session was given, by name.
     tools: Vec<String>,
+    /// What the run in flight has cost so far, its sub-threads' replies included: the sum of
+    /// each reply's `costUsd` since the last receipt.
+    run_cost: f64,
 }
 
 impl Transcript {
@@ -70,6 +73,11 @@ impl Transcript {
         &self.tools
     }
 
+    /// What the run in flight has cost so far, until its receipt gives the whole.
+    pub fn run_cost(&self) -> f64 {
+        self.run_cost
+    }
+
     /// This transcript's thread id, once its first session event has arrived.
     pub fn thread(&self) -> Option<&str> {
         self.thread.as_deref()
@@ -90,7 +98,16 @@ impl Transcript {
                 None => self.apply_stream(event),
             },
             Line::Event(event) => match self.route(event) {
-                Some(thread) => self.subthread(thread).apply(line),
+                Some(thread) => {
+                    if let SessionEvent::Assistant {
+                        cost_usd: Some(cost),
+                        ..
+                    } = event
+                    {
+                        self.run_cost += cost;
+                    }
+                    self.subthread(thread).apply(line)
+                }
                 None => {
                     if matches!(event, SessionEvent::Request { .. }) {
                         self.streaming_for = None;
@@ -105,6 +122,7 @@ impl Transcript {
     /// A run's receipt: the stream's last line on a live run, or the `result` event a session
     /// log ends with when the thread is rebuilt from cedia's files.
     fn push_result(&mut self, result: &HeadlessResult) {
+        self.run_cost = 0.;
         self.push(Block::Result {
             subtype: result.subtype,
             text: result.result.clone(),
@@ -155,6 +173,7 @@ impl Transcript {
                 self.open_streamed(*index, |text| Block::Thinking {
                     text,
                     streaming: true,
+                    ms: None,
                 })
             }
             StreamEvent::TextDelta { index, delta }
@@ -195,7 +214,13 @@ impl Transcript {
                 images: images.clone(),
             }),
             SessionEvent::Result { result, .. } => self.push_result(result),
-            SessionEvent::Assistant { blocks, usage, .. } => {
+            SessionEvent::Assistant {
+                blocks,
+                usage,
+                cost_usd,
+                ..
+            } => {
+                self.run_cost += cost_usd.unwrap_or(0.);
                 self.context = Some(
                     (usage.uncached + usage.cache_read + usage.cache_write + usage.output) as u64,
                 );
@@ -270,9 +295,10 @@ fn final_block(block: &AssistantBlock) -> Option<Block> {
             text: text.clone(),
             streaming: false,
         }),
-        AssistantBlock::Thinking { text, .. } if !text.is_empty() => Some(Block::Thinking {
+        AssistantBlock::Thinking { text, ms, .. } if !text.is_empty() => Some(Block::Thinking {
             text: text.clone(),
             streaming: false,
+            ms: *ms,
         }),
         AssistantBlock::ToolUse {
             call_id,
