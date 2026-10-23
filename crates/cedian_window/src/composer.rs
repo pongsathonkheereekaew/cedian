@@ -316,6 +316,11 @@ impl Composer {
         let Some(name) = self.matching(cx).get(index).map(|c| c.name.clone()) else {
             return;
         };
+        self.use_command(&name, window, cx);
+    }
+
+    /// Puts `/<name> ` in the field and focuses it: a command picked here or elsewhere.
+    pub fn use_command(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         let text = format!("/{name} ");
         self.dismissed = Some(text.clone());
         self.editor.update(cx, |editor, cx| {

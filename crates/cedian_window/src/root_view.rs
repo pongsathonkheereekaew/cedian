@@ -102,6 +102,7 @@ pub struct RootView {
     git: Entity<GitPane>,
     outputs: Entity<OutputsPane>,
     memory: Entity<MemoryPane>,
+    skills: Entity<crate::skills_pane::SkillsPane>,
     workplace: Entity<Workplace>,
     /// The models and permission modes cedia lists, and the picks for the next runs.
     choices: run_choices::RunChoices,
@@ -389,6 +390,13 @@ impl RootView {
         })
         .detach();
         let memory = cx.new(|_| MemoryPane::default());
+        let skills = cx.new(|_| crate::skills_pane::SkillsPane::default());
+        cx.subscribe_in(&skills, window, |view, _, event, window, cx| match event {
+            crate::skills_pane::SkillsEvent::Use(name) => view
+                .composer
+                .update(cx, |composer, cx| composer.use_command(name, window, cx)),
+        })
+        .detach();
         let settings = cx.new(|_| SettingsView::default());
         cx.subscribe(&settings, |view, _, event, _| match event {
             SettingsEvent::Set { key, value } => view.request(Request::SetDesktop {
@@ -445,6 +453,7 @@ impl RootView {
             git,
             outputs,
             memory,
+            skills,
             workplace,
             choices: run_choices::RunChoices::default(),
             search,
@@ -579,6 +588,8 @@ impl RootView {
                 }
             }
             Notice::Commands { cwd, commands } if cwd == self.project().cwd => {
+                self.skills
+                    .update(cx, |pane, cx| pane.set(commands.clone(), cx));
                 self.composer.update(cx, |composer, cx| {
                     composer.set_commands(commands.clone(), cx)
                 });

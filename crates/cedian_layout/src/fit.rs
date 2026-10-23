@@ -16,7 +16,7 @@ impl Kind {
             Kind::Chat => 4,
             Kind::Editor | Kind::Files | Kind::Git => 3,
             Kind::Session => 2,
-            Kind::Outputs | Kind::Memory | Kind::Background => 1,
+            Kind::Outputs | Kind::Memory | Kind::Skills | Kind::Background => 1,
             Kind::Usage => 0,
         }
     }

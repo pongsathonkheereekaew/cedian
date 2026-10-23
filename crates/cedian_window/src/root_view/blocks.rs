@@ -150,6 +150,7 @@ impl RootView {
             self.refresh_review();
         }
         self.refresh_knowledge();
+        self.refresh_skills();
         cx.notify();
     }
 
@@ -1052,6 +1053,10 @@ impl RootView {
                 let notes = self.memory.read(cx).count();
                 (notes > 0).then(|| format!("{notes} โน้ต").into())
             }
+            Kind::Skills => {
+                let skills = self.skills.read(cx).count();
+                (skills > 0).then(|| format!("{skills} skill").into())
+            }
             Kind::Threads => {
                 let working = self.project().working();
                 (working > 0).then(|| format!("{working} กำลังทำ").into())
@@ -1249,6 +1254,7 @@ impl RootView {
             Kind::Background => self.render_background(cx),
             Kind::Outputs => self.outputs.clone().into_any_element(),
             Kind::Memory => self.memory.clone().into_any_element(),
+            Kind::Skills => self.skills.clone().into_any_element(),
             Kind::Usage => {
                 self.ask_usage(cx);
                 self.usage.clone().into_any_element()

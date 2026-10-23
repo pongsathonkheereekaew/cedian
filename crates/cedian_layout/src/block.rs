@@ -21,6 +21,8 @@ pub enum Kind {
     Git,
     Outputs,
     Memory,
+    /// What `/` offers: the skills a session here can load.
+    Skills,
     Usage,
     Background,
     /// The open thread's details: its sessions, cost, worktree and instructions.
@@ -28,7 +30,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 14] = [
+    pub const ALL: [Kind; 15] = [
         Kind::Threads,
         Kind::Agent,
         Kind::Chat,
@@ -40,6 +42,7 @@ impl Kind {
         Kind::Git,
         Kind::Outputs,
         Kind::Memory,
+        Kind::Skills,
         Kind::Usage,
         Kind::Background,
         Kind::Session,
@@ -68,6 +71,7 @@ impl Kind {
             Kind::Git => "Git",
             Kind::Outputs => "Outputs",
             Kind::Memory => "Memory",
+            Kind::Skills => "Skills",
             Kind::Usage => "Usage",
             Kind::Background => "Background tasks",
             Kind::Session => "Session",

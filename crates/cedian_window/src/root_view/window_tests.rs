@@ -584,3 +584,38 @@ fn the_receipt_undoes_its_turn_and_a_message_rewinds_to_before_it() {
     cx.simulate_click(close, gpui::Modifiers::none());
     assert!(cx.debug_bounds("restore-card").is_none());
 }
+
+#[test]
+fn the_skills_block_lists_the_commands_and_a_click_puts_one_in_the_composer() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    view.update(cx, |view, cx| {
+        view.open_kind(Kind::Skills, super::blocks::ToolTarget { against: None }, cx);
+        let commands = serde_json::from_str(
+            r#"[{"name":"review","description":"Review a diff against the repository's rules, and say what to change before it merges","kind":"skill","source":"repository","argumentHint":"<pr>"},
+                {"name":"a-skill-with-a-name-long-enough-to-be-cut-in-a-narrow-block","description":"x","kind":"skill","source":"user"}]"#,
+        )
+        .expect("commands");
+        view.on_notice(
+            Notice::Commands {
+                cwd: view.project().cwd.clone(),
+                commands,
+            },
+            cx,
+        );
+    });
+    for (width, height) in SIZES {
+        cx.simulate_resize(size(px(width), px(height)));
+        cx.run_until_parked();
+        let block = bounds(cx, "skills-block");
+        for row in ["skill-0", "skill-1"] {
+            inside(row, bounds(cx, row), "the Skills block", block);
+        }
+    }
+    let row = bounds(cx, "skill-0").center();
+    cx.simulate_click(row, gpui::Modifiers::none());
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.composer.read(cx).text(cx)),
+        "/review "
+    );
+}

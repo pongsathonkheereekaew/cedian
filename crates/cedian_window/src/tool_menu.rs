@@ -66,11 +66,12 @@ pub const THREAD_TOOLS: [(Kind, &str); 8] = [
 ];
 
 /// The tools for the project.
-pub const PROJECT_TOOLS: [(Kind, &str); 6] = [
+pub const PROJECT_TOOLS: [(Kind, &str); 7] = [
     (Kind::Threads, "Threads"),
     (Kind::Chat, "แชทโปรเจกต์"),
     (Kind::Outputs, "Outputs"),
     (Kind::Memory, "Memory"),
+    (Kind::Skills, "Skills"),
     (Kind::Usage, "Usage"),
     (Kind::Background, "Background tasks"),
 ];
