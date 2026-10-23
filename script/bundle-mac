@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# Build Cedian.app for one architecture, and optionally sign it, put it in a dmg and notarize
+# the dmg. Run on a Mac with Xcode (the Metal shaders compile at build time).
+#
+#   Cedian.app/Contents/MacOS/cedian                     the window
+#   Cedian.app/Contents/MacOS/cedian-daemon              found by the window beside itself
+#   Cedian.app/Contents/MacOS/cedia                      the pinned cedia build, found by the daemon
+#   Cedian.app/Contents/Resources/chrome-headless-shell/ found by the daemon at ../Resources
+#
+# Usage: script/bundle-mac --cedia <path> [--arch aarch64|x86_64] [--sign <identity>] [--dmg]
+#                          [--notarize <keychain profile>]
+#   --cedia     a compiled cedia for the same architecture (`bun build --compile` in cedia)
+#   --arch      default: this Mac's
+#   --sign      a Developer ID Application identity; without it the app is signed ad hoc,
+#               which runs only on the Mac that built it
+#   --dmg       write target/<triple>/release/Cedian-<arch>.dmg (lzma, the smallest hdiutil makes)
+#   --notarize  submit the dmg with `notarytool` under this keychain profile and staple it
+#               (needs --sign and --dmg; make the profile once with
+#               `xcrun notarytool store-credentials`)
+#
+# The binaries are built as Zed builds its own: release profile (thin LTO, one codegen unit),
+# Rust symbols kept out of the export table, debug info moved to a dSYM beside the build
+# (kept for symbolicating crashes, never shipped) and local symbols stripped.
+set -euo pipefail
+
+usage() {
+  sed -n '/^# Usage:/,/^#$/p' "$0" | sed 's/^# \{0,1\}//' >&2
+  exit 2
+}
+
+cedia=""
+arch=""
+identity=""
+dmg=false
+notary_profile=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cedia) cedia="${2:?}"; shift 2 ;;
+    --arch) arch="${2:?}"; shift 2 ;;
+    --sign) identity="${2:?}"; shift 2 ;;
+    --dmg) dmg=true; shift ;;
+    --notarize) notary_profile="${2:?}"; shift 2 ;;
+    *) usage ;;
+  esac
+done
+[[ -n "$cedia" ]] || usage
+[[ -x "$cedia" ]] || { echo "not an executable: $cedia" >&2; exit 2; }
+if [[ -n "$notary_profile" && ( -z "$identity" || "$dmg" != true ) ]]; then
+  echo "--notarize needs --sign and --dmg" >&2
+  exit 2
+fi
+[[ "$(uname -s)" == Darwin ]] || { echo "script/bundle-mac runs on macOS" >&2; exit 2; }
+
+arch="${arch:-$(uname -m)}"
+case "$arch" in
+  aarch64|arm64) arch=aarch64; triple=aarch64-apple-darwin; chromium=mac-arm64 ;;
+  x86_64) triple=x86_64-apple-darwin; chromium=mac-x64 ;;
+  *) echo "unknown arch: $arch (aarch64 or x86_64)" >&2; exit 2 ;;
+esac
+if ! lipo -archs "$cedia" | tr ' ' '\n' | grep -qx "${arch/aarch64/arm64}"; then
+  echo "$cedia is not built for $arch ($(lipo -archs "$cedia"))" >&2
+  exit 2
+fi
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+out="target/$triple/release"
+version="$(sed -n 's/^version = "\(.*\)"/\1/p' crates/cedian_window/Cargo.toml | head -1)"
+
+echo "building cedian $version for $triple"
+rustup target add "$triple" >/dev/null
+# Rust's mangled symbols (`__R…`) need not be exported from an executable; leaving them out of
+# the export trie shrinks __LINKEDIT, as Zed does for its own binary.
+hide='link-arg=-Wl,-unexported_symbol,__R*'
+cargo rustc --release --locked --target "$triple" -p cedian_window --bin cedian -- -C "$hide"
+cargo rustc --release --locked --target "$triple" -p cedian_daemon --bin cedian-daemon -- -C "$hide"
+
+script/fetch-chromium "$chromium" "$out"
+
+app="$out/Cedian.app"
+rm -rf "$app"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+for bin in cedian cedian-daemon; do
+  # Cargo leaves a dSYM beside a release build on macOS (split-debuginfo "packed").
+  [[ -d "$out/$bin.dSYM" ]] || dsymutil "$out/$bin" -o "$out/$bin.dSYM"
+  cp "$out/$bin" "$app/Contents/MacOS/$bin"
+  strip -x "$app/Contents/MacOS/$bin"
+done
+cp "$cedia" "$app/Contents/MacOS/cedia"
+cp -R "$out/chrome-headless-shell" "$app/Contents/Resources/chrome-headless-shell"
+cp brand/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
+cat > "$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleDisplayName</key><string>Cedian</string>
+  <key>CFBundleExecutable</key><string>cedian</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIdentifier</key><string>dev.cedian.app</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>Cedian</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$version</string>
+  <key>CFBundleVersion</key><string>$version</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+</dict>
+</plist>
+PLIST
+
+# Inside out: every Mach-O before what contains it. The JIT entitlements are for V8 in the
+# shell and JavaScriptCore in cedia's Bun runtime, which map executable memory at run time.
+jit="$(mktemp)"
+trap 'rm -f "$jit"' EXIT
+cat > "$jit" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+</dict>
+</plist>
+PLIST
+if [[ -n "$identity" ]]; then
+  sign=(codesign --force --timestamp --options runtime --sign "$identity")
+else
+  echo "no --sign: signing ad hoc, for this Mac only"
+  sign=(codesign --force --sign -)
+fi
+shell="$app/Contents/Resources/chrome-headless-shell"
+for lib in "$shell"/*.dylib; do
+  "${sign[@]}" "$lib"
+done
+"${sign[@]}" --entitlements "$jit" "$shell/chrome-headless-shell"
+"${sign[@]}" --entitlements "$jit" "$app/Contents/MacOS/cedia"
+"${sign[@]}" "$app/Contents/MacOS/cedian-daemon"
+"${sign[@]}" "$app/Contents/MacOS/cedian"
+"${sign[@]}" "$app"
+codesign --verify --strict --deep "$app"
+
+echo "sizes:"
+du -sh "$app" "$app/Contents/MacOS/"* "$shell"
+
+if [[ "$dmg" == true ]]; then
+  file="$out/Cedian-$arch.dmg"
+  stage="$out/dmg"
+  rm -rf "$stage" "$file"
+  mkdir -p "$stage"
+  cp -R "$app" "$stage/"
+  ln -s /Applications "$stage/Applications"
+  # ULMO is lzma (macOS 10.15+): well under the zlib of Zed's UDZO for Chromium's binary.
+  hdiutil create -volname Cedian -srcfolder "$stage" -ov -format ULMO "$file"
+  rm -rf "$stage"
+  if [[ -n "$identity" ]]; then
+    codesign --force --timestamp --sign "$identity" "$file"
+  fi
+  if [[ -n "$notary_profile" ]]; then
+    xcrun notarytool submit --wait --keychain-profile "$notary_profile" "$file"
+    xcrun stapler staple "$file"
+  fi
+  du -sh "$file"
+fi

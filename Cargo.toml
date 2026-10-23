@@ -70,3 +70,11 @@ codegen-units = 16
 
 [profile.dev.build-override]
 codegen-units = 16
+
+# What ships (script/bundle-mac), set as Zed sets its own: thin LTO over one codegen unit
+# for the smallest, fastest binary, and limited debug info, which on macOS goes to a dSYM
+# beside the build and is stripped from what ships.
+[profile.release]
+debug = "limited"
+lto = "thin"
+codegen-units = 1

@@ -324,7 +324,12 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     };
     cx.open_window(options, |window, cx| match mode {
         Mode::Live { cwd } => {
-            let here = std::env::current_dir().unwrap_or_default();
+            // Opened from Finder or the Dock, the app starts in `/`; home is the better first tab.
+            let here = std::env::current_dir()
+                .ok()
+                .filter(|dir| dir.parent().is_some())
+                .or_else(std::env::home_dir)
+                .unwrap_or_default();
             let (tabs, front) = layout.tabs(cwd, here);
             cx.new(|cx| RootView::live(tabs, front, layout, view_mode, window, cx))
         }
