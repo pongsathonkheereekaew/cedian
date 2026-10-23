@@ -106,12 +106,22 @@ mod tests {
 
     #[test]
     fn a_session_names_each_file_it_changed_once() {
-        let path = Path::new(FIXTURE)
-            .join("edit-and-check/sessions/e35da0ce-e57e-4cab-94cf-441034dca24d.jsonl");
+        // The fixture's one session, whose name changes with each re-record.
+        let dir = Path::new(FIXTURE).join("edit-and-check/sessions");
+        let path = std::fs::read_dir(&dir)
+            .expect("sessions")
+            .map(|entry| entry.expect("entry").path())
+            .find(|path| path.extension().is_some_and(|e| e == "jsonl"))
+            .expect("a session");
         let changes = session_changes(&path).expect("read");
-        assert_eq!(
-            changes,
-            [("f.txt".to_owned(), "2026-10-22T09:42:57.225Z".to_owned())]
+        let [(file, at)] = changes.as_slice() else {
+            panic!("one change, got {changes:?}");
+        };
+        assert_eq!(file, "f.txt");
+        let log = std::fs::read_to_string(&path).expect("log");
+        assert!(
+            log.contains(&format!(r#""at":"{at}""#)),
+            "{at} is the snapshot's time"
         );
     }
 

@@ -353,9 +353,18 @@ impl AgentPane {
                     text.clone()
                 })),
             Block::Thinking { .. } if !self.view_mode.shows_thinking() => div(),
-            Block::Thinking { text, .. } => {
-                // One quiet line that opens to the thinking. How long it took waits for cedia
-                // to log when a thinking block starts and ends.
+            Block::Thinking {
+                text,
+                streaming,
+                ms,
+            } => {
+                // One quiet line that opens to the thinking, with how long it took once the
+                // turn's assistant event lands.
+                let label = match ms {
+                    _ if *streaming => "กำลังคิด…".to_owned(),
+                    Some(ms) => format!("คิด {}", tool_card::duration(*ms as i64)),
+                    None => "ความคิด".to_owned(),
+                };
                 let open = self.unfolded.contains(&index);
                 let pane = pane.clone();
                 div()
@@ -376,7 +385,8 @@ impl AgentPane {
                                 pane.update(cx, |pane, cx| pane.toggle_block(index, cx))
                                     .ok();
                             })
-                            .child("ความคิด")
+                            .debug_selector(move || format!("thinking-{index}"))
+                            .child(label)
                             .child(if open { "⌄" } else { "›" }),
                     )
                     .when(open, |thinking| {
@@ -479,9 +489,10 @@ impl AgentPane {
             })
     }
 
-    /// What the thread's runs cost so far.
+    /// What the thread's runs cost so far, the one in flight included.
     pub fn cost(&self) -> Option<f64> {
-        let mut total = None;
+        let live = self.transcript.run_cost();
+        let mut total = (live > 0.).then_some(live);
         for block in self.transcript.blocks() {
             if let Block::Result { cost_usd, .. } = block {
                 *total.get_or_insert(0.) += cost_usd;

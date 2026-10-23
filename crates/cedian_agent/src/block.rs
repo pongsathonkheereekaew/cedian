@@ -23,6 +23,8 @@ pub enum Block {
     Thinking {
         text: String,
         streaming: bool,
+        /// How long the model thought, from the assistant event once it lands.
+        ms: Option<f64>,
     },
     Tool(ToolCall),
     /// The run's receipt.
