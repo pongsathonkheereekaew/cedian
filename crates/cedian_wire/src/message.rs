@@ -131,6 +131,15 @@ pub enum Request {
         thread: String,
         archived: bool,
     },
+    /// Gives the thread the person's title, through `cedia threads rename`.
+    Rename {
+        cwd: PathBuf,
+        thread: String,
+        title: String,
+    },
+    /// Deletes the thread for good, its sub-threads and their logs, through `cedia threads
+    /// delete`. Refused by cedia while it runs.
+    Delete { cwd: PathBuf, thread: String },
     /// The project's memory (`~/.cedia/projects/<slug>/memory.jsonl`), answered with
     /// `Notice::Memory`.
     Memory { cwd: PathBuf },

@@ -28,6 +28,6 @@ mod tests {
     #[test]
     fn the_schema_hash_is_cedias() {
         // `cedia --version --json` at 6a75f4e prints protocol 9a5b11657b323eff.
-        assert_eq!(super::PROTOCOL_HASH, "f11e906660a198d7");
+        assert_eq!(super::PROTOCOL_HASH, "534fbc38140f3ddf");
     }
 }

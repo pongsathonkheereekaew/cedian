@@ -805,3 +805,72 @@ fn a_capture_is_marked_and_attached_with_its_marks() {
     assert_eq!(saved.get_pixel(100, 10).0, [255; 4]);
     std::fs::remove_file(path).ok();
 }
+
+#[test]
+fn a_thread_is_renamed_in_its_row_and_deleted_after_the_row_asks() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    let info = |id: &str, title: &str| -> cedian_wire::ThreadInfo {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "title": title, "task": title, "state": "done", "result": null,
+            "parent": null, "archived": false, "sessions": [], "messages": [], "pending": [],
+            "updated_at": "2026-10-22T01:00:00.000Z", "status": "done", "runs": []
+        }))
+        .expect("info")
+    };
+    view.update(cx, |view, cx| {
+        view.can_rename = true;
+        view.can_delete = true;
+        view.projects[0].set_threads(vec![
+            info("t-00000001", "f"),
+            info("t-00000002", "Fix the login bug"),
+        ]);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let pencil = bounds(cx, "thread-rename-t-00000002").center();
+    cx.simulate_click(pencil, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("thread-rename").is_some(),
+        "the title is a field"
+    );
+    cx.simulate_input("Login redirect");
+    cx.dispatch_action(super::ConfirmRename);
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("thread-rename").is_none(),
+        "the field closed"
+    );
+    let title = |view: &RootView, id: &str| {
+        view.project()
+            .threads
+            .iter()
+            .find(|t| t.thread.id == id)
+            .map(|t| t.thread.title.clone())
+    };
+    assert_eq!(
+        view.read_with(cx, |view, _| title(view, "t-00000002")),
+        Some("Login redirect".to_owned())
+    );
+
+    let bin = bounds(cx, "thread-delete-t-00000002").center();
+    cx.simulate_click(bin, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("thread-delete-confirm").is_some(),
+        "the row asks"
+    );
+    let no = bounds(cx, "thread-delete-no").center();
+    cx.simulate_click(no, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |view, _| title(view, "t-00000002").is_some()));
+    cx.simulate_click(bin, gpui::Modifiers::none());
+    cx.run_until_parked();
+    let yes = bounds(cx, "thread-delete-yes").center();
+    cx.simulate_click(yes, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |view, _| title(view, "t-00000002").is_none()));
+    assert!(cx.debug_bounds("thread-delete-confirm").is_none());
+}

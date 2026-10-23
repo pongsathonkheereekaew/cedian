@@ -219,6 +219,7 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
                 thread.archived = *archived;
                 thread.updated_at = at.clone();
             }
+            ThreadEvent::Title { title, .. } => thread.title = title.clone(),
             ThreadEvent::Rate { rating, at, .. } => {
                 thread.rating = Some(*rating);
                 thread.updated_at = at.clone();
@@ -284,7 +285,7 @@ pub fn fold(id: &str, events: &[ThreadEvent]) -> ThreadSummary {
 
 /// The events a fold reads after each rewind, and the ones it dropped, as cedia's `rewound`:
 /// a rewind drops the events from the run it goes back to up to itself, except messages,
-/// unsends, ratings and archiving, which are not the conversation's, and so does anything a
+/// unsends, ratings, archiving and renaming, which are not the conversation's, and so does anything a
 /// dropped run writes later. A rewind to a run that is not there changes nothing.
 fn rewound(events: &[ThreadEvent]) -> (Vec<&ThreadEvent>, Vec<&ThreadEvent>) {
     let keep = |e: &ThreadEvent| {
@@ -294,6 +295,7 @@ fn rewound(events: &[ThreadEvent]) -> (Vec<&ThreadEvent>, Vec<&ThreadEvent>) {
                 | ThreadEvent::Unsend { .. }
                 | ThreadEvent::Rate { .. }
                 | ThreadEvent::Archived { .. }
+                | ThreadEvent::Title { .. }
         )
     };
     let mut live: Vec<&ThreadEvent> = Vec::new();
@@ -345,7 +347,8 @@ fn run_of(event: &ThreadEvent) -> Option<&str> {
         | ThreadEvent::Turn { run, .. }
         | ThreadEvent::Todo { run, .. }
         | ThreadEvent::Run { run, .. }
-        | ThreadEvent::Archived { run, .. } => run.as_deref(),
+        | ThreadEvent::Archived { run, .. }
+        | ThreadEvent::Title { run, .. } => run.as_deref(),
         ThreadEvent::Rewind { .. } => None,
     }
 }
@@ -365,7 +368,8 @@ fn at_of(event: &ThreadEvent) -> &str {
         | ThreadEvent::Todo { at, .. }
         | ThreadEvent::Run { at, .. }
         | ThreadEvent::Rewind { at, .. }
-        | ThreadEvent::Archived { at, .. } => at,
+        | ThreadEvent::Archived { at, .. }
+        | ThreadEvent::Title { at, .. } => at,
     }
 }
 
@@ -422,6 +426,19 @@ mod tests {
             .iter()
             .map(|l| serde_json::from_str(l).expect("event"))
             .collect()
+    }
+
+    #[test]
+    fn a_rename_is_the_title_and_a_rewind_keeps_it() {
+        let events = events(&[
+            r#"{"kind":"open","title":"Fix the login bug","task":"t","at":"1"}"#,
+            r#"{"kind":"run","id":"r1","prompt":"a","cwd":"/r","at":"2"}"#,
+            r#"{"kind":"state","state":"done","at":"3","run":"r1"}"#,
+            r#"{"kind":"title","title":"Login redirect","at":"4"}"#,
+            r#"{"kind":"rewind","run":"r1","at":"5"}"#,
+        ]);
+        let thread = fold("t-1", &events);
+        assert_eq!(thread.title, "Login redirect", "a rewind keeps it");
     }
 
     #[test]
