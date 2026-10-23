@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Fetch the Chromium cedian ships: Chrome for Testing's chrome-headless-shell at the version
-# below, checked against its pinned SHA-256, unpacked into <dest>/chrome-headless-shell.
-# The daemon looks for it beside its own binary: <exe dir>/../Resources/chrome-headless-shell
-# in the app bundle, <exe dir>/../chrome-headless-shell in development (so target/).
+# below, checked against its pinned SHA-256, unpacked into <dest>/chromium.
+# The daemon looks for it beside its own binary: <exe dir>/../Resources/chromium
+# in the app bundle, <exe dir>/../chromium in development (so target/). The directory is not
+# named after the binary, since codesign takes `x/x` for an old-style bundle.
 # Usage: script/fetch-chromium [platform] [dest]
 #   platform: mac-arm64, mac-x64 or linux64 (default: this machine's)
 #   dest: default target/
@@ -37,7 +38,7 @@ dest="${2:-$root/target}"
 mkdir -p "$dest"
 dest="$(cd "$dest" && pwd)"
 
-if [[ "$(cat "$dest/chrome-headless-shell/VERSION" 2>/dev/null)" == "$VERSION $platform" ]]; then
+if [[ "$(cat "$dest/chromium/VERSION" 2>/dev/null)" == "$VERSION $platform" ]]; then
   echo "chrome-headless-shell $VERSION $platform already in $dest"
   exit 0
 fi
@@ -57,7 +58,7 @@ if [[ "$got" != "$want" ]]; then
   exit 1
 fi
 unzip -q "$tmp/shell.zip" -d "$tmp"
-rm -rf "$dest/chrome-headless-shell"
-mv "$tmp/chrome-headless-shell-$platform" "$dest/chrome-headless-shell"
-echo "$VERSION $platform" > "$dest/chrome-headless-shell/VERSION"
-echo "chrome-headless-shell $VERSION $platform in $dest/chrome-headless-shell"
+rm -rf "$dest/chromium"
+mv "$tmp/chrome-headless-shell-$platform" "$dest/chromium"
+echo "$VERSION $platform" > "$dest/chromium/VERSION"
+echo "chrome-headless-shell $VERSION $platform in $dest/chromium"

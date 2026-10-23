@@ -22,10 +22,11 @@ const START_TIMEOUT: Duration = Duration::from_secs(15);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The Chromium cedian ships (`script/fetch-chromium`), relative to the daemon's directory:
-/// in the app bundle's Resources, else beside the build output in development.
+/// in the app bundle's Resources, else beside the build output in development. The directory
+/// is not named after the binary: codesign takes `x/x` for an old-style bundle and fails.
 const BUNDLED: [&str; 2] = [
-    "../Resources/chrome-headless-shell/chrome-headless-shell",
-    "../chrome-headless-shell/chrome-headless-shell",
+    "../Resources/chromium/chrome-headless-shell",
+    "../chromium/chrome-headless-shell",
 ];
 
 /// Where an installed browser is looked for, after the bundled one.
@@ -277,9 +278,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         std::fs::create_dir_all(dir.path().join("MacOS")).expect("mkdir");
         let exe = dir.path().join("MacOS/cedian-daemon");
-        let shell = dir
-            .path()
-            .join("Resources/chrome-headless-shell/chrome-headless-shell");
+        let shell = dir.path().join("Resources/chromium/chrome-headless-shell");
         std::fs::create_dir_all(shell.parent().expect("parent")).expect("mkdir");
         std::fs::write(&shell, "").expect("write");
         let env = HashMap::from([("PATH".to_owned(), "/nowhere".to_owned())]);
@@ -289,9 +288,7 @@ mod tests {
         assert_eq!(found(&exe), Some(shell.canonicalize().expect("canonical")));
         // In development the build output's directory holds it.
         let dev = tempfile::tempdir().expect("dir");
-        let shell = dev
-            .path()
-            .join("chrome-headless-shell/chrome-headless-shell");
+        let shell = dev.path().join("chromium/chrome-headless-shell");
         std::fs::create_dir_all(shell.parent().expect("parent")).expect("mkdir");
         std::fs::write(&shell, "").expect("write");
         std::fs::create_dir_all(dev.path().join("debug")).expect("mkdir");
