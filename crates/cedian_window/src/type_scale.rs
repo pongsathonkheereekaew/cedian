@@ -6,32 +6,32 @@ use gpui::{Styled, px};
 pub trait TypeScale: Styled + Sized {
     /// Settings section titles.
     fn text_title(self) -> Self {
-        self.text_size(px(22.)).line_height(px(30.))
+        self.text_size(px(20.)).line_height(px(28.))
     }
 
-    /// The agent's answers, in the serif.
+    /// The agent's answers, a size above the person's text.
     fn text_answer(self) -> Self {
-        self.text_size(px(16.)).line_height(px(27.))
+        self.text_size(px(14.5)).line_height(px(24.))
     }
 
     /// The person's text and the composer.
     fn text_message(self) -> Self {
-        self.text_size(px(14.5)).line_height(px(24.))
+        self.text_size(px(14.)).line_height(px(23.))
     }
 
     /// Lists, buttons and inputs.
     fn text_ui(self) -> Self {
-        self.text_size(px(13.5)).line_height(px(21.))
+        self.text_size(px(13.)).line_height(px(20.))
     }
 
     /// Chips and secondary lines.
     fn text_meta(self) -> Self {
-        self.text_size(px(12.)).line_height(px(18.))
+        self.text_size(px(11.5)).line_height(px(17.))
     }
 
     /// Group headers and badges.
     fn text_label(self) -> Self {
-        self.text_size(px(11.5)).line_height(px(16.))
+        self.text_size(px(11.)).line_height(px(15.))
     }
 
     /// The editor, tool output and the terminal.
