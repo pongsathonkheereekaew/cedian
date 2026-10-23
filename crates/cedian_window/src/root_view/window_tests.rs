@@ -47,6 +47,7 @@ pub(super) fn app() -> TestAppContext {
         theme_settings::init(theme::LoadThemes::All(Box::new(crate::assets::Assets)), cx);
         release_channel::init(semver::Version::new(0, 1, 0), cx);
         editor::init(cx);
+        crate::languages::init(cx);
         crate::desktop::Desktop::from_value(&serde_json::Value::Null).apply(cx);
     });
     cx
@@ -414,6 +415,31 @@ fn the_editor_saves_a_file_and_an_agents_write_waits_on_unsaved_edits() {
         view.read_with(cx, |view, cx| view.editor.read(cx).text(cx)),
         "fn main() { agent(); again(); }\n"
     );
+}
+
+#[test]
+fn a_file_is_coloured_as_its_language_and_a_diff_as_a_diff() {
+    let dir = tempfile::tempdir().expect("dir");
+    let path = dir.path().join("main.rs");
+    std::fs::write(&path, "fn main() {}\n").expect("write");
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    let language = |view: &gpui::Entity<RootView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |view, cx| {
+            let buffer = view.editor.read(cx).buffer().read(cx).as_singleton()?;
+            Some(buffer.read(cx).language()?.name().to_string())
+        })
+    };
+    view.update_in(cx, |view, window, cx| {
+        view.show_file(path.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(language(&view, cx).as_deref(), Some("Rust"));
+    view.update_in(cx, |view, window, cx| {
+        view.show_text("diff".into(), "+ added\n".into(), window, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(language(&view, cx).as_deref(), Some("Diff"));
 }
 
 #[test]
