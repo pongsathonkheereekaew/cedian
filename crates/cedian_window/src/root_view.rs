@@ -4,6 +4,7 @@
 mod background;
 mod blocks;
 mod chat;
+mod knowledge;
 mod run_choices;
 mod tear_off;
 #[cfg(test)]
@@ -41,6 +42,8 @@ use crate::{
     git_pane::{GitEvent, GitPane},
     layout::Layout,
     line_breaks,
+    memory_pane::MemoryPane,
+    outputs_pane::{OutputsEvent, OutputsPane},
     project::Project,
     review_pane::{ReviewEvent, ReviewPane},
     settings_view::{SettingsEvent, SettingsView},
@@ -96,6 +99,8 @@ pub struct RootView {
     editor_shows: Option<SharedString>,
     files: Entity<FileTree>,
     git: Entity<GitPane>,
+    outputs: Entity<OutputsPane>,
+    memory: Entity<MemoryPane>,
     workplace: Entity<Workplace>,
     /// The models and permission modes cedia lists, and the picks for the next runs.
     choices: run_choices::RunChoices,
@@ -368,6 +373,12 @@ impl RootView {
             GitEvent::Show { name, text } => view.show_text(name.into(), text.clone(), window, cx),
         })
         .detach();
+        let outputs = cx.new(|_| OutputsPane::default());
+        cx.subscribe_in(&outputs, window, |view, _, event, window, cx| match event {
+            OutputsEvent::Open(path) => view.show_file(path.clone(), window, cx),
+        })
+        .detach();
+        let memory = cx.new(|_| MemoryPane::default());
         let settings = cx.new(|_| SettingsView::default());
         cx.subscribe(&settings, |view, _, event, _| match event {
             SettingsEvent::Set { key, value } => view.request(Request::SetDesktop {
@@ -422,6 +433,8 @@ impl RootView {
             editor_shows: None,
             files,
             git,
+            outputs,
+            memory,
             workplace,
             choices: run_choices::RunChoices::default(),
             search,
@@ -609,6 +622,7 @@ impl RootView {
                 }
                 if n == self.active {
                     self.open_chat_thread(cx);
+                    self.refresh_knowledge();
                 }
                 self.retitle(cx);
             }
@@ -716,6 +730,13 @@ impl RootView {
             Notice::Usage { cwd, since, report } => self
                 .usage
                 .update(cx, |pane, cx| pane.set_report(cwd, since, *report, cx)),
+            Notice::Outputs { cwd, outputs } if cwd == self.project().cwd => {
+                self.outputs.update(cx, |pane, cx| pane.set(outputs, cx));
+            }
+            Notice::Memory { cwd, notes } if cwd == self.project().cwd => {
+                self.memory.update(cx, |pane, cx| pane.set(notes, cx));
+            }
+            Notice::Outputs { .. } | Notice::Memory { .. } => {}
             Notice::Error { message } => {
                 // A new thread that could not start: the composer is free again.
                 for project in &mut self.projects {
@@ -878,6 +899,7 @@ impl RootView {
         self.focused = self.ws().find(Kind::Agent);
         self.show_current(cx);
         self.open_chat_thread(cx);
+        self.reset_knowledge(cx);
         self.set_search_actions(cx);
         self.remember_tabs();
         self.save_layout(cx);

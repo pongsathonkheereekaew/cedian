@@ -357,6 +357,100 @@ fn a_block_let_go_inside_the_window_stays() {
 }
 
 #[test]
+fn the_outputs_and_memory_blocks_keep_their_rows_inside_at_every_size() {
+    use cedian_index::{MemoryNote, Output};
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    let output = |path: &str, title: &str, exists: bool| Output {
+        cwd: PathBuf::from("/fixture/repo"),
+        path: path.to_owned(),
+        thread: "t-00000001".to_owned(),
+        title: title.to_owned(),
+        at: "2026-10-22T09:42:57.225Z".to_owned(),
+        exists,
+    };
+    let note = |id: &str, text: &str, from: &str| MemoryNote {
+        id: id.to_owned(),
+        text: text.to_owned(),
+        from: from.to_owned(),
+        at: "2026-10-21T10:00:00Z".to_owned(),
+    };
+    view.update(cx, |view, cx| {
+        for kind in [Kind::Outputs, Kind::Memory] {
+            view.open_kind(kind, super::blocks::ToolTarget { against: None }, cx);
+        }
+        let cwd = view.project().cwd.clone();
+        view.on_notice(
+            Notice::Outputs {
+                cwd: cwd.clone(),
+                outputs: vec![
+                    output("f.txt", "make f.txt say good", true),
+                    output(
+                        "crates/cedian_window/src/root_view/a_very_long_file_name_that_will_not_fit.rs",
+                        "แก้บล็อก Memory และ Outputs ให้แสดงไฟล์ทั้งหมดที่ thread ในโปรเจกต์สร้างขึ้นมา",
+                        false,
+                    ),
+                ],
+            },
+            cx,
+        );
+        view.on_notice(
+            Notice::Memory {
+                cwd,
+                notes: vec![
+                    note("a1b2c3d4", "bun test runs the whole suite; cargo test -p cedian_window runs the leak test", "user"),
+                    note(
+                        "e5f6a7b8",
+                        "หน้าต่างเป็นแค่ตัวแสดงผล daemon เป็นเจ้าของสถานะทั้งหมด และไฟล์ thread ของ cedia เขียนต่อท้ายอย่างเดียว ~/.cedia/projects/an-unbroken-path-that-is-long-enough-to-overflow-a-narrow-block/memory.jsonl",
+                        "3f2a9c1e",
+                    ),
+                ],
+            },
+            cx,
+        );
+    });
+    let mut drawn = Vec::new();
+    for (width, height) in SIZES {
+        cx.simulate_resize(size(px(width), px(height)));
+        cx.run_until_parked();
+        for (block, rows) in [
+            (
+                "outputs-block",
+                &["output-0", "output-1", "output-path-1", "output-meta-1"][..],
+            ),
+            ("memory-block", &["note-0", "note-1", "note-text-1"][..]),
+        ] {
+            // A small window folds these blocks into a neighbour's tabs.
+            let Some(outer) = cx.debug_bounds(block) else {
+                continue;
+            };
+            drawn.push((width, block));
+            let first = bounds(cx, rows[0]);
+            inside(rows[0], first, block, outer);
+            for &row in rows {
+                // Rows under the fold scroll; across, every one stays in.
+                let row_bounds = bounds(cx, row);
+                assert!(
+                    row_bounds.left() >= outer.left() - px(0.5)
+                        && row_bounds.right() <= outer.right() + px(0.5),
+                    "{row} {row_bounds:?} leaks out of {block} {outer:?} at {width}"
+                );
+            }
+        }
+    }
+    for block in ["outputs-block", "memory-block"] {
+        assert!(
+            drawn.contains(&(2560., block)),
+            "{block} is drawn in the widest window: {drawn:?}"
+        );
+    }
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.memory.read(cx).count()),
+        2
+    );
+}
+
+#[test]
 fn the_usage_block_draws_the_report_inside_itself_and_toggles_a_table() {
     let mut app = app();
     let (view, cx) = window(&mut app);

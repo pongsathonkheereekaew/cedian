@@ -14,7 +14,7 @@ pub const CLOSE_AFTER: Duration = Duration::from_millis(220);
 
 /// Whether cedian draws this kind yet; the rest are in the spec and say so.
 pub fn built(kind: Kind) -> bool {
-    !matches!(kind, Kind::Browser | Kind::Outputs | Kind::Memory)
+    !matches!(kind, Kind::Browser)
 }
 
 /// The key that opens or focuses `kind`, when it has one.

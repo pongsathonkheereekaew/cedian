@@ -10,8 +10,8 @@ use std::{
 };
 
 use cedian_index::{
-    ThreadSummary, list_threads, project_key, read_thread, session_cwd, session_lines,
-    session_path, threads_dir,
+    ThreadSummary, list_threads, memory_path, project_key, project_outputs, read_memory,
+    read_thread, session_cwd, session_lines, session_path, threads_dir,
 };
 use cedian_protocol::{Line, SessionEvent, ThreadState, VersionInfo};
 use cedian_wire::{Notice, Request, Status, ThreadInfo};
@@ -593,6 +593,25 @@ impl Daemon {
             Request::SetDesktop { key, value } => lock(shared).set_desktop(client, &key, value),
             Request::Review { cwd, thread } => {
                 lock(shared).review(client, &cwd, &thread, None);
+            }
+            // Read without the lock: Outputs reads every session log of the project.
+            Request::Memory { cwd } => {
+                let home = lock(shared).home.clone();
+                let notes = read_memory(&memory_path(&home, &project_key(&cwd)));
+                let mut daemon = lock(shared);
+                match notes {
+                    Ok(notes) => daemon.send(client, Notice::Memory { cwd, notes }),
+                    Err(error) => daemon.error(client, format!("{error:#}")),
+                }
+            }
+            Request::Outputs { cwd } => {
+                let home = lock(shared).home.clone();
+                let outputs = project_outputs(&home, &project_key(&cwd));
+                let mut daemon = lock(shared);
+                match outputs {
+                    Ok(outputs) => daemon.send(client, Notice::Outputs { cwd, outputs }),
+                    Err(error) => daemon.error(client, format!("{error:#}")),
+                }
             }
             Request::Decide {
                 cwd,
