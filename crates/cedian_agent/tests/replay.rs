@@ -31,7 +31,7 @@ fn outline(transcript: &Transcript) -> String {
     for block in transcript.blocks() {
         let line = match block {
             Block::Session { model, role } => format!("session {role} on {model}"),
-            Block::User { text } => format!("user: {text}"),
+            Block::User { text, .. } => format!("user: {text}"),
             Block::Text { text, streaming } => {
                 format!(
                     "text{}: {text}",

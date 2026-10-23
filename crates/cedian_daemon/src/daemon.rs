@@ -460,6 +460,7 @@ impl Daemon {
                 permission,
                 effort,
                 helpers,
+                images,
             } => {
                 let with = Flags {
                     profile: profile.as_deref(),
@@ -467,11 +468,17 @@ impl Daemon {
                     permission: permission.as_deref(),
                     effort: effort.as_deref(),
                     helpers: Some(&helpers),
+                    images: &images,
                     cache_ttl: Some(PERSON_CACHE_TTL),
                     ..Flags::default()
                 };
                 let running = thread.as_deref().is_some_and(|t| lock(shared).running(t));
                 match thread {
+                    // `threads send` carries text only; an image goes with the next run.
+                    Some(_) if running && !images.is_empty() => lock(shared).error(
+                        client,
+                        "an image goes with a new run: send it once this one ends".into(),
+                    ),
                     // A run is already working on it: the text joins at its next turn.
                     Some(thread) if running => Self::message(shared, client, &cwd, &thread, &text),
                     None if worktree => Self::prompt_in_worktree(shared, client, cwd, &text, with),
@@ -1041,6 +1048,7 @@ impl Daemon {
                     .running_page(&slug)
             })
             .flatten();
+        let shows_images = can(cedian_protocol::Capability::Images);
         let with = Flags {
             ask: can(cedian_protocol::Capability::Ask),
             todo: can(cedian_protocol::Capability::Todo),
@@ -1050,6 +1058,9 @@ impl Daemon {
                 .filter(|_| can(cedian_protocol::Capability::CacheTtl)),
             ..with
         };
+        if !with.images.is_empty() && !shows_images {
+            return daemon.error_to(client, "this cedia cannot show the model images".into());
+        }
         let child = match daemon.cedia.prompt(&cwd, text, thread.as_deref(), with) {
             Ok(child) => child,
             Err(error) => return daemon.error_to(client, format!("{error:#}")),

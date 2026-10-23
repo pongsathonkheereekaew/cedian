@@ -192,7 +192,12 @@ impl RootView {
 
     /// A message to the project chat: into its thread, or a new one on the coordinator
     /// profile, in the project itself (it opens worktrees for the threads it starts).
-    pub(super) fn submit_chat(&mut self, text: String, cx: &mut Context<Self>) {
+    pub(super) fn submit_chat(
+        &mut self,
+        text: String,
+        images: Vec<std::path::PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
         if self.client.is_none() {
             self.error = Some("not connected to the daemon".into());
             cx.notify();
@@ -220,6 +225,7 @@ impl RootView {
             permission: None,
             effort: None,
             helpers: Default::default(),
+            images,
         });
         if !self.showing(Kind::Chat) {
             self.open_kind(Kind::Chat, ToolTarget { against: None }, cx);

@@ -17,8 +17,12 @@ pub fn markdown(title: &str, id: &str, blocks: &[Block]) -> String {
             Block::Session { model, role } => {
                 out.push_str(&format!("\n---\n\n*session · {role} · {model}*\n"));
             }
-            Block::User { text } => {
+            Block::User { text, images } => {
                 out.push_str("\n**คุณ**\n\n");
+                for image in images {
+                    let name = image.name.as_deref().unwrap_or(&image.sha256);
+                    out.push_str(&format!("> *รูป {name}*\n>\n"));
+                }
                 for line in text.lines() {
                     out.push_str(&format!("> {line}\n").replace("> \n", ">\n"));
                 }

@@ -4,6 +4,7 @@
 mod background;
 mod blocks;
 mod chat;
+mod editing;
 mod knowledge;
 mod restore;
 mod run_choices;
@@ -12,6 +13,7 @@ mod tear_off;
 mod window_tests;
 
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -69,8 +71,6 @@ const COMPOSER_WIDTH: f32 = 732.;
 /// Under this window width the title bar keeps only what acts (Interface, Blocks: nothing
 /// leaks).
 const COMPACT_WINDOW: f32 = 1000.;
-/// Files larger than this are named in the Editor, not shown.
-const MAX_SHOWN: usize = 2 * 1024 * 1024;
 
 enum Connection {
     /// Playing a recorded run; there is no daemon.
@@ -97,8 +97,18 @@ pub struct RootView {
     chat: Entity<AgentPane>,
     chat_composer: Entity<Composer>,
     editor: Entity<Editor>,
-    /// What the Editor shows, read only, when Files or Git put something in it.
+    /// What the Editor shows, when Files, Git or a search put something in it.
     editor_shows: Option<SharedString>,
+    /// The file the Editor holds to edit; none for a diff or a file it only names.
+    editor_file: Option<crate::editor_file::EditorFile>,
+    /// The Editor holds edits its file does not have.
+    editor_dirty: bool,
+    /// The text an agent wrote to the file while the person had edits: Override or Discard.
+    editor_conflict: Option<String>,
+    /// Unsaved text of files the Editor left for another, put back when they come back.
+    editor_drafts: HashMap<PathBuf, String>,
+    /// Checks the file on disk each second while the Editor holds one.
+    editor_watch: Option<Task<()>>,
     files: Entity<FileTree>,
     git: Entity<GitPane>,
     outputs: Entity<OutputsPane>,
@@ -257,6 +267,12 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> Self {
         let editor = cx.new(|cx| Editor::multi_line(window, cx));
+        cx.subscribe(&editor, |view, _, event, cx| {
+            if matches!(event, editor::EditorEvent::BufferEdited) {
+                view.editor_edited(cx);
+            }
+        })
+        .detach();
         let tabs = if tabs.is_empty() {
             vec![PathBuf::new()]
         } else {
@@ -296,7 +312,7 @@ impl RootView {
         .detach();
         let composer = cx.new(|cx| Composer::new(window, cx));
         cx.subscribe(&composer, |view, _, event, cx| match event {
-            ComposerEvent::Submit(text) => view.submit(text.clone(), cx),
+            ComposerEvent::Submit(text, images) => view.submit(text.clone(), images.clone(), cx),
             ComposerEvent::CancelEdit => view.editing = None,
             ComposerEvent::WantCommands => view.request(Request::Commands {
                 cwd: view.project().cwd.clone(),
@@ -345,7 +361,9 @@ impl RootView {
         let chat = cx.new(|_| AgentPane::new("แชทโปรเจกต์"));
         let chat_composer = cx.new(|cx| Composer::new(window, cx));
         cx.subscribe(&chat_composer, |view, _, event, cx| match event {
-            ComposerEvent::Submit(text) => view.submit_chat(text.clone(), cx),
+            ComposerEvent::Submit(text, images) => {
+                view.submit_chat(text.clone(), images.clone(), cx)
+            }
             ComposerEvent::CancelEdit => {}
             ComposerEvent::WantCommands => view.request(Request::Commands {
                 cwd: view.project().cwd.clone(),
@@ -426,6 +444,7 @@ impl RootView {
             ReviewEvent::Refresh => view.refresh_review(),
             ReviewEvent::Rerun { command, path } => view.submit(
                 format!("รัน check `{command}` ใหม่: {path} ถูกแก้หลังจาก check ครั้งล่าสุด"),
+                Vec::new(),
                 cx,
             ),
         })
@@ -458,6 +477,11 @@ impl RootView {
             chat_composer,
             editor,
             editor_shows: None,
+            editor_file: None,
+            editor_dirty: false,
+            editor_conflict: None,
+            editor_drafts: HashMap::new(),
+            editor_watch: None,
             files,
             git,
             outputs,
@@ -575,6 +599,13 @@ impl RootView {
                     v.capabilities
                         .contains(&cedian_protocol::Capability::ThreadsRestoreJson)
                 });
+                let can_attach = cedia.as_ref().is_ok_and(|v| {
+                    v.capabilities
+                        .contains(&cedian_protocol::Capability::Images)
+                });
+                for composer in [&self.composer, &self.chat_composer] {
+                    composer.update(cx, |composer, cx| composer.set_can_attach(can_attach, cx));
+                }
                 let cedia = match cedia {
                     // A cedia whose schema is not the pinned one may send shapes cedian skips.
                     Ok(version) if version.protocol != cedian_protocol::PROTOCOL_HASH => {
@@ -874,8 +905,11 @@ impl RootView {
         self.workplace
             .update(cx, |workplace, cx| workplace.set(branch, dir, cx));
         self.show_offers(cx);
-        self.composer
-            .update(cx, |composer, cx| composer.set_queue(queue, cx));
+        let working = self.project().status == Some(Status::Working);
+        self.composer.update(cx, |composer, cx| {
+            composer.set_queue(queue, cx);
+            composer.set_working(working, cx);
+        });
     }
 
     /// What the open thread's messages and latest receipt offer. A fork or a rewind goes back
@@ -1211,8 +1245,6 @@ impl RootView {
         }
     }
 
-    /// Shows `path` in the Editor, read only (saving waits for the editor to open files), and
-    /// opens the Editor when it is closed.
     /// Opens `⌘P` on the open thread's directory, or closes it when it is open.
     fn find_file(&mut self, _: &FindFile, window: &mut Window, cx: &mut Context<Self>) {
         if self.finder.is_some() {
@@ -1281,44 +1313,6 @@ impl RootView {
         }
     }
 
-    fn show_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        let text = match std::fs::read(&path) {
-            Ok(bytes) if bytes.len() > MAX_SHOWN => {
-                format!(
-                    "{} is {} KB, too big to show here",
-                    path.display(),
-                    bytes.len() / 1024
-                )
-            }
-            Ok(bytes) if bytes.contains(&0) => format!("{} is a binary file", path.display()),
-            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-            Err(error) => format!("reading {}: {error}", path.display()),
-        };
-        let name = path
-            .strip_prefix(self.project().shell_dir())
-            .unwrap_or(&path)
-            .display()
-            .to_string();
-        self.show_text(name.into(), text, window, cx);
-    }
-
-    /// Puts `text` in the Editor, read only, under `name`, and opens the Editor if it is closed.
-    fn show_text(
-        &mut self,
-        name: SharedString,
-        text: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.editor.update(cx, |editor, cx| {
-            editor.set_read_only(true);
-            editor.set_text(text, window, cx);
-        });
-        self.editor_shows = Some(name);
-        self.open_kind(Kind::Editor, blocks::ToolTarget { against: None }, cx);
-        cx.notify();
-    }
-
     /// The thread's question, with a button per option; any other answer goes in the composer.
     fn render_question(
         &self,
@@ -1356,7 +1350,9 @@ impl RootView {
                                 .hover(|b| b.bg(colors.element_hover))
                         }
                     })
-                    .on_click(cx.listener(move |view, _, _, cx| view.submit(answer.clone(), cx)))
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.submit(answer.clone(), Vec::new(), cx)
+                    }))
                     .child(if recommended {
                         format!("{option} · แนะนำ")
                     } else {
@@ -1494,7 +1490,7 @@ impl RootView {
         cx.notify();
     }
 
-    fn submit(&mut self, text: String, cx: &mut Context<Self>) {
+    fn submit(&mut self, text: String, images: Vec<PathBuf>, cx: &mut Context<Self>) {
         if self.client.is_none() {
             self.error = Some("not connected to the daemon".into());
             cx.notify();
@@ -1545,6 +1541,7 @@ impl RootView {
             permission,
             effort,
             helpers,
+            images,
         });
         self.retitle(cx);
         cx.notify();

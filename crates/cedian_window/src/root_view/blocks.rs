@@ -1008,10 +1008,7 @@ impl RootView {
             },
             Kind::Editor => Tab {
                 id,
-                label: self
-                    .editor_shows
-                    .clone()
-                    .unwrap_or_else(|| kind.name().into()),
+                label: self.editor_label().unwrap_or_else(|| kind.name().into()),
                 status: None,
                 calls: false,
             },
@@ -1209,9 +1206,13 @@ impl RootView {
             Kind::Editor => div()
                 .key_context("ToolEditor")
                 .on_action(cx.listener(Self::attach_editor_selection))
+                .on_action(cx.listener(Self::save_editor))
                 .size_full()
                 .p_2()
-                .child(self.editor.clone())
+                .flex()
+                .flex_col()
+                .children(self.render_editor_conflict(cx))
+                .child(div().flex_grow(1.).min_h_0().child(self.editor.clone()))
                 .into_any_element(),
             Kind::Files => self.files.clone().into_any_element(),
             Kind::Git => self.git.clone().into_any_element(),

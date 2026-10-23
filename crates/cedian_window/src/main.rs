@@ -11,6 +11,7 @@ mod daemon_client;
 mod density;
 mod desktop;
 mod dock;
+mod editor_file;
 mod export;
 mod file_finder;
 mod file_tree;
@@ -156,6 +157,11 @@ const SEARCH_KEY: &str = "ctrl-k";
 const ATTACH_KEY: &str = "cmd-l";
 #[cfg(not(target_os = "macos"))]
 const ATTACH_KEY: &str = "ctrl-shift-l";
+/// Writes the Editor's file, as in every editor.
+#[cfg(target_os = "macos")]
+const SAVE_KEY: &str = "cmd-s";
+#[cfg(not(target_os = "macos"))]
+const SAVE_KEY: &str = "ctrl-s";
 /// The project tabs: `⌘T` opens one, `⌘⇧W` closes it (`⌘W` closes a block), `⌘1`–`⌘9` pick
 /// one, as in Chrome. On Linux the shell keeps `ctrl-t` and `ctrl-w`, so those take the
 /// shifted key.
@@ -254,6 +260,7 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
             shell_pane::AttachSelection,
             Some("ToolEditor > Editor"),
         ),
+        KeyBinding::new(SAVE_KEY, editor_file::Save, Some("ToolEditor > Editor")),
     ]);
     cx.bind_keys(block_keys::bindings());
     // After the block keys' window-wide Escape, which would otherwise take it first.

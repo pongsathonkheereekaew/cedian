@@ -4,6 +4,9 @@
 //! project's commands (cedia's skills) over the field, narrowed as the person types. An `@`
 //! starting the last word lists the files of the thread's directory, matched as `⌘P` does;
 //! a pick puts `@<path> ` in its place, which the model reads as the file to look at.
+//! Images picked with `+`, dropped on it or pasted sit as tiles above the text and go to the
+//! writer with it (`cedia --image`), when cedia can show the model images; another file
+//! dropped on it goes in as `@<path>`.
 
 use std::{
     path::{Path, PathBuf},
@@ -18,9 +21,10 @@ use cedian_protocol::CommandEntry;
 use editor::{Editor, EditorEvent};
 use fuzzy::{StringMatch, StringMatchCandidate};
 use gpui::{
-    AppContext as _, Context, Entity, EventEmitter, Focusable as _, FontWeight, HighlightStyle,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, StyledText, Task, Window, actions, deferred, div,
+    AppContext as _, ClipboardEntry, Context, Entity, EventEmitter, ExternalPaths, Focusable as _,
+    FontWeight, HighlightStyle, ImageFormat, InteractiveElement as _, IntoElement, ObjectFit,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    StyledImage as _, StyledText, Task, Window, actions, deferred, div, img,
     prelude::FluentBuilder as _, px, svg,
 };
 use theme::ActiveTheme as _;
@@ -32,6 +36,9 @@ actions!(
 
 /// The most commands the list shows at once.
 const SHOWN_COMMANDS: usize = 8;
+
+/// The image files cedia shows the model, by extension (`core/images.ts` reads the header).
+const IMAGE_EXTENSIONS: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
 
 pub struct Composer {
     editor: Entity<Editor>,
@@ -52,6 +59,14 @@ pub struct Composer {
     mention: Option<(String, Vec<StringMatch>)>,
     cancel: Arc<AtomicBool>,
     search: Option<Task<()>>,
+    /// The images that go with the next send, in the order they were added.
+    images: Vec<PathBuf>,
+    /// cedia lists `images`, so a run can show the model an image.
+    can_attach: bool,
+    /// The thread's run is working: text joins it, an image waits for the next run.
+    working: bool,
+    /// Why the last send did not go, until the text or the images change.
+    note: Option<SharedString>,
 }
 
 /// A message sent to a running thread that no session has seen yet.
@@ -62,7 +77,8 @@ pub struct Queued {
 }
 
 pub enum ComposerEvent {
-    Submit(String),
+    /// The text to send, and the image files that go with it.
+    Submit(String, Vec<PathBuf>),
     /// A `/` was typed at the start: the project's commands are wanted, fresh.
     WantCommands,
     /// The person stopped editing a sent message.
@@ -98,6 +114,117 @@ impl Composer {
             mention: None,
             cancel: Arc::new(AtomicBool::new(false)),
             search: None,
+            images: Vec::new(),
+            can_attach: false,
+            working: false,
+            note: None,
+        }
+    }
+
+    /// Whether the cedia the daemon runs can show the model images.
+    pub fn set_can_attach(&mut self, can: bool, cx: &mut Context<Self>) {
+        if self.can_attach != can {
+            self.can_attach = can;
+            if !can {
+                self.images.clear();
+            }
+            cx.notify();
+        }
+    }
+
+    /// Whether the thread's run is working, so a send would be a message to it.
+    pub fn set_working(&mut self, working: bool, cx: &mut Context<Self>) {
+        if self.working != working {
+            self.working = working;
+            if !working {
+                self.note = None;
+            }
+            cx.notify();
+        }
+    }
+
+    /// Adds files the person picked or dropped: an image becomes a tile when cedia can show
+    /// it, any other file goes in at the cursor as `@<path> `.
+    pub fn add_files(&mut self, paths: &[PathBuf], window: &mut Window, cx: &mut Context<Self>) {
+        let mut mentions = String::new();
+        for path in paths.iter().filter(|p| p.is_file()) {
+            if self.can_attach && is_image(path) {
+                if !self.images.contains(path) {
+                    self.images.push(path.clone());
+                }
+            } else {
+                let shown = path.strip_prefix(&self.files.0).unwrap_or(path);
+                mentions.push_str(&format!("@{} ", shown.display()));
+            }
+        }
+        if !mentions.is_empty() {
+            self.editor
+                .update(cx, |editor, cx| editor.insert(&mentions, window, cx));
+        }
+        self.note = None;
+        self.focus(window, cx);
+        cx.notify();
+    }
+
+    /// `+`: the system's file picker, for images to show the model.
+    fn pick_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("แนบรูป".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let paths = match picked.await {
+                Ok(Ok(Some(paths))) => paths,
+                Ok(Ok(None)) | Err(_) => return,
+                Ok(Err(error)) => {
+                    log::warn!("opening the file picker: {error:#}");
+                    return;
+                }
+            };
+            this.update_in(cx, |composer, window, cx| {
+                composer.add_files(&paths, window, cx)
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// `⌘V` with an image or files on the clipboard: they are attached, the text is left
+    /// alone. Anything else goes on to the field.
+    fn paste(&mut self, _: &editor::actions::Paste, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(clipboard) = cx.read_from_clipboard() else {
+            return;
+        };
+        let mut paths = Vec::new();
+        for entry in clipboard.entries() {
+            match entry {
+                ClipboardEntry::Image(image) if self.can_attach => match save_pasted(image) {
+                    Ok(path) => paths.push(path),
+                    Err(error) => {
+                        log::warn!("keeping a pasted image: {error:#}");
+                        self.note = Some(format!("แนบรูปที่วางไม่ได้: {error:#}").into());
+                    }
+                },
+                ClipboardEntry::ExternalPaths(external) => {
+                    paths.extend_from_slice(external.paths())
+                }
+                _ => {}
+            }
+        }
+        if paths.is_empty() && self.note.is_none() {
+            return;
+        }
+        cx.stop_propagation();
+        self.add_files(&paths, window, cx);
+    }
+
+    fn remove_image(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index < self.images.len() {
+            self.images.remove(index);
+            self.note = None;
+            cx.notify();
         }
     }
 
@@ -249,6 +376,7 @@ impl Composer {
         if self.dismissed.as_ref().is_some_and(|d| *d != text) {
             self.dismissed = None;
         }
+        self.note = None;
         self.find_mention(&text, cx);
         self.selected = 0;
         cx.notify();
@@ -553,6 +681,11 @@ impl Composer {
         self.editor.read(cx).text(cx)
     }
 
+    #[cfg(test)]
+    pub fn images(&self) -> &[PathBuf] {
+        &self.images
+    }
+
     pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.editor.focus_handle(cx), cx);
     }
@@ -564,9 +697,16 @@ impl Composer {
         if text.trim().is_empty() {
             return;
         }
+        // A message to a working run is text only (`cedia threads send`).
+        if self.working && !self.images.is_empty() {
+            self.note = Some("รูปไปกับ run ใหม่ ส่งได้เมื่อ run นี้จบ หรือเอารูปออกเพื่อส่งแค่ข้อความ".into());
+            cx.notify();
+            return;
+        }
         self.editor
             .update(cx, |editor, cx| editor.clear(window, cx));
-        cx.emit(ComposerEvent::Submit(text.trim_end().to_owned()));
+        let images = std::mem::take(&mut self.images);
+        cx.emit(ComposerEvent::Submit(text.trim_end().to_owned(), images));
     }
 }
 
@@ -652,8 +792,95 @@ impl Render for Composer {
                     .size(px(16.))
                     .text_color(tokens.on_primary),
             );
+        let tiles =
+            (!self.images.is_empty()).then(|| {
+                div().flex().flex_wrap().gap_2().px_1().children(
+                    self.images.iter().enumerate().map(|(n, path)| {
+                        let name: SharedString = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                            .into();
+                        let group = SharedString::from(format!("image-{n}"));
+                        div()
+                            .id(("image", n))
+                            .debug_selector(move || format!("attached-image-{n}"))
+                            .group(group.clone())
+                            .relative()
+                            .flex_none()
+                            .size(px(56.))
+                            .rounded(px(10.))
+                            .overflow_hidden()
+                            .border_1()
+                            .border_color(colors.border)
+                            .bg(colors.element_hover)
+                            .tooltip(move |_, cx| crate::tooltip::text(name.clone(), cx))
+                            .child(img(path.clone()).size_full().object_fit(ObjectFit::Cover))
+                            .child(
+                                div()
+                                    .id(("image-remove", n))
+                                    .absolute()
+                                    .top(px(3.))
+                                    .right(px(3.))
+                                    .size(px(18.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_full()
+                                    .bg(colors.elevated_surface_background)
+                                    .cursor_pointer()
+                                    .opacity(0.)
+                                    .group_hover(group, |b| b.opacity(1.))
+                                    .on_click(cx.listener(move |composer, _, _, cx| {
+                                        composer.remove_image(n, cx)
+                                    }))
+                                    .child(
+                                        svg()
+                                            .path("icons/close.svg")
+                                            .size(px(11.))
+                                            .text_color(colors.text),
+                                    ),
+                            )
+                    }),
+                )
+            });
+        let note = self.note.clone().map(|note| {
+            div()
+                .px_2()
+                .text_meta()
+                .text_color(cx.theme().status().warning)
+                .child(note)
+        });
+        let attach = self.can_attach.then(|| {
+            div()
+                .id("attach")
+                .debug_selector(|| "attach".into())
+                .flex_none()
+                .size(px(32.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(9.))
+                .cursor_pointer()
+                .text_color(colors.text_muted)
+                .hover(|b| b.bg(colors.element_hover).text_color(colors.text))
+                .tooltip(|_, cx| crate::tooltip::text("แนบรูป · วางหรือลากมาใส่ก็ได้".into(), cx))
+                .on_click(cx.listener(|composer, _, window, cx| composer.pick_images(window, cx)))
+                .child(
+                    svg()
+                        .path("icons/plus.svg")
+                        .size(px(16.))
+                        .text_color(colors.text_muted),
+                )
+        });
+        let drop_ring = colors.text_muted;
         div()
+            .id("composer")
             .key_context("Composer")
+            .capture_action(cx.listener(Self::paste))
+            .on_drop(cx.listener(|composer, paths: &ExternalPaths, window, cx| {
+                composer.add_files(paths.paths(), window, cx)
+            }))
             .on_action(cx.listener(Self::submit))
             .on_action(cx.listener(Self::command_up))
             .on_action(cx.listener(Self::command_down))
@@ -675,6 +902,7 @@ impl Render for Composer {
                     .border_color(colors.border_selected)
                     .bg(colors.elevated_surface_background)
                     .shadow_md()
+                    .drag_over::<ExternalPaths>(move |style, _, _, _| style.border_color(drop_ring))
                     .when(self.editing, |c| {
                         c.child(
                             div()
@@ -711,11 +939,14 @@ impl Render for Composer {
                         )
                     })
                     .children(queue)
+                    .children(tiles)
+                    .children(note)
                     .child(
                         div()
                             .flex()
                             .items_end()
                             .gap_2()
+                            .children(attach)
                             .child(
                                 div()
                                     // The list's keys (up, down, Tab, Enter, Escape) while
@@ -734,6 +965,39 @@ impl Render for Composer {
     }
 }
 
+/// A file cedia can show the model, by its extension.
+fn is_image(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| IMAGE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+/// Writes a pasted image to a file of its own, named by its bytes, for `--image`; cedia
+/// copies it into its blobs when the run starts. A format cedia does not read (a TIFF from a
+/// Mac screenshot, a BMP) is turned into a PNG first.
+fn save_pasted(image: &gpui::Image) -> anyhow::Result<PathBuf> {
+    use std::hash::{Hash as _, Hasher as _};
+    let (bytes, extension) = match image.format {
+        ImageFormat::Png => (image.bytes.clone(), "png"),
+        ImageFormat::Jpeg => (image.bytes.clone(), "jpg"),
+        ImageFormat::Gif => (image.bytes.clone(), "gif"),
+        ImageFormat::Webp => (image.bytes.clone(), "webp"),
+        _ => {
+            let decoded = image::load_from_memory(&image.bytes)?;
+            let mut png = std::io::Cursor::new(Vec::new());
+            decoded.write_to(&mut png, image::ImageFormat::Png)?;
+            (png.into_inner(), "png")
+        }
+    };
+    let mut hasher = std::hash::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    let dir = std::env::temp_dir().join("cedian-paste");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("วาง-{:016x}.{extension}", hasher.finish()));
+    std::fs::write(&path, bytes)?;
+    Ok(path)
+}
+
 /// The word after an `@` that starts the text's last word, while it is being typed: the text
 /// does not end in a space.
 fn mention_word(text: &str) -> Option<&str> {
@@ -744,6 +1008,14 @@ fn mention_word(text: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn images_are_known_by_their_extension() {
+        assert!(is_image(Path::new("shot.PNG")));
+        assert!(is_image(Path::new("a/b.jpeg")));
+        assert!(!is_image(Path::new("notes.md")));
+        assert!(!is_image(Path::new("noext")));
+    }
 
     #[test]
     fn the_mention_is_the_last_word_after_an_at() {

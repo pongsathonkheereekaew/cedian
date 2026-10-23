@@ -1,6 +1,6 @@
 //! What the agent pane draws, one block per thing the person reads.
 
-use cedian_protocol::{EffectStatus, Evidence, ResultSubtype};
+use cedian_protocol::{EffectStatus, Evidence, ImageRef, ResultSubtype};
 
 #[derive(Clone, Debug)]
 pub enum Block {
@@ -11,6 +11,9 @@ pub enum Block {
     },
     User {
         text: String,
+        /// The images shown to the writer with the text (`--image`), stored by cedia in
+        /// `~/.cedia/blobs/<sha256>`.
+        images: Vec<ImageRef>,
     },
     /// The model's answer text. `streaming` until the turn's assistant event lands.
     Text {

@@ -49,6 +49,11 @@ pub enum Request {
         effort: Option<String>,
         #[serde(default, skip_serializing_if = "Helpers::is_empty")]
         helpers: Helpers,
+        /// Image files shown to the writer with the text (`cedia --image`), when cedia lists
+        /// `images`. cedia stores each by its hash when the run starts, so a pasted image's
+        /// file needs to last only until then.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<PathBuf>,
     },
     /// The `/` commands a run in the project can take (`cedia commands`), answered with
     /// `Notice::Commands` when this cedia lists them.
@@ -349,6 +354,7 @@ mod tests {
             permission: None,
             effort: None,
             helpers: Helpers::default(),
+            images: Vec::new(),
         };
         let mut buffer = Vec::new();
         write_message(&mut buffer, &request).expect("write");
