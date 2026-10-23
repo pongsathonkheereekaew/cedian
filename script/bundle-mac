@@ -85,14 +85,16 @@ app="$out/Cedian.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 for bin in cedian cedian-daemon; do
-  # Cargo leaves a dSYM beside a release build on macOS (split-debuginfo "packed").
-  [[ -d "$out/$bin.dSYM" ]] || dsymutil "$out/$bin" -o "$out/$bin.dSYM"
+  # rustc writes the dSYM at link time (split-debuginfo "packed" in Cargo.toml).
+  [[ -d "$out/$bin.dSYM" ]] || echo "warning: no $out/$bin.dSYM; crashes will not symbolicate" >&2
   cp "$out/$bin" "$app/Contents/MacOS/$bin"
   strip -x "$app/Contents/MacOS/$bin"
 done
 cp "$cedia" "$app/Contents/MacOS/cedia"
 cp -R "$out/chromium" "$app/Contents/Resources/chromium"
 cp brand/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
+# The third-party notices travel with the binaries they cover (Chromium's stays in chromium/).
+cp LICENSE NOTICE "$app/Contents/Resources/"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
