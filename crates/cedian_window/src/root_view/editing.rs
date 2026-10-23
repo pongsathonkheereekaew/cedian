@@ -3,7 +3,8 @@
 //! unsaved edits keeps them until it comes back. Each second the file on disk is checked: a
 //! change the agent made is read in while the person has no edits, and while they have, a line
 //! over the Editor offers ใช้ของฉัน (Override: their text is written, and the thread told with
-//! `cedia threads send`) or ใช้ของ agent (Discard).
+//! `cedia threads send`) or ใช้ของ agent (Discard). A file is coloured as its language, from
+//! Zed's bundled grammars (`languages.rs`).
 
 use std::{path::PathBuf, time::Duration};
 
@@ -45,6 +46,10 @@ impl RootView {
         self.editor
             .update(cx, |editor, _| editor.set_read_only(!editable));
         load(&self.editor, text, window, cx);
+        let language = editable
+            .then(|| crate::languages::for_path(&path, cx))
+            .flatten();
+        self.colour(language, Some(path.clone()), cx);
         self.editor_edited(cx);
         self.watch_editor_file(window, cx);
         self.editor_shows = Some(name.into());
@@ -52,7 +57,7 @@ impl RootView {
         cx.notify();
     }
 
-    /// Puts `text` in the Editor, read only, under `name`: a diff, not a file.
+    /// Puts `text` in the Editor, read only, under `name`: a diff from Git, not a file.
     pub(super) fn show_text(
         &mut self,
         name: SharedString,
@@ -67,10 +72,48 @@ impl RootView {
         self.editor
             .update(cx, |editor, _| editor.set_read_only(true));
         load(&self.editor, text, window, cx);
+        self.colour(crate::languages::named("Diff", cx), None, cx);
         self.editor_dirty = false;
         self.editor_shows = Some(name);
         self.open_kind(Kind::Editor, blocks::ToolTarget { against: None }, cx);
         cx.notify();
+    }
+
+    /// Colours the Editor's text with `language` once it loads, while the Editor still shows
+    /// what it was asked for (`path`, or no file for a diff); none leaves it plain.
+    fn colour(
+        &mut self,
+        language: Option<crate::languages::Loading>,
+        path: Option<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        let buffer = self.editor.read(cx).buffer().read(cx).as_singleton();
+        let Some(buffer) = buffer else {
+            return;
+        };
+        buffer.update(cx, |buffer, cx| buffer.set_language(None, cx));
+        let Some(language) = language else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let Ok(language) = language.await else {
+                return;
+            };
+            this.update(cx, |view, cx| {
+                // Something else may have opened while it loaded.
+                if view.editor_file.as_ref().map(|f| &f.path) != path.as_ref() {
+                    return;
+                }
+                buffer.update(cx, |buffer, cx| {
+                    if let Some(registry) = crate::languages::registry(cx) {
+                        buffer.set_language_registry(registry);
+                    }
+                    buffer.set_language(Some(language), cx);
+                });
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Keeps the open file's unsaved edits for when it comes back.

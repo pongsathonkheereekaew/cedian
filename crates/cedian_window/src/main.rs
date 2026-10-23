@@ -16,6 +16,7 @@ mod export;
 mod file_finder;
 mod file_tree;
 mod git_pane;
+mod languages;
 mod layout;
 mod line_breaks;
 mod memory_pane;
@@ -178,6 +179,7 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
     theme_settings::init(theme::LoadThemes::All(Box::new(crate::assets::Assets)), cx);
     release_channel::init(semver::Version::new(0, 1, 0), cx);
     editor::init(cx);
+    languages::init(cx);
     let bindings = KeymapFile::load_asset_allow_partial_failure(settings::DEFAULT_KEYMAP_PATH, cx)
         .context("loading the default keymap")?;
     cx.bind_keys(bindings);
