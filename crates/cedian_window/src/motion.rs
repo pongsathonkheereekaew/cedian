@@ -56,15 +56,22 @@ fn lerp(a: Rect, b: Rect, p: f32) -> Rect {
 }
 
 /// Whether the system asks for reduced motion (macOS: Accessibility › Display › Reduce
-/// motion). Elsewhere nothing says so yet.
-#[cfg(target_os = "macos")]
+/// motion). Elsewhere nothing says so yet. Tests never move: a motion runs on the wall clock,
+/// so a test that measured or clicked a block during one would pass or fail by how busy the
+/// machine was.
+#[cfg(all(target_os = "macos", not(test)))]
 pub fn reduced() -> bool {
     objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), not(test)))]
 pub fn reduced() -> bool {
     false
+}
+
+#[cfg(test)]
+pub fn reduced() -> bool {
+    true
 }
 
 #[cfg(test)]
