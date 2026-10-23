@@ -228,6 +228,7 @@ fn the_window_gets_the_projects_memory_and_outputs() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     window.until(status_is(Status::Done));
     window.ask(Request::Outputs {
@@ -370,6 +371,7 @@ fn an_edited_message_forks_the_thread_and_runs_there() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     window.until(status_is(Status::Done));
     window.ask(Request::Fork {
@@ -476,6 +478,7 @@ fn a_prompt_runs_and_a_second_window_rebuilds_it() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     let (lines, seen) = window.until(status_is(Status::Done));
     assert!(
@@ -522,6 +525,7 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     window.until(|n| matches!(n, Notice::Line { .. }));
 
@@ -536,6 +540,7 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     window.ask(Request::Stop {
         thread: "t-00000001".into(),
@@ -562,6 +567,7 @@ fn a_rating_reaches_the_thread_and_the_list() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     window.until(status_is(Status::Done));
     window.ask(Request::Rate {
@@ -595,6 +601,7 @@ fn a_queued_message_can_be_taken_back() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     window.until(|n| matches!(n, Notice::Line { .. }));
     window.ask(Request::Send {
@@ -802,6 +809,7 @@ fn a_new_thread_can_run_in_its_own_worktree() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     let (_, seen) = window.until(status_is(Status::Done));
     assert!(
@@ -865,6 +873,7 @@ fn rejecting_a_hunk_puts_the_file_back_and_tells_the_thread() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     let (_, seen) = window.until(status_is(Status::Done));
     let thread = seen
@@ -997,6 +1006,7 @@ fn a_verified_thread_with_nothing_to_review_archives_itself() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     window.until(|n| {
         matches!(n, Notice::Threads { threads, .. }
@@ -1022,6 +1032,7 @@ fn an_unverified_thread_stays() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     window.until(status_is(Status::Done));
     // A list after the run ended, which an archive would have come before.
@@ -1099,6 +1110,7 @@ fn a_prompt_that_names_a_model_and_a_mode_runs_on_them() {
         permission: Some("plan".into()),
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     window.until(status_is(Status::Done));
     let args = std::fs::read_to_string(harness.threads.join("../args")).expect("args");
@@ -1111,6 +1123,53 @@ fn a_prompt_that_names_a_model_and_a_mode_runs_on_them() {
         args.windows(2).any(|w| w == ["--permission", "plan"]),
         "{args:?}"
     );
+}
+
+#[test]
+fn a_prompt_with_images_shows_them_to_the_writer() {
+    let harness = start_with("edit-and-check", "\"images\"");
+    let mut window = Window::connect(&harness);
+    let shot = harness.cwd.join("shot.png");
+    window.ask(Request::Prompt {
+        cwd: harness.cwd.clone(),
+        text: "why is the button cut off".into(),
+        thread: None,
+        worktree: false,
+        profile: None,
+        model: None,
+        permission: None,
+        effort: None,
+        helpers: Default::default(),
+        images: vec![shot.clone()],
+    });
+    window.until(status_is(Status::Done));
+    let args = std::fs::read_to_string(harness.threads.join("../args")).expect("args");
+    let args: Vec<&str> = args.lines().collect();
+    let shot = shot.display().to_string();
+    assert!(
+        args.windows(2).any(|w| w == ["--image", shot.as_str()]),
+        "{args:?}"
+    );
+}
+
+#[test]
+fn a_cedia_that_cannot_show_images_is_not_sent_one() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Prompt {
+        cwd: harness.cwd.clone(),
+        text: "why is the button cut off".into(),
+        thread: None,
+        worktree: false,
+        profile: None,
+        model: None,
+        permission: None,
+        effort: None,
+        helpers: Default::default(),
+        images: vec![harness.cwd.join("shot.png")],
+    });
+    assert!(matches!(window.next(), Notice::Error { .. }));
+    assert!(!harness.threads.join("../args").exists());
 }
 
 #[test]
@@ -1127,6 +1186,7 @@ fn the_window_gets_the_schedules_and_a_due_one_wakes_its_thread() {
         permission: None,
         effort: None,
         helpers: Default::default(),
+        images: Vec::new(),
     });
     window.until(status_is(Status::Done));
     let state = harness.threads.join("..");

@@ -9,7 +9,7 @@ use cedian_wire::Status;
 use gpui::{
     AnyElement, App, Context, Div, EventEmitter, InteractiveElement as _, IntoElement,
     ListAlignment, ListState, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, WeakEntity, Window, actions, div, list,
+    StatefulInteractiveElement as _, Styled as _, WeakEntity, Window, actions, div, img, list,
     prelude::FluentBuilder as _, px, relative,
 };
 use theme::ActiveTheme as _;
@@ -271,7 +271,7 @@ impl AgentPane {
                 .child(div().flex_grow(1.).h(px(1.)).bg(colors.border))
                 .child(format!("session {role} · {model}"))
                 .child(div().flex_grow(1.).h(px(1.)).bg(colors.border)),
-            Block::User { text } => {
+            Block::User { text, images } => {
                 let group = SharedString::from(format!("user-{index}"));
                 let started = self.started_a_run(text);
                 // Shown on hover, their room kept so the list does not move.
@@ -306,12 +306,31 @@ impl AgentPane {
                 });
                 let offers = (edit.is_some() || rewind.is_some())
                     .then(|| div().flex().gap_1().children(rewind).children(edit));
+                let shown = (!images.is_empty()).then(|| {
+                    let blobs = cedian_index::cedia_home().join("blobs");
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .justify_end()
+                        .gap_2()
+                        .max_w(relative(0.8))
+                        .children(images.iter().map(|image| {
+                            let (width, height) = thumbnail(image.width, image.height);
+                            img(blobs.join(&image.sha256))
+                                .w(px(width))
+                                .h(px(height))
+                                .rounded(px(12.))
+                                .border_1()
+                                .border_color(colors.border)
+                        }))
+                });
                 div()
                     .group(group)
                     .flex()
                     .flex_col()
                     .items_end()
                     .gap_1()
+                    .children(shown)
                     .child(
                         div()
                             .max_w(relative(0.8))
@@ -636,6 +655,16 @@ impl Render for AgentPane {
                 .py_2(),
             )
     }
+}
+
+/// How big an image the person sent is drawn over their message: its own size, made smaller
+/// to fit 240 × 180 without changing its shape.
+fn thumbnail(width: f64, height: f64) -> (f32, f32) {
+    if width <= 0. || height <= 0. {
+        return (180., 180.);
+    }
+    let scale = (240. / width).min(180. / height).min(1.);
+    ((width * scale) as f32, (height * scale) as f32)
 }
 
 #[cfg(test)]

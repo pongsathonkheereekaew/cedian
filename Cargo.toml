@@ -18,8 +18,8 @@ futures = "0.3"
 fuzzy = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 icu_segmenter = "2"
-# The Browser block's screencast frames; the features GPUI already builds.
-image = { version = "0.25", default-features = false, features = ["jpeg"] }
+# The Browser block's screencast frames and pasted images; the features GPUI already builds.
+image = { version = "0.25", default-features = false, features = ["bmp", "jpeg", "png", "tiff"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSDockTile", "NSAccessibility", "NSResponder", "NSWorkspace"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString"] }

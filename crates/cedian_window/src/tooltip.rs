@@ -53,6 +53,11 @@ pub fn cut(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<
         })
 }
 
+/// A tooltip that always shows `text`: a control's name, or a tile's file.
+pub fn text(text: SharedString, cx: &mut gpui::App) -> gpui::AnyView {
+    cx.new(|_| Tooltip { text: Some(text) }).into()
+}
+
 /// What a tooltip shows: the whole text, or nothing for a label that fit.
 pub struct Tooltip {
     text: Option<SharedString>,

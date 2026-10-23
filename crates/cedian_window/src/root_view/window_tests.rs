@@ -305,6 +305,64 @@ fn at_lists_files_and_a_pick_puts_the_path_in_the_text() {
 }
 
 #[test]
+fn an_image_goes_with_the_next_run_and_another_file_as_a_mention() {
+    use crate::composer::{Composer, ComposerEvent, Submit};
+    let dir = tempfile::tempdir().expect("dir");
+    let shot = dir.path().join("shot.png");
+    let notes = dir.path().join("notes.md");
+    std::fs::write(&shot, b"not decoded here").expect("shot");
+    std::fs::write(&notes, "# notes").expect("notes");
+    let mut app = app();
+    let (composer, cx) = app.add_window_view(|window, cx| {
+        let mut composer = Composer::new(window, cx);
+        composer.set_files(dir.path(), &[]);
+        composer.set_can_attach(true, cx);
+        composer
+    });
+    let sent = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let seen = sent.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(&composer, move |_, event, _| {
+            if let ComposerEvent::Submit(text, images) = event {
+                seen.borrow_mut().push((text.clone(), images.clone()));
+            }
+        })
+        .detach();
+    });
+    composer.update_in(cx, |composer, window, cx| {
+        composer.focus(window, cx);
+        composer.add_files(&[shot.clone(), notes.clone()], window, cx);
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("attached-image-0").is_some(),
+        "a tile for the image"
+    );
+    assert_eq!(
+        composer.read_with(cx, |composer, cx| composer.text(cx)),
+        "@notes.md "
+    );
+
+    // While the run works, a send would be a message, which carries no image.
+    composer.update(cx, |composer, cx| composer.set_working(true, cx));
+    cx.simulate_input("why is it cut off");
+    cx.dispatch_action(Submit);
+    cx.run_until_parked();
+    assert!(sent.borrow().is_empty(), "held until the run ends");
+    assert_eq!(composer.read_with(cx, |c, _| c.images().len()), 1);
+
+    composer.update(cx, |composer, cx| composer.set_working(false, cx));
+    cx.dispatch_action(Submit);
+    cx.run_until_parked();
+    assert_eq!(
+        sent.borrow().as_slice(),
+        [("@notes.md why is it cut off".to_owned(), vec![shot])]
+    );
+    assert!(composer.read_with(cx, |c, _| c.images().is_empty()));
+    assert!(cx.debug_bounds("attached-image-0").is_none());
+}
+
+#[test]
 fn a_block_let_go_outside_the_window_opens_in_a_new_one() {
     let mut app = app();
     let (view, cx) = window(&mut app);

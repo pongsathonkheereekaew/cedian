@@ -190,7 +190,10 @@ impl Transcript {
                     role: role.clone(),
                 })
             }
-            SessionEvent::User { text, .. } => self.push(Block::User { text: text.clone() }),
+            SessionEvent::User { text, images, .. } => self.push(Block::User {
+                text: text.clone(),
+                images: images.clone(),
+            }),
             SessionEvent::Result { result, .. } => self.push_result(result),
             SessionEvent::Assistant { blocks, usage, .. } => {
                 self.context = Some(

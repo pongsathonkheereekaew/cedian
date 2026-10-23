@@ -296,7 +296,7 @@ impl RootView {
         .detach();
         let composer = cx.new(|cx| Composer::new(window, cx));
         cx.subscribe(&composer, |view, _, event, cx| match event {
-            ComposerEvent::Submit(text) => view.submit(text.clone(), cx),
+            ComposerEvent::Submit(text, images) => view.submit(text.clone(), images.clone(), cx),
             ComposerEvent::CancelEdit => view.editing = None,
             ComposerEvent::WantCommands => view.request(Request::Commands {
                 cwd: view.project().cwd.clone(),
@@ -345,7 +345,9 @@ impl RootView {
         let chat = cx.new(|_| AgentPane::new("แชทโปรเจกต์"));
         let chat_composer = cx.new(|cx| Composer::new(window, cx));
         cx.subscribe(&chat_composer, |view, _, event, cx| match event {
-            ComposerEvent::Submit(text) => view.submit_chat(text.clone(), cx),
+            ComposerEvent::Submit(text, images) => {
+                view.submit_chat(text.clone(), images.clone(), cx)
+            }
             ComposerEvent::CancelEdit => {}
             ComposerEvent::WantCommands => view.request(Request::Commands {
                 cwd: view.project().cwd.clone(),
@@ -426,6 +428,7 @@ impl RootView {
             ReviewEvent::Refresh => view.refresh_review(),
             ReviewEvent::Rerun { command, path } => view.submit(
                 format!("รัน check `{command}` ใหม่: {path} ถูกแก้หลังจาก check ครั้งล่าสุด"),
+                Vec::new(),
                 cx,
             ),
         })
@@ -575,6 +578,13 @@ impl RootView {
                     v.capabilities
                         .contains(&cedian_protocol::Capability::ThreadsRestoreJson)
                 });
+                let can_attach = cedia.as_ref().is_ok_and(|v| {
+                    v.capabilities
+                        .contains(&cedian_protocol::Capability::Images)
+                });
+                for composer in [&self.composer, &self.chat_composer] {
+                    composer.update(cx, |composer, cx| composer.set_can_attach(can_attach, cx));
+                }
                 let cedia = match cedia {
                     // A cedia whose schema is not the pinned one may send shapes cedian skips.
                     Ok(version) if version.protocol != cedian_protocol::PROTOCOL_HASH => {
@@ -874,8 +884,11 @@ impl RootView {
         self.workplace
             .update(cx, |workplace, cx| workplace.set(branch, dir, cx));
         self.show_offers(cx);
-        self.composer
-            .update(cx, |composer, cx| composer.set_queue(queue, cx));
+        let working = self.project().status == Some(Status::Working);
+        self.composer.update(cx, |composer, cx| {
+            composer.set_queue(queue, cx);
+            composer.set_working(working, cx);
+        });
     }
 
     /// What the open thread's messages and latest receipt offer. A fork or a rewind goes back
@@ -1356,7 +1369,9 @@ impl RootView {
                                 .hover(|b| b.bg(colors.element_hover))
                         }
                     })
-                    .on_click(cx.listener(move |view, _, _, cx| view.submit(answer.clone(), cx)))
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.submit(answer.clone(), Vec::new(), cx)
+                    }))
                     .child(if recommended {
                         format!("{option} · แนะนำ")
                     } else {
@@ -1494,7 +1509,7 @@ impl RootView {
         cx.notify();
     }
 
-    fn submit(&mut self, text: String, cx: &mut Context<Self>) {
+    fn submit(&mut self, text: String, images: Vec<PathBuf>, cx: &mut Context<Self>) {
         if self.client.is_none() {
             self.error = Some("not connected to the daemon".into());
             cx.notify();
@@ -1545,6 +1560,7 @@ impl RootView {
             permission,
             effort,
             helpers,
+            images,
         });
         self.retitle(cx);
         cx.notify();
