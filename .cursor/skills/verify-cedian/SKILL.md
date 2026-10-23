@@ -9,30 +9,28 @@ description: >
 
 # Verify cedian
 
-cedian is the native macOS desktop for cedia. The window is a viewer. The daemon owns the threads and runs one cedia process per prompt. The design source is `docs/ARCHITECTURE.md`. The README status is phase B: the workspace builds `cedian` (the window) and `cedian-daemon`, and the window starts the daemon when nobody answers on its socket. The scripts below drive only the window's replay mode: `cargo build -p cedian_window` produces `target/debug/cedian`, and `--replay` plays a recorded cedia run without starting the daemon, spawning cedia, or taking a data-directory flag.
+cedian is the native desktop for cedia. The window is a viewer. The daemon owns the threads and runs one cedia process per prompt. The design source is `docs/ARCHITECTURE.md`.
 
-You drive the scripts in this skill. You do not start a binary that would write `~/.cedia`. That directory is the owner's settings and cedia's thread files. This skill never creates it, never reads `settings.json` there, and never points a data directory at it. If a launch finds that the binary created `~/.cedia`, the script deletes that directory and exits `1`.
+`cargo build -p cedian_window -p cedian_daemon` produces `target/debug/cedian` and `target/debug/cedian-daemon`. `cedian --cwd <dir>` opens that project and starts the daemon when nothing is listening. `cedian --replay <stream.jsonl>` plays a recorded run in the agent pane and does not start the daemon. This skill's launch uses `--cwd`, so one window can show the thread, the review block, the composer, and the sidebar.
 
-Two runs stay apart by using different `CEDIAN_DATA_DIR` values. Both stay under `/tmp/verify-cedian/`. Replay mode has no socket. A run that starts the window or the daemon outside replay also sets `CEDIAN_STATE_DIR` (the daemon's socket and log) and `CEDIA_HOME` (cedia's threads and sessions) under the same directory, so it never meets the owner's daemon or `~/.cedia`. `crates/cedian_daemon/tests/fake/cedia`, pointed at by `CEDIAN_CEDIA_BIN`, plays a recorded fixture instead of calling a model.
+You drive the scripts in this skill. You do not start a binary that would write `~/.cedia`. That directory is the owner's settings and cedia's thread files. Launch sets `CEDIA_HOME`, `CEDIAN_STATE_DIR`, and `CEDIAN_NO_LOGIN_ENV=1` under `/tmp/verify-cedian/live/`, so the daemon keeps this process environment and never reads the owner's login shell. `CEDIAN_DATA_DIR` stays an empty scratch directory. The binary does not read it. If a launch finds that the binary created `~/.cedia`, the script deletes that directory and exits `1`.
 
-cedia itself is checked out by `.cursor/install.sh` to `/home/ubuntu/cedia` when the agent token can read `github.com/pongsathonkheereekaew/cedia`. This skill does not clone it. The phase A window does not exec it. Running `bin/cedia` yourself would skip the desktop.
+The cedia pin is the commit in `crates/cedian_protocol/cedia/REV`. `.cursor/install.sh` clones `https://github.com/pongsathonkheereekaew/cedia.git` to `/home/ubuntu/cedia`, checks out the remote default branch, and runs `bun install`. It does not check out the pin and it does not compile `bin/cedia`. Launch uses `bin/cedia` when that file is executable. Otherwise, when `bun` can run `src/cli.ts --version --json` from that checkout, launch writes a wrapper and the daemon uses it with `--model faux` and `CEDIA_SANDBOX=off`. Otherwise launch uses `crates/cedian_daemon/tests/fake/cedia`, which plays `crates/cedian_protocol/cedia/sessions/edit-and-check` and writes the argv the daemon passed. A prompt is `cedia --print=<text> --output-format stream-json --cwd <dir>`.
 
 ## Launch
 
-From the repo root, build once if `target/debug/cedian` is missing.
+From the repo root, build once if the binaries are missing.
 
 ```bash
-cargo build -p cedian_window
+cargo build -p cedian_window -p cedian_daemon
 bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh launch
 ```
 
-The script deletes `CEDIAN_DATA_DIR` (default `/tmp/verify-cedian/data`), creates it empty, and starts `cedian --replay` on `crates/cedian_protocol/cedia/sessions/edit-and-check/stream.jsonl`. The replay path is absolute. Override it with `CEDIAN_REPLAY`. Override the data directory with `CEDIAN_DATA_DIR` when a second run is already using the default.
+Ready means stdout contains `ready=yes`, a live `pid`, `daemon_sock` pointing at a socket, and exit code `0`. The client area is 1280 by 800. Launch records that window id. A shell prompt is not ready.
 
-Ready means stdout contains `ready=yes`, a live `pid`, and exit code `0`. The script waits about 30 seconds while that process stays up. The 69-line fixture is played during the wait, one line every 40 ms, so the receipt is on screen before launch returns. A shell prompt is not ready.
+On Linux the script exports `VK_DRIVER_FILES` to `/usr/share/vulkan/icd.d/lvp_icd.json` when that ICD exists and you have not set `VK_DRIVER_FILES` or `VK_ICD_FILENAMES`. `DISPLAY` must already be set. The script does not start Xvfb.
 
-On Linux the script exports `VK_DRIVER_FILES` to `/usr/share/vulkan/icd.d/lvp_icd.json` when that ICD exists and you have not set `VK_DRIVER_FILES` or `VK_ICD_FILENAMES`. Set one of those when the machine has a GPU. `DISPLAY` must already be set. The script does not start Xvfb.
-
-If the binary is missing, launch prints `ready=no`, the reason names `cargo build -p cedian_window`, and the exit code is `1`. `pid_file` is `/tmp/verify-cedian/cedian.pid` after a start, and `none` when the window did not start.
+If `cedian` is missing, launch prints `ready=no` and the reason names `cargo build -p cedian_window`. If `cedian-daemon` is missing, the reason names `cargo build -p cedian_daemon`.
 
 ## Doctor
 
@@ -42,35 +40,27 @@ Doctor is read-only. Run it after launch, before the first drive, and again afte
 bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh doctor
 ```
 
-Worth driving means `ready=yes`, `home_cedia=absent`, and `data_dir` is the directory you passed. The script exits `1` when it prints `ready=no`. Anything else means stop. Do not point the binary at the owner's home to make the check pass.
+Worth driving means `ready=yes`, `home_cedia=absent`, and `daemon_sock` is the socket under the live state directory. The script exits `1` when it prints `ready=no`.
 
-`ready=no` with `reason=window is not running` means launch did not leave a live pid. Run launch again. Do not drive a window you have not health-checked since it last exited.
-
-`cedia_checkout_state=missing` means `/home/ubuntu/cedia` is not a git checkout. The spawn-cedia journey cannot see a cedia child until that checkout exists and cedian can start it. Phase A cannot start it. `crates/cedian_window/src/main.rs` accepts only `--replay`.
+`cedia_pin` is the REV file. `cedia_checkout_rev` is `git rev-parse HEAD` in `/home/ubuntu/cedia`, or `missing`. `cedia_kind=pinned` means the daemon will exec the checkout. `cedia_kind=fake` means it will exec the fixture stand-in.
 
 ## Drive
 
-The harness is `verify-cedian.sh drive <feature>`. Feature ids are `agent-pane`, `editor-pane`, `spawn-cedia`, `terminal-pane`, `review-pane`, and `desktop-settings`. Recipes are in `features/`.
+The harness is `verify-cedian.sh drive <feature>`. Feature ids are `agent-pane`, `editor-pane`, `terminal-pane`, `spawn-cedia`, `review-pane`, `desktop-settings`, `composer`, `sidebar`, and `project-tab`. Recipes are in `features/`.
 
 ```bash
 bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh drive agent-pane
 ```
 
-Drive uses the process launch started. It does not exec a second `cedian`, and it does not exec `cedia`. One window shows the agent pane, Zed's editor, and the shell.
+Drive uses the process launch started. It does not exec a second `cedian`. `agent-pane` sends one prompt through the daemon socket, the same `prompt` request the composer sends, with `worktree` false. `editor-pane` and `terminal-pane` send `ctrl+alt+shift+e` and `ctrl+alt+shift+t`. Run `agent-pane` before `spawn-cedia`, and run `review-pane`, `composer`, `sidebar`, and `project-tab` before those keys, because the keys open blocks on top of the default layout.
 
-`agent-pane`, `editor-pane`, and `terminal-pane` exit `0` when their phase A checks pass. `spawn-cedia`, `review-pane`, and `desktop-settings` exit `1` on this checkout. Their end states are not built yet. A non-zero drive of those three, with the window still alive, is the current result, not a crashed window. Doctor after them still prints `ready=yes`.
-
-There is no dry-run mode and no model client in this repo. The fixture was recorded with cedia's faux provider. Nothing in the drive calls a model API.
+There is no dry-run mode and no model client in this repo. The fake stand-in plays a recorded fixture. A pinned cedia run uses faux and does not call a model API.
 
 ## Evidence
 
-Proof is the command, the `key=value` record, the exit code, and for the window features a PNG. The drive writes the record to `$CEDIAN_EVIDENCE_DIR/<feature>.txt`. The default evidence directory is `/tmp/verify-cedian/evidence`.
+Proof is the command, the `key=value` record, the exit code, and for a window feature a PNG. The drive writes the record to `$CEDIAN_EVIDENCE_DIR/<feature>.txt`. The default evidence directory is `/tmp/verify-cedian/evidence`.
 
-`agent-pane.png`, `editor-pane.png`, and `terminal-pane.png` are screenshots of the cedian window. OCR text sits beside them as `<feature>.ocr.txt` when a check needs a word from the pane. `cedian.log` is the binary's stdout.
-
-A passing agent pane shows the fixture prompt in that screenshot. It does not write a thread file. `thread_file=absent` is the phase A result. A passing editor pane shows the text `cedian spike`. A passing terminal pane has a shell child of the cedian pid. `keys_sent=0` because the spike draws terminal cells and does not take keystrokes.
-
-`home_cedia=absent` is the check that the owner's state was left alone. `data_dir_entries=0` after launch means the empty directory gained no thread file.
+`screenshot_scope=window` means the PNG is the 1280x800 client window. `cedia.argv` is the cedia command line captured while the prompt runs. `home_cedia=absent` means the owner's `~/.cedia` was left alone.
 
 ## Cleanup
 
@@ -78,20 +68,18 @@ A passing agent pane shows the fixture prompt in that screenshot. It does not wr
 bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh cleanup
 ```
 
-Cleanup kills the pid in `/tmp/verify-cedian/cedian.pid` when that file exists and the pid is alive. It then checks the shell pids recorded by the terminal drive. `shell_after_quit=dead` means the shell died with the window. `shell_after_quit=alive` means it outlived the window. The script then kills any shell that remained. It deletes `CEDIAN_DATA_DIR`. It does not delete the evidence directory, and it does not touch `~/.cedia` unless launch already removed a directory this run created. After cleanup, the evidence files must still be at the paths the drives printed. Cleanup appends `shell_after_quit` to `terminal-pane.txt` when that drive ran.
+Cleanup kills the window pid and the daemon pid. The daemon is in its own process group, so killing the window does not stop it. `shell_after_quit=dead` means the terminal shell died with the window. The script then deletes `CEDIAN_DATA_DIR` and `/tmp/verify-cedian/live`. It does not delete the evidence directory, and it does not touch `~/.cedia` unless launch already removed a directory this run created.
 
 ## Helpers
 
 The helper is executable.
 
 ```bash
-cargo build -p cedian_window
+cargo build -p cedian_window -p cedian_daemon
 bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh launch
 bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh doctor
 bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh drive agent-pane
 bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh cleanup
 ```
 
-`CEDIAN_DATA_DIR`, `CEDIAN_EVIDENCE_DIR`, `CEDIAN_PID_FILE`, `CEDIAN_BIN`, `CEDIAN_REPLAY`, and `CEDIA_CHECKOUT` override the defaults. Keep every override outside `~/.cedia`.
-
-Phase A still has no daemon, no review pane, and no settings writer. Those three drives stay unmet until the code grows them. Update this skill with `/maintain-verification-skill` when that happens.
+`CEDIAN_DATA_DIR`, `CEDIAN_EVIDENCE_DIR`, `CEDIAN_PID_FILE`, `CEDIAN_BIN`, `CEDIA_CHECKOUT`, and `CEDIAN_CEDIA_BIN_OVERRIDE` override the defaults. Keep every override outside `~/.cedia`.
