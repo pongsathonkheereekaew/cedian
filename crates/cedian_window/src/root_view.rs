@@ -56,6 +56,7 @@ use crate::{
     thread_list::{self, Group},
     thread_search::{Act, FocusSearch, Found, SearchEvent, ThreadSearch},
     tokens,
+    usage_pane::{UsageEvent, UsagePane},
     view_mode::ViewMode,
     workplace::Workplace,
 };
@@ -104,6 +105,7 @@ pub struct RootView {
     choices: run_choices::RunChoices,
     search: Entity<ThreadSearch>,
     review: Entity<ReviewPane>,
+    usage: Entity<UsagePane>,
     /// Hunks of the open thread's review still waiting, for the Review block's meta.
     waiting_hunks: usize,
     /// The block keys act on, the one zoomed to fill the area, and where a dragged block
@@ -407,6 +409,14 @@ impl RootView {
             ),
         })
         .detach();
+        let usage = cx.new(|_| UsagePane::new());
+        cx.subscribe(&usage, |view, _, event, cx| match event {
+            UsageEvent::Changed => {
+                view.ask_usage(cx);
+                cx.notify();
+            }
+        })
+        .detach();
         Self {
             client: None,
             connection: Connection::Connecting,
@@ -428,6 +438,7 @@ impl RootView {
             choices: run_choices::RunChoices::default(),
             search,
             review,
+            usage,
             waiting_hunks: 0,
             focused: None,
             zoomed: None,
@@ -465,6 +476,33 @@ impl RootView {
         self.request(Request::Settings);
         self.settings_window =
             SettingsWindow::show(self.settings.clone(), self.settings_window.take(), cx);
+    }
+
+    /// Asks the daemon for the usage the Usage block shows, once per range, filter and
+    /// project.
+    pub(super) fn ask_usage(&mut self, cx: &mut Context<Self>) {
+        let cwd = self.project().cwd.clone();
+        let today = chrono::Local::now().date_naive();
+        let Some((cwd, since)) = self.usage.update(cx, |pane, _| pane.take_want(&cwd, today))
+        else {
+            return;
+        };
+        // cedia names a project by its key; the tabs give the names.
+        let names = self
+            .projects
+            .iter()
+            .filter(|p| !p.cwd.as_os_str().is_empty())
+            .map(|p| {
+                let name = p
+                    .cwd
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| p.cwd.display().to_string());
+                (cedian_index::project_key(&p.cwd), name)
+            })
+            .collect();
+        self.usage.update(cx, |pane, _| pane.set_names(names));
+        self.request(Request::Usage { cwd, since });
     }
 
     fn request(&self, request: Request) {
@@ -675,6 +713,9 @@ impl RootView {
                     .update(cx, |pane, cx| pane.set_review(review, cx));
             }
             Notice::Review { .. } => {}
+            Notice::Usage { cwd, since, report } => self
+                .usage
+                .update(cx, |pane, cx| pane.set_report(cwd, since, *report, cx)),
             Notice::Outputs { cwd, outputs } if cwd == self.project().cwd => {
                 self.outputs.update(cx, |pane, cx| pane.set(outputs, cx));
             }

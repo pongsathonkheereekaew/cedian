@@ -449,3 +449,45 @@ fn the_outputs_and_memory_blocks_keep_their_rows_inside_at_every_size() {
         2
     );
 }
+
+#[test]
+fn the_usage_block_draws_the_report_inside_itself_and_toggles_a_table() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    view.update(cx, |view, cx| {
+        view.open_kind(Kind::Usage, super::blocks::ToolTarget { against: None }, cx);
+    });
+    cx.run_until_parked();
+    let today = chrono::Local::now().date_naive();
+    let report = format!(
+        r#"{{"sessions":3,"requests":12,"costUsd":1.5,"keepaliveUsd":0,"compactUsd":0,
+        "tokens":{{"input":1,"cacheRead":0,"output":1}},"sources":[],"largest":[],"misses":[],
+        "overPriceLine":0,"maxEffort":0,"handoffs":0,"unpriced":0,
+        "days":[{{"day":"{}","costUsd":1.5}}],
+        "models":[{{"model":"anthropic/claude-opus-5-5","costUsd":1.2,"requests":9}},{{"model":"faux/scripted","costUsd":0.3,"requests":3}}],
+        "projects":[{{"project":"fixture-repo","costUsd":1.5}}],
+        "threads":[{{"thread":"t-1","title":"a thread whose title is long enough to be cut short in a narrow block","project":"fixture-repo","costUsd":1.5}}]}}"#,
+        today.format("%Y-%m-%d")
+    );
+    view.update(cx, |view, cx| {
+        view.on_notice(
+            Notice::Usage {
+                cwd: Some(PathBuf::from("/fixture/repo")),
+                since: "7d".into(),
+                report: Box::new(serde_json::from_str(&report).expect("report")),
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |view, cx| view.usage.read(cx).report().is_some()));
+    let block = bounds(cx, "usage-block");
+    let chart = bounds(cx, "usage-chart");
+    inside("the chart", chart, "the Usage block", block);
+    let table = bounds(cx, "usage-table-toggle");
+    cx.simulate_click(table.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("usage-table").is_some(), "the table shows");
+    assert!(cx.debug_bounds("usage-chart").is_none());
+}
