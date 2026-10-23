@@ -363,6 +363,60 @@ fn an_image_goes_with_the_next_run_and_another_file_as_a_mention() {
 }
 
 #[test]
+fn the_editor_saves_a_file_and_an_agents_write_waits_on_unsaved_edits() {
+    use crate::editor_file::Save;
+    let dir = tempfile::tempdir().expect("dir");
+    let path = dir.path().join("main.rs");
+    std::fs::write(&path, "fn main() {}\n").expect("write");
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    view.update_in(cx, |view, window, cx| {
+        view.show_file(path.clone(), window, cx);
+        view.editor
+            .update(cx, |editor, cx| editor.insert("// hi\n", window, cx));
+    });
+    cx.run_until_parked();
+    assert!(
+        view.read_with(cx, |view, _| view.editor_dirty),
+        "an unsaved edit"
+    );
+    view.update_in(cx, |view, window, cx| view.save_editor(&Save, window, cx));
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "// hi\nfn main() {}\n"
+    );
+    assert!(!view.read_with(cx, |view, _| view.editor_dirty));
+
+    // The agent writes while the person has an edit: theirs stays until they choose.
+    view.update_in(cx, |view, window, cx| {
+        view.editor
+            .update(cx, |editor, cx| editor.insert("x", window, cx));
+    });
+    std::fs::write(&path, "fn main() { agent(); }\n").expect("agent");
+    view.update_in(cx, |view, window, cx| view.check_disk(window, cx));
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("editor-conflict").is_some(),
+        "the choice shows"
+    );
+    view.update_in(cx, |view, window, cx| view.discard_edits(window, cx));
+    cx.run_until_parked();
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.editor.read(cx).text(cx)),
+        "fn main() { agent(); }\n"
+    );
+    assert!(cx.debug_bounds("editor-conflict").is_none());
+
+    // With no edits, the next write is simply read in.
+    std::fs::write(&path, "fn main() { agent(); again(); }\n").expect("again");
+    view.update_in(cx, |view, window, cx| view.check_disk(window, cx));
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.editor.read(cx).text(cx)),
+        "fn main() { agent(); again(); }\n"
+    );
+}
+
+#[test]
 fn a_block_let_go_outside_the_window_opens_in_a_new_one() {
     let mut app = app();
     let (view, cx) = window(&mut app);
