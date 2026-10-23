@@ -102,12 +102,26 @@ impl FileTree {
     }
 }
 
+/// Folders in the home directory that macOS guards with a permission prompt (or that hold
+/// guarded data, as Pictures holds the Photos library). A walk that reaches one asks the person
+/// for access to a folder they never opened, so the walk passes them by; a project inside one,
+/// opened on purpose, still lists.
+const GUARDED_IN_HOME: [&str; 7] = [
+    "Desktop",
+    "Documents",
+    "Downloads",
+    "Library",
+    "Movies",
+    "Music",
+    "Pictures",
+];
+
 /// The files under `root`, relative to it: git's list in a repository, else a walk that skips
-/// dot directories.
+/// dot directories and the guarded folders of home.
 fn list(root: &Path) -> Vec<PathBuf> {
     let mut files = match git_files(root) {
         Some(files) => files,
-        None => walk(root),
+        None => walk(root, std::env::home_dir().as_deref()),
     };
     files.sort();
     files.dedup();
@@ -142,7 +156,10 @@ fn git_files(root: &Path) -> Option<Vec<PathBuf>> {
     )
 }
 
-fn walk(root: &Path) -> Vec<PathBuf> {
+fn walk(root: &Path, home: Option<&Path>) -> Vec<PathBuf> {
+    let guarded: Vec<PathBuf> = home
+        .map(|home| GUARDED_IN_HOME.iter().map(|name| home.join(name)).collect())
+        .unwrap_or_default();
     let mut files = Vec::new();
     let mut dirs = vec![PathBuf::new()];
     while let Some(dir) = dirs.pop() {
@@ -156,7 +173,11 @@ fn walk(root: &Path) -> Vec<PathBuf> {
             }
             let path = dir.join(&name);
             match entry.file_type() {
-                Ok(kind) if kind.is_dir() => dirs.push(path),
+                Ok(kind) if kind.is_dir() => {
+                    if !guarded.contains(&root.join(&path)) {
+                        dirs.push(path);
+                    }
+                }
                 Ok(kind) if kind.is_file() => files.push(path),
                 _ => {}
             }
@@ -294,6 +315,30 @@ impl Render for FileTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_walk_passes_by_the_guarded_folders_of_home() {
+        let home = tempfile::tempdir().expect("dir");
+        for file in [
+            "Downloads/a.zip",
+            "Desktop/b.txt",
+            "code/main.rs",
+            "notes.md",
+        ] {
+            let path = home.path().join(file);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, "").expect("write");
+        }
+        let mut files = walk(home.path(), Some(home.path()));
+        files.sort();
+        assert_eq!(
+            files,
+            [PathBuf::from("code/main.rs"), PathBuf::from("notes.md")]
+        );
+        // A project inside one, opened on purpose, lists.
+        let files = walk(&home.path().join("Downloads"), Some(home.path()));
+        assert_eq!(files, [PathBuf::from("a.zip")]);
+    }
 
     #[test]
     fn folders_come_first_and_open_only_when_expanded() {
