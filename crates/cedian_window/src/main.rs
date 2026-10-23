@@ -3,6 +3,7 @@ mod assets;
 mod block_drag;
 mod block_header;
 mod block_keys;
+mod browser_marks;
 mod browser_pane;
 mod cdp;
 mod composer;

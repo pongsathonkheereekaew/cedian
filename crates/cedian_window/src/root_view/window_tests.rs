@@ -757,3 +757,51 @@ fn the_skills_block_lists_the_commands_and_a_click_puts_one_in_the_composer() {
         "/review "
     );
 }
+
+#[test]
+fn a_capture_is_marked_and_attached_with_its_marks() {
+    use crate::{
+        browser_marks::{Marks, RED},
+        browser_pane::{BrowserEvent, BrowserPane},
+    };
+    let mut app = app();
+    let (pane, cx) = app.add_window_view(BrowserPane::new);
+    let captured = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let seen = captured.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(&pane, move |_, event, _| {
+            if let BrowserEvent::Captured(path) = event {
+                seen.borrow_mut().push(path.clone());
+            }
+        })
+        .detach();
+    });
+    let white = image::RgbaImage::from_pixel(200, 100, image::Rgba([255; 4]));
+    pane.update(cx, |pane, cx| {
+        pane.show_capture(Marks::new(white, (200., 100.)), cx)
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("browser-marking").is_some(),
+        "the marking row"
+    );
+    let page = bounds(cx, "browser-page").origin;
+    let left = gpui::MouseButton::Left;
+    let none = gpui::Modifiers::none();
+    cx.simulate_mouse_down(page + gpui::point(px(20.), px(50.)), left, none);
+    cx.simulate_mouse_move(page + gpui::point(px(180.), px(50.)), Some(left), none);
+    cx.simulate_mouse_up(page + gpui::point(px(180.), px(50.)), left, none);
+    cx.run_until_parked();
+    let attach = bounds(cx, "browser-marks-attach").center();
+    cx.simulate_click(attach, none);
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("browser-marking").is_none(),
+        "the page is back"
+    );
+    let path = captured.borrow().first().cloned().expect("a capture");
+    let saved = image::open(&path).expect("png").into_rgba8();
+    assert_eq!(saved.get_pixel(100, 50).0, RED, "the mark is burned in");
+    assert_eq!(saved.get_pixel(100, 10).0, [255; 4]);
+    std::fs::remove_file(path).ok();
+}

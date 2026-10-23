@@ -450,9 +450,12 @@ impl RootView {
         })
         .detach();
         let browser = cx.new(|cx| BrowserPane::new(window, cx));
-        cx.subscribe(&browser, |view, _, event, _| match event {
+        cx.subscribe_in(&browser, window, |view, _, event, window, cx| match event {
             BrowserEvent::Wanted => view.request(Request::Browser {
                 cwd: view.project().cwd.clone(),
+            }),
+            BrowserEvent::Captured(path) => view.composer.update(cx, |composer, cx| {
+                composer.add_files(std::slice::from_ref(path), window, cx)
             }),
         })
         .detach();

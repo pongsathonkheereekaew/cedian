@@ -2,7 +2,9 @@
 //! daemon runs. The page is drawn from its screencast and the person's clicks, scrolls and keys
 //! go back to it, so it works as a browser while cedia's browser tool drives the same page for
 //! the project's runs. A row above it has back, reload, the address, and the mobile and desktop
-//! widths; a line under the row says when the agent is using the page.
+//! widths, and จับภาพและวาด; a line under the row says when the agent is using the page. A
+//! capture takes the page's place until it is attached to the composer or put away
+//! (`browser_marks.rs`).
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -13,14 +15,15 @@ use gpui::{
     App, AppContext as _, Bounds, ClipboardItem, Context, ElementInputHandler, Entity,
     EntityInputHandler, EventEmitter, FocusHandle, Focusable as _, InteractiveElement as _,
     IntoElement, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement as _, Pixels, Point, Render, RenderImage, ScrollWheelEvent,
-    StatefulInteractiveElement as _, Styled as _, Task, UTF16Selection, Window, actions, canvas,
-    div, img, prelude::FluentBuilder as _, px, svg,
+    MouseUpEvent, ParentElement as _, PathBuilder, Pixels, Point, Render, RenderImage,
+    ScrollWheelEvent, StatefulInteractiveElement as _, Styled as _, Task, UTF16Selection, Window,
+    actions, canvas, div, img, point, prelude::FluentBuilder as _, px, svg,
 };
 use serde_json::{Value, json};
 use theme::ActiveTheme as _;
 
 use crate::{
+    browser_marks::{self, Marks, Spot},
     cdp::{Cdp, CdpEvent},
     tokens,
     type_scale::TypeScale as _,
@@ -36,6 +39,8 @@ const LINE: f32 = 40.;
 pub enum BrowserEvent {
     /// The block wants the project's page: ask the daemon.
     Wanted,
+    /// A marked capture to attach to the open thread's composer.
+    Captured(PathBuf),
 }
 
 pub struct BrowserPane {
@@ -66,6 +71,12 @@ pub struct BrowserPane {
     copying: Option<u64>,
     /// The id of the history asked for by back.
     going_back: Option<u64>,
+    /// The id of the capture asked for by จับภาพและวาด, with the page's size then.
+    capturing: Option<(u64, (f32, f32))>,
+    /// The capture being marked, shown in the page's place.
+    marks: Option<Marks>,
+    /// Why the capture could not be taken or attached.
+    marks_error: Option<String>,
 }
 
 impl EventEmitter<BrowserEvent> for BrowserPane {}
@@ -97,6 +108,9 @@ impl BrowserPane {
             agent: false,
             copying: None,
             going_back: None,
+            capturing: None,
+            marks: None,
+            marks_error: None,
         }
     }
 
@@ -172,6 +186,11 @@ impl BrowserPane {
         self.cdp = None;
         self.reader = None;
         self.viewport = None;
+        self.capturing = None;
+        // A capture belongs to the page it was taken of.
+        if let Some(marks) = self.marks.take() {
+            self.spent.push(marks.shown);
+        }
         if let Some(frame) = self.frame.take() {
             self.spent.push(frame);
         }
@@ -240,6 +259,11 @@ impl BrowserPane {
             } else if let Some(entry) = entries.get(current) {
                 self.set_url(entry["url"].as_str(), cx);
             }
+        } else if let Some((asked, size)) = self.capturing
+            && asked == id
+        {
+            self.capturing = None;
+            self.read_capture(&message, size, cx);
         } else if self.copying == Some(id) {
             self.copying = None;
             if let Some(text) = result["result"]["value"].as_str()
@@ -344,8 +368,12 @@ impl BrowserPane {
 
     /// How far from the area's left the page is drawn: the mobile width sits in the middle.
     fn frame_left(&self) -> f32 {
+        self.left_of(self.frame_size.0)
+    }
+
+    fn left_of(&self, width: f32) -> f32 {
         if self.mobile {
-            ((f32::from(self.area.size.width) - self.frame_size.0) / 2.).max(0.)
+            ((f32::from(self.area.size.width) - width) / 2.).max(0.)
         } else {
             0.
         }
@@ -353,10 +381,114 @@ impl BrowserPane {
 
     /// Where a pointer is on the page, in CSS pixels, when it is over the page.
     fn on_page(&self, position: Point<Pixels>) -> Option<(f32, f32)> {
-        let x = f32::from(position.x - self.area.origin.x) - self.frame_left();
+        self.within(position, self.frame_size)
+    }
+
+    fn within(&self, position: Point<Pixels>, (width, height): (f32, f32)) -> Option<Spot> {
+        let x = f32::from(position.x - self.area.origin.x) - self.left_of(width);
         let y = f32::from(position.y - self.area.origin.y);
-        let (width, height) = self.frame_size;
         (x >= 0. && y >= 0. && x <= width.max(1.) && y <= height.max(1.)).then_some((x, y))
+    }
+
+    /// จับภาพและวาด: asks the page for a capture, at the size it shows now.
+    fn capture(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        if self.frame.is_none() || self.marks.is_some() {
+            return;
+        }
+        let size = self.frame_size;
+        self.marks_error = None;
+        self.capturing = self
+            .call(
+                "Page.captureScreenshot",
+                json!({ "format": "png", "fromSurface": true }),
+            )
+            .map(|id| (id, size));
+        cx.notify();
+    }
+
+    /// Decodes the capture off the main thread and shows it to mark.
+    fn read_capture(&mut self, message: &Value, size: (f32, f32), cx: &mut Context<Self>) {
+        let Some(data) = message["result"]["data"].as_str().map(str::to_owned) else {
+            let why = message["error"]["message"]
+                .as_str()
+                .unwrap_or("no image came back");
+            self.marks_error = Some(format!("จับภาพไม่ได้: {why}"));
+            return;
+        };
+        let decoding = cx
+            .background_executor()
+            .spawn(async move { Marks::from_capture(&data, size) });
+        cx.spawn(async move |this, cx| {
+            let marks = decoding.await;
+            this.update(cx, |pane, cx| {
+                match marks {
+                    Ok(marks) => pane.marks = Some(marks),
+                    Err(error) => pane.marks_error = Some(format!("จับภาพไม่ได้: {error:#}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Attaches the marked capture to the composer and gives the page back.
+    fn attach_marks(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(marks) = self.marks.as_ref() else {
+            return;
+        };
+        match marks.save() {
+            Ok(path) => {
+                self.put_away_marks(cx);
+                cx.emit(BrowserEvent::Captured(path));
+            }
+            Err(error) => {
+                log::warn!("saving a capture: {error:#}");
+                self.marks_error = Some(format!("แนบภาพไม่ได้: {error:#}"));
+                cx.notify();
+            }
+        }
+    }
+
+    /// Shows `marks` as a capture just taken.
+    #[cfg(test)]
+    pub fn show_capture(&mut self, marks: Marks, cx: &mut Context<Self>) {
+        self.marks = Some(marks);
+        cx.notify();
+    }
+
+    fn put_away_marks(&mut self, cx: &mut Context<Self>) {
+        if let Some(marks) = self.marks.take() {
+            self.spent.push(marks.shown);
+        }
+        self.marks_error = None;
+        cx.notify();
+    }
+
+    fn undo_mark(&mut self, cx: &mut Context<Self>) {
+        if let Some(marks) = self.marks.as_mut() {
+            marks.undo();
+            cx.notify();
+        }
+    }
+
+    /// While a capture is shown, the pointer marks it instead of reaching the page. True when
+    /// it did.
+    fn mark(&mut self, position: Point<Pixels>, start: bool, cx: &mut Context<Self>) -> bool {
+        let Some(size) = self.marks.as_ref().map(|m| m.size) else {
+            return false;
+        };
+        if let Some(spot) = self.within(position, size)
+            && let Some(marks) = self.marks.as_mut()
+        {
+            if start {
+                marks.begin(spot);
+            } else {
+                marks.extend(spot);
+            }
+            cx.notify();
+        }
+        true
     }
 
     fn mouse(
@@ -392,6 +524,12 @@ impl BrowserPane {
 
     fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
+        if self.marks.is_some() {
+            if event.button == MouseButton::Left {
+                self.mark(event.position, true, cx);
+            }
+            return;
+        }
         self.mouse(
             "mousePressed",
             event.position,
@@ -402,6 +540,9 @@ impl BrowserPane {
     }
 
     fn mouse_up(&mut self, event: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
+        if self.marks.is_some() {
+            return;
+        }
         self.mouse(
             "mouseReleased",
             event.position,
@@ -411,7 +552,13 @@ impl BrowserPane {
         );
     }
 
-    fn mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, _: &mut Context<Self>) {
+    fn mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.marks.is_some() {
+            if event.pressed_button == Some(MouseButton::Left) {
+                self.mark(event.position, false, cx);
+            }
+            return;
+        }
         self.mouse(
             "mouseMoved",
             event.position,
@@ -422,6 +569,9 @@ impl BrowserPane {
     }
 
     fn scroll(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.marks.is_some() {
+            return;
+        }
         let Some((x, y)) = self.on_page(event.position) else {
             return;
         };
@@ -441,9 +591,19 @@ impl BrowserPane {
         cx.stop_propagation();
     }
 
-    fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
         let modifiers = keystroke.modifiers;
+        if self.marks.is_some() {
+            match keystroke.key.as_str() {
+                "escape" => self.put_away_marks(cx),
+                "z" if modifiers.platform || modifiers.control => self.undo_mark(cx),
+                "enter" => self.attach_marks(window, cx),
+                _ => return,
+            }
+            cx.stop_propagation();
+            return;
+        }
         if modifiers.platform {
             match keystroke.key.as_str() {
                 "v" => {
@@ -569,6 +729,37 @@ fn special_key(key: &str) -> Option<(&'static str, &'static str, u32)> {
     })
 }
 
+/// The marks over a capture drawn `left` pixels in from `origin`.
+fn paint_strokes(strokes: &[Vec<Spot>], origin: Point<Pixels>, left: f32, window: &mut Window) {
+    let [r, g, b, _] = browser_marks::RED;
+    let colour = gpui::rgb(u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b));
+    for stroke in strokes {
+        let at = |&(x, y): &Spot| point(origin.x + px(left + x), origin.y + px(y));
+        let Some(first) = stroke.first() else {
+            continue;
+        };
+        if stroke.len() == 1 {
+            let radius = px(browser_marks::STROKE / 2.);
+            window.paint_quad(
+                gpui::fill(
+                    Bounds::centered_at(at(first), gpui::size(radius * 2., radius * 2.)),
+                    colour,
+                )
+                .corner_radii(radius),
+            );
+            continue;
+        }
+        let mut builder = PathBuilder::stroke(px(browser_marks::STROKE));
+        builder.move_to(at(first));
+        for spot in &stroke[1..] {
+            builder.line_to(at(spot));
+        }
+        if let Ok(path) = builder.build() {
+            window.paint_path(path, colour);
+        }
+    }
+}
+
 fn tool_button(cx: &App, id: &'static str, icon: &'static str) -> gpui::Stateful<gpui::Div> {
     let colors = cx.theme().colors();
     div()
@@ -582,6 +773,75 @@ fn tool_button(cx: &App, id: &'static str, icon: &'static str) -> gpui::Stateful
         .cursor_pointer()
         .hover(|b| b.bg(colors.element_hover))
         .child(svg().path(icon).size(px(14.)).text_color(colors.text_muted))
+}
+
+impl BrowserPane {
+    /// The row over a capture while it is marked: what to do, undo, put away, attach.
+    fn render_marking_bar(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let colors = cx.theme().colors();
+        let button = |id: &'static str, label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .debug_selector(move || id.into())
+                .flex_none()
+                .h(px(24.))
+                .px_2()
+                .flex()
+                .items_center()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .when(primary, |b| {
+                    b.bg(colors.element_selected).text_color(colors.text)
+                })
+                .when(!primary, |b| {
+                    b.border_1()
+                        .border_color(colors.border)
+                        .text_color(colors.text_muted)
+                })
+                .hover(|b| b.bg(colors.element_hover))
+                .child(label)
+        };
+        let marked = self.marks.as_ref().is_some_and(|m| !m.strokes.is_empty());
+        div()
+            .debug_selector(|| "browser-marking".into())
+            .flex_none()
+            .mx_2()
+            .mb_1()
+            .px_2p5()
+            .py_1()
+            .flex()
+            .items_center()
+            .gap_1()
+            .rounded(px(8.))
+            .border_1()
+            .border_color(colors.border)
+            .text_meta()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(colors.text_muted)
+                    .children(self.marks_error.clone())
+                    .when(self.marks_error.is_none(), |d| {
+                        d.child("วาดบนภาพเพื่อชี้จุดที่ต้องการ")
+                    }),
+            )
+            .when(marked, |bar| {
+                bar.child(
+                    button("browser-marks-undo", "ย้อน", false)
+                        .on_click(cx.listener(|pane, _, _, cx| pane.undo_mark(cx))),
+                )
+            })
+            .child(
+                button("browser-marks-cancel", "ยกเลิก", false)
+                    .on_click(cx.listener(|pane, _, _, cx| pane.put_away_marks(cx))),
+            )
+            .child(
+                button("browser-marks-attach", "แนบไปกับข้อความ", true)
+                    .on_click(cx.listener(|pane, _, window, cx| pane.attach_marks(window, cx))),
+            )
+    }
 }
 
 impl Render for BrowserPane {
@@ -650,7 +910,29 @@ impl Render for BrowserPane {
                     .gap_0p5()
                     .child(width(true, "มือถือ", "browser-mobile"))
                     .child(width(false, "เดสก์ท็อป", "browser-desktop")),
+            )
+            .child(
+                tool_button(cx, "browser-capture", "icons/pencil.svg")
+                    .debug_selector(|| "browser-capture".into())
+                    .when(self.frame.is_none(), |b| b.opacity(0.4))
+                    .tooltip(|_, cx| {
+                        crate::tooltip::text("จับภาพและวาด แล้วแนบไปกับข้อความ".into(), cx)
+                    })
+                    .on_click(cx.listener(|pane, _, window, cx| pane.capture(window, cx))),
             );
+        let marking = self.marks.is_some().then(|| self.render_marking_bar(cx));
+        let marks_error = (self.marks.is_none())
+            .then(|| self.marks_error.clone())
+            .flatten()
+            .map(|why| {
+                div()
+                    .flex_none()
+                    .mx_2()
+                    .mb_1()
+                    .text_meta()
+                    .text_color(cx.theme().status().error)
+                    .child(why)
+            });
         let banner = self.agent.then(|| {
             div()
                 .flex_none()
@@ -668,6 +950,7 @@ impl Render for BrowserPane {
         let (frame_width, frame_height) = self.frame_size;
         let page = div()
             .id("browser-page")
+            .debug_selector(|| "browser-page".into())
             .key_context("BrowserPage")
             .track_focus(&self.focus)
             .relative()
@@ -700,8 +983,32 @@ impl Render for BrowserPane {
                 .absolute()
                 .size_full(),
             )
-            .map(|page| match (&self.frame, &self.error) {
-                (Some(frame), _) => page.child(
+            .map(|page| match (&self.marks, &self.frame, &self.error) {
+                (Some(marks), _, _) => {
+                    let (width, height) = marks.size;
+                    let left = self.left_of(width);
+                    let strokes = marks.strokes.clone();
+                    page.cursor_crosshair()
+                        .child(
+                            img(gpui::ImageSource::Render(marks.shown.clone()))
+                                .absolute()
+                                .top_0()
+                                .left(px(left))
+                                .w(px(width))
+                                .h(px(height)),
+                        )
+                        .child(
+                            canvas(
+                                |_, _, _| {},
+                                move |bounds, _, window, _| {
+                                    paint_strokes(&strokes, bounds.origin, left, window)
+                                },
+                            )
+                            .absolute()
+                            .size_full(),
+                        )
+                }
+                (None, Some(frame), _) => page.child(
                     img(gpui::ImageSource::Render(frame.clone()))
                         .absolute()
                         .top_0()
@@ -709,7 +1016,7 @@ impl Render for BrowserPane {
                         .w(px(frame_width))
                         .h(px(frame_height)),
                 ),
-                (None, error) => page.child(
+                (None, None, error) => page.child(
                     div()
                         .size_full()
                         .flex()
@@ -743,6 +1050,8 @@ impl Render for BrowserPane {
                     .when(self.loading, |line| line.bg(colors.border_focused)),
             )
             .children(banner)
+            .children(marking)
+            .children(marks_error)
             .child(page)
     }
 }
