@@ -1038,7 +1038,7 @@ fn an_unverified_thread_stays() {
 
 #[test]
 fn a_thread_the_coordinator_opened_starts_in_its_own_worktree() {
-    let harness = start_with("edit-and-check", "\"todo\",\"open_thread\"");
+    let harness = start_with("edit-and-check", "\"todo\",\"open_thread\",\"cache-ttl\"");
     git(&harness.cwd, &["init", "-q"]);
     git(
         &harness.cwd,
@@ -1076,6 +1076,8 @@ fn a_thread_the_coordinator_opened_starts_in_its_own_worktree() {
         "{args:?}"
     );
     assert!(args.windows(2).any(|w| w == ["--todo", "on"]), "{args:?}");
+    // Nobody is waiting to come back to it: cedia's own cache lifetime.
+    assert!(!args.contains(&"--cache-ttl"), "{args:?}");
     let ran_in = std::fs::read_to_string(harness.threads.join("../cwd")).expect("cwd");
     let worktree = harness
         .cwd
@@ -1111,6 +1113,34 @@ fn a_prompt_that_names_a_model_and_a_mode_runs_on_them() {
         args.windows(2).any(|w| w == ["--permission", "plan"]),
         "{args:?}"
     );
+}
+
+#[test]
+fn a_person_s_prompt_keeps_its_cache_an_hour_when_cedia_can() {
+    for (caps, expected) in [("\"cache-ttl\"", true), ("", false)] {
+        let harness = start_with("edit-and-check", caps);
+        let mut window = Window::connect(&harness);
+        window.ask(Request::Prompt {
+            cwd: harness.cwd.clone(),
+            text: "make f.txt say good".into(),
+            thread: None,
+            worktree: false,
+            profile: None,
+            model: None,
+            permission: None,
+            effort: None,
+            helpers: Default::default(),
+        });
+        window.until(status_is(Status::Done));
+        let args = std::fs::read_to_string(harness.threads.join("../args")).expect("args");
+        let args: Vec<&str> = args.lines().collect();
+        // An older cedia would refuse a flag it does not know.
+        assert_eq!(
+            args.windows(2).any(|w| w == ["--cache-ttl", "1h"]),
+            expected,
+            "{caps}: {args:?}"
+        );
+    }
 }
 
 #[test]

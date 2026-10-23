@@ -78,6 +78,12 @@ pub struct Daemon {
     next_id: u64,
 }
 
+/// A thread the person writes in is one they come back to after a pause, often past the
+/// five minutes Anthropic keeps a cached prompt by default; an hour costs 2x the input price to
+/// write instead of 1.25x and saves rereading the whole thread uncached after each pause.
+/// Threads the coordinator queues and scheduled runs keep cedia's default.
+const PERSON_CACHE_TTL: &str = "1h";
+
 /// `Notice::Choices` from cedia's `models` and `permissions`, each asked only when this cedia
 /// offers it: an older cedia would read the word as a prompt.
 fn choices(cedia: &Cedia, version: &Result<VersionInfo, String>) -> Notice {
@@ -457,6 +463,7 @@ impl Daemon {
                     permission: permission.as_deref(),
                     effort: effort.as_deref(),
                     helpers: Some(&helpers),
+                    cache_ttl: Some(PERSON_CACHE_TTL),
                     ..Flags::default()
                 };
                 let running = thread.as_deref().is_some_and(|t| lock(shared).running(t));
@@ -557,6 +564,7 @@ impl Daemon {
                             permission: permission.as_deref(),
                             effort: effort.as_deref(),
                             helpers: Some(&helpers),
+                            cache_ttl: Some(PERSON_CACHE_TTL),
                             ..Flags::default()
                         };
                         // No requester: the window opens the fork itself, for the history the
@@ -1033,6 +1041,9 @@ impl Daemon {
             ask: can(cedian_protocol::Capability::Ask),
             todo: can(cedian_protocol::Capability::Todo),
             browser: page.as_ref().map(|p| p.socket.as_str()),
+            cache_ttl: with
+                .cache_ttl
+                .filter(|_| can(cedian_protocol::Capability::CacheTtl)),
             ..with
         };
         let child = match daemon.cedia.prompt(&cwd, text, thread.as_deref(), with) {
