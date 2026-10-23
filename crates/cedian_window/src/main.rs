@@ -39,6 +39,7 @@ mod tool_card;
 mod tool_menu;
 mod tooltip;
 mod type_scale;
+mod usage_pane;
 mod view_mode;
 mod workplace;
 

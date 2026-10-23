@@ -1242,7 +1242,11 @@ impl RootView {
                     .into_any_element()
             }
             Kind::Background => self.render_background(cx),
-            Kind::Browser | Kind::Outputs | Kind::Memory | Kind::Usage => div()
+            Kind::Usage => {
+                self.ask_usage(cx);
+                self.usage.clone().into_any_element()
+            }
+            Kind::Browser | Kind::Outputs | Kind::Memory => div()
                 .size_full()
                 .flex()
                 .items_center()

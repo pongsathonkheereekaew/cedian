@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Context as _;
 use cedian_protocol::{
-    Capability, CommandList, ModelList, PermissionList, Rating, Schedule, VersionInfo,
+    Capability, CommandList, ModelList, PermissionList, Rating, Schedule, UsageReport, VersionInfo,
 };
 
 /// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--ask on`
@@ -125,14 +125,34 @@ impl Cedia {
         serde_json::from_slice(&output.stdout).map_err(|e| format!("cedia schedules {verb}: {e}"))
     }
 
+    /// `cedia usage --json --since <since> (--cwd <cwd> | --all)`: the spend in the range, in
+    /// one project or every one.
+    pub fn usage(&self, cwd: Option<&Path>, since: &str) -> Result<UsageReport, String> {
+        let range = ["--since", since];
+        match cwd {
+            Some(_) => self.list_with(cwd, "usage", &range),
+            None => self.list_with(None, "usage", &[range[0], range[1], "--all"]),
+        }
+    }
+
     /// `cedia <command> --json [--cwd <cwd>]`, read as `T`.
     fn list<T: serde::de::DeserializeOwned>(
         &self,
         cwd: Option<&Path>,
         command: &str,
     ) -> Result<T, String> {
+        self.list_with(cwd, command, &[])
+    }
+
+    /// `cedia <command> --json <args> [--cwd <cwd>]`, read as `T`.
+    fn list_with<T: serde::de::DeserializeOwned>(
+        &self,
+        cwd: Option<&Path>,
+        command: &str,
+        args: &[&str],
+    ) -> Result<T, String> {
         let mut run = self.command(cwd.unwrap_or(Path::new("/")));
-        run.args([command, "--json"]);
+        run.args([command, "--json"]).args(args);
         if let Some(cwd) = cwd {
             run.arg("--cwd").arg(cwd);
         }

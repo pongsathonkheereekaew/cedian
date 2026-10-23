@@ -487,6 +487,30 @@ impl Daemon {
             Request::Schedule { cwd, id, enabled } => {
                 Self::set_schedule(shared, client, &cwd, &id, enabled)
             }
+            Request::Usage { cwd, since } => {
+                let (cedia, can) = {
+                    let daemon = lock(shared);
+                    let can = daemon.version.as_ref().is_ok_and(|v| {
+                        v.capabilities.contains(&cedian_protocol::Capability::Usage)
+                    });
+                    (daemon.cedia.clone(), can)
+                };
+                if !can {
+                    lock(shared).error(client, "this cedia does not split its usage yet".into());
+                    return;
+                }
+                match cedia.usage(cwd.as_deref(), &since) {
+                    Ok(report) => lock(shared).send(
+                        client,
+                        Notice::Usage {
+                            cwd,
+                            since,
+                            report: Box::new(report),
+                        },
+                    ),
+                    Err(error) => lock(shared).error(client, error),
+                }
+            }
             Request::Fork {
                 cwd,
                 thread,
