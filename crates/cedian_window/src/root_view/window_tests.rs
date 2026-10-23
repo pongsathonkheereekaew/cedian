@@ -17,7 +17,7 @@ use crate::{agent_pane::AgentPane, thread_search};
 
 const MODELS: &str = r#"{"default":"faux/scripted","models":[
   {"ref":"faux/scripted","label":"Faux (scripted)","provider":"faux","available":true,"contextWindow":200000,"effort":false},
-  {"ref":"anthropic/claude-opus-5-5-fast","alias":"opus-fast","label":"Claude Opus 5.5 (fast, a long name to shrink)","provider":"anthropic","available":true,"contextWindow":1000000,"effort":true},
+  {"ref":"anthropic/claude-opus-5-5-fast","alias":"opus-fast","label":"Claude Opus 5.5 (fast, a long name to shrink)","provider":"anthropic","available":true,"contextWindow":1000000,"effort":true,"effortLevels":["low","medium","high","xhigh","max"],"defaultEffort":"medium"},
   {"ref":"opencode-go/deepseek-v4.1-flash","label":"DeepSeek V4.1 Flash","provider":"opencode-go","available":false,"reason":"OPENCODE_API_KEY is not set","contextWindow":1000000,"effort":false}]}"#;
 const PERMISSIONS: &str = r#"{"default":"workspace","modes":[
   {"mode":"read-only","label":"Read only","description":"Reads and runs nothing that writes."},
@@ -112,25 +112,42 @@ pub(super) fn apart(a_name: &str, a: Bounds<Pixels>, b_name: &str, b: Bounds<Pix
 #[test]
 fn the_composer_row_keeps_its_chips_inside_at_every_size() {
     let mut app = app();
-    let (_, cx) = window(&mut app);
-    for (width, height) in SIZES {
-        cx.simulate_resize(size(px(width), px(height)));
-        cx.run_until_parked();
-        let block = bounds(cx, "agent-block");
-        let row = bounds(cx, "composer-row");
-        inside("the composer row", row, "the Agent block", block);
-        let model = bounds(cx, "run-model");
-        let permission = bounds(cx, "run-permission");
-        inside("the model chip", model, "the composer row", row);
-        inside("the permission chip", permission, "the composer row", row);
-        apart("the model chip", model, "the permission chip", permission);
-        // A narrow block gives the context and the view mode up to the run's choices.
-        if let Some(chips) = cx.debug_bounds("agent-chips") {
-            inside("the agent chips", chips, "the composer row", row);
-            for part in ["context-chip", "view-modes"] {
-                let chip = bounds(cx, part);
-                inside(part, chip, "the agent chips", chips);
-                apart(part, chip, "the permission chip", permission);
+    let (view, cx) = window(&mut app);
+    // The faux writer takes no effort; a model that takes one shows it after its name.
+    // The second pass also turns helpers on, which the permission chip counts.
+    for model in [None, Some("anthropic/claude-opus-5-5-fast")] {
+        view.update(cx, |view, cx| {
+            let pick = view.choices.pick_mut(Some("t-00000001"));
+            pick.model = model.map(str::to_owned);
+            // With helpers on, the permission chip says how many.
+            pick.roles[0] = model.map(|_| "none".to_owned());
+            pick.goal = model.is_some();
+            cx.notify();
+        });
+        for (width, height) in SIZES {
+            cx.simulate_resize(size(px(width), px(height)));
+            cx.run_until_parked();
+            let block = bounds(cx, "agent-block");
+            let row = bounds(cx, "composer-row");
+            inside("the composer row", row, "the Agent block", block);
+            let chip = bounds(cx, "run-model");
+            let permission = bounds(cx, "run-permission");
+            inside("the model chip", chip, "the composer row", row);
+            inside("the permission chip", permission, "the composer row", row);
+            apart("the model chip", chip, "the permission chip", permission);
+            let effort = cx.debug_bounds("run-effort");
+            assert_eq!(effort.is_some(), model.is_some(), "the effort");
+            if let Some(effort) = effort {
+                inside("the effort", effort, "the model chip", chip);
+            }
+            // A narrow block gives the context and the view mode up to the run's choices.
+            if let Some(chips) = cx.debug_bounds("agent-chips") {
+                inside("the agent chips", chips, "the composer row", row);
+                for part in ["context-chip", "view-modes"] {
+                    let chip = bounds(cx, part);
+                    inside(part, chip, "the agent chips", chips);
+                    apart(part, chip, "the permission chip", permission);
+                }
             }
         }
     }
@@ -140,6 +157,10 @@ fn the_composer_row_keeps_its_chips_inside_at_every_size() {
 fn the_run_menus_open_inside_the_agent_block_and_the_window() {
     let mut app = app();
     let (view, cx) = window(&mut app);
+    view.update(cx, |view, _| {
+        view.choices.pick_mut(Some("t-00000001")).model =
+            Some("anthropic/claude-opus-5-5-fast".into());
+    });
     for (width, height) in SIZES {
         cx.simulate_resize(size(px(width), px(height)));
         for menu in [
@@ -490,4 +511,111 @@ fn the_usage_block_draws_the_report_inside_itself_and_toggles_a_table() {
     cx.run_until_parked();
     assert!(cx.debug_bounds("usage-table").is_some(), "the table shows");
     assert!(cx.debug_bounds("usage-chart").is_none());
+}
+
+#[test]
+fn the_receipt_undoes_its_turn_and_a_message_rewinds_to_before_it() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    view.update(cx, |view, cx| {
+        view.can_restore = true;
+        let info: cedian_wire::ThreadInfo = serde_json::from_value(serde_json::json!({
+            "id": "t-00000001", "title": "f", "task": "f", "state": "done", "result": null,
+            "parent": null, "archived": false, "sessions": [], "messages": [], "pending": [],
+            "updated_at": "2026-10-22T01:00:00.000Z", "status": "done",
+            "runs": [{"id": "r-1", "prompt": "make f.txt say good"}],
+            "last_turn": {"cwd": "/repo", "before": "t0", "after": "t1", "sessions": [], "at": "x"}
+        }))
+        .expect("info");
+        view.projects[0].set_threads(vec![info]);
+        view.show_offers(cx);
+    });
+    cx.run_until_parked();
+    let undo = bounds(cx, "receipt-undo");
+    let block = bounds(cx, "agent-block");
+    inside("the undo button", undo, "the Agent block", block);
+    // cedia left a file the person changed since: the card says so and offers to force it.
+    view.update(cx, |view, cx| {
+        let result =
+            serde_json::from_str(r#"{"action":"undo","restored":["g.txt"],"skipped":["f.txt"]}"#)
+                .expect("restored");
+        view.on_notice(
+            Notice::Restored {
+                cwd: view.project().cwd.clone(),
+                thread: "t-00000001".into(),
+                result,
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    inside(
+        "the restore card",
+        bounds(cx, "restore-card"),
+        "the Agent block",
+        block,
+    );
+    assert!(cx.debug_bounds("restore-force").is_some());
+    // A whole undo turns the receipt's button into redo.
+    view.update(cx, |view, cx| {
+        let result = serde_json::from_str(r#"{"action":"undo","restored":["f.txt"],"skipped":[]}"#)
+            .expect("restored");
+        view.on_notice(
+            Notice::Restored {
+                cwd: view.project().cwd.clone(),
+                thread: "t-00000001".into(),
+                result,
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("restore-force").is_none());
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.agent.read(cx).offers().undone),
+        Some(true)
+    );
+    // The message that started the run asks before it rewinds.
+    view.update(cx, |view, cx| view.ask_rewind("make f.txt say good", cx));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("restore-go").is_some());
+    let close = bounds(cx, "restore-close").center();
+    cx.simulate_click(close, gpui::Modifiers::none());
+    assert!(cx.debug_bounds("restore-card").is_none());
+}
+
+#[test]
+fn the_skills_block_lists_the_commands_and_a_click_puts_one_in_the_composer() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    view.update(cx, |view, cx| {
+        view.open_kind(Kind::Skills, super::blocks::ToolTarget { against: None }, cx);
+        let commands = serde_json::from_str(
+            r#"[{"name":"review","description":"Review a diff against the repository's rules, and say what to change before it merges","kind":"skill","source":"repository","argumentHint":"<pr>"},
+                {"name":"a-skill-with-a-name-long-enough-to-be-cut-in-a-narrow-block","description":"x","kind":"skill","source":"user"}]"#,
+        )
+        .expect("commands");
+        view.on_notice(
+            Notice::Commands {
+                cwd: view.project().cwd.clone(),
+                commands,
+            },
+            cx,
+        );
+    });
+    for (width, height) in SIZES {
+        cx.simulate_resize(size(px(width), px(height)));
+        cx.run_until_parked();
+        let block = bounds(cx, "skills-block");
+        for row in ["skill-0", "skill-1"] {
+            inside(row, bounds(cx, row), "the Skills block", block);
+        }
+    }
+    let row = bounds(cx, "skill-0").center();
+    cx.simulate_click(row, gpui::Modifiers::none());
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.composer.read(cx).text(cx)),
+        "/review "
+    );
 }

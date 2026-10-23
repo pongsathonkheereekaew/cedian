@@ -7,16 +7,19 @@ use std::{
 
 use anyhow::Context as _;
 use cedian_protocol::{
-    Capability, CommandList, ModelList, PermissionList, Rating, Schedule, UsageReport, VersionInfo,
+    Capability, CommandList, ModelList, PermissionList, Rating, Restored, RewindResult, Schedule,
+    UsageReport, VersionInfo,
 };
 
-/// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--ask on`
-/// and `--todo on`.
+/// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--effort`,
+/// the helper roles (`--plan`, `--review`, `--advisor`, `--goal`), `--ask on` and `--todo on`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Flags<'a> {
     pub profile: Option<&'a str>,
     pub model: Option<&'a str>,
     pub permission: Option<&'a str>,
+    pub effort: Option<&'a str>,
+    pub helpers: Option<&'a cedian_wire::Helpers>,
     /// The run may end on a question for the person, when this cedia can.
     pub ask: bool,
     /// The writer keeps a todo list, when this cedia can.
@@ -171,7 +174,8 @@ impl Cedia {
     }
 
     /// One run: `cedia --print=<text> --output-format stream-json --cwd <cwd> [--thread <id>]
-    /// [--profile <name>] [--model <ref>] [--permission <mode>] [--ask on] [--todo on]`. `--print=`
+    /// [--profile <name>] [--model <ref>] [--permission <mode>] [--effort <level>] [--ask on]
+    /// [--todo on]`. `--print=`
     /// keeps a prompt that starts with `-` from reading as a flag.
     /// `ask` lets the run end on a question for the person, when this cedia can.
     pub fn prompt(
@@ -201,6 +205,21 @@ impl Cedia {
         }
         if let Some(permission) = flags.permission {
             command.args(["--permission", permission]);
+        }
+        if let Some(effort) = flags.effort {
+            command.args(["--effort", effort]);
+        }
+        if let Some(helpers) = flags.helpers {
+            for (flag, value) in [
+                ("--plan", &helpers.plan),
+                ("--review", &helpers.review),
+                ("--advisor", &helpers.advisor),
+                ("--goal", &helpers.goal),
+            ] {
+                if let Some(value) = value {
+                    command.arg(flag).arg(value);
+                }
+            }
         }
         if flags.ask {
             command.args(["--ask", "on"]);
@@ -252,6 +271,53 @@ impl Cedia {
         let forked: Forked =
             serde_json::from_slice(&output).context("reading cedia threads fork --json")?;
         Ok(forked.thread)
+    }
+
+    /// `cedia threads undo|redo <id> --json [--force]`: the files of the thread's last turn that
+    /// changed files it moved, and the ones it left because they changed since.
+    pub fn restore(
+        &self,
+        cwd: &Path,
+        thread: &str,
+        redo: bool,
+        force: bool,
+    ) -> anyhow::Result<Restored> {
+        let mut args = vec![if redo { "redo" } else { "undo" }, thread, "--json"];
+        if force {
+            args.push("--force");
+        }
+        let output = self.threads_output(cwd, &args)?;
+        serde_json::from_slice(&output).context("reading cedia threads undo --json")
+    }
+
+    /// `cedia threads rewind <id> <n> --json [--force]`: what it put back, or why it did not.
+    /// cedia prints a refusal too, and exits 1.
+    pub fn rewind(
+        &self,
+        cwd: &Path,
+        thread: &str,
+        n: u32,
+        force: bool,
+    ) -> anyhow::Result<RewindResult> {
+        let n = n.to_string();
+        let mut args = vec!["rewind", thread, n.as_str(), "--json"];
+        if force {
+            args.push("--force");
+        }
+        let output = self
+            .command(cwd)
+            .args(["threads", "--cwd"])
+            .arg(cwd)
+            .args(&args)
+            .output()
+            .with_context(|| format!("running {}", self.bin.display()))?;
+        serde_json::from_slice(&output.stdout).with_context(|| {
+            format!(
+                "cedia threads rewind exited with {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            )
+        })
     }
 
     /// `cedia threads --cwd <cwd> <args>`, which writes one event to a thread's file.

@@ -10,7 +10,7 @@ use std::{
 };
 
 use cedian_daemon::{Cedia, Config, serve};
-use cedian_protocol::fixtures_dir;
+use cedian_protocol::{RewindResult, fixtures_dir};
 use cedian_wire::{Decision, HunkState, Notice, Request, Status, read_message, write_message};
 
 struct Harness {
@@ -226,6 +226,8 @@ fn the_window_gets_the_projects_memory_and_outputs() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     window.until(status_is(Status::Done));
     window.ask(Request::Outputs {
@@ -284,6 +286,77 @@ fn a_cedia_without_usage_says_so() {
 }
 
 #[test]
+fn undo_and_rewind_answer_with_what_cedia_moved_or_why_not() {
+    let harness = start_with("edit-and-check", "\"threads.restore-json\"");
+    let mut window = Window::connect(&harness);
+    let restore = |force| Request::Restore {
+        cwd: harness.cwd.clone(),
+        thread: "t-1".into(),
+        redo: false,
+        force,
+    };
+    window.ask(restore(false));
+    let (_, seen) = window.until(|n| matches!(n, Notice::Restored { .. }));
+    let notice = seen.last().expect("notice");
+    assert!(
+        matches!(notice, Notice::Restored { result, .. }
+            if result.restored.is_empty() && result.skipped == ["f.txt"]),
+        "{notice:?}"
+    );
+    window.ask(restore(true));
+    let (_, seen) = window.until(|n| matches!(n, Notice::Restored { .. }));
+    let notice = seen.last().expect("notice");
+    assert!(
+        matches!(notice, Notice::Restored { result, .. } if result.restored == ["f.txt"]),
+        "{notice:?}"
+    );
+    let rewind = |force| Request::Rewind {
+        cwd: harness.cwd.clone(),
+        thread: "t-1".into(),
+        n: 2,
+        force,
+    };
+    // A refusal is an answer, with whether --force goes past it.
+    window.ask(rewind(false));
+    let (_, seen) = window.until(|n| matches!(n, Notice::Rewound { .. }));
+    let notice = seen.last().expect("notice");
+    assert!(
+        matches!(
+            notice,
+            Notice::Rewound {
+                n: 2,
+                result: RewindResult::Variant1 {
+                    force: Some(true),
+                    ..
+                },
+                ..
+            }
+        ),
+        "{notice:?}"
+    );
+    window.ask(rewind(true));
+    let (_, seen) = window.until(|n| matches!(n, Notice::Rewound { .. }));
+    let notice = seen.last().expect("notice");
+    assert!(
+        matches!(notice, Notice::Rewound { result: RewindResult::Variant0 { run, .. }, .. } if run == "r-2"),
+        "{notice:?}"
+    );
+}
+
+#[test]
+fn an_older_cedia_is_not_asked_to_undo() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Restore {
+        cwd: harness.cwd.clone(),
+        thread: "t-1".into(),
+        redo: false,
+        force: false,
+    });
+    assert!(matches!(window.next(), Notice::Error { .. }));
+}
+
+#[test]
 fn an_edited_message_forks_the_thread_and_runs_there() {
     let harness = start_with("edit-and-check", "\"threads.fork\"");
     let mut window = Window::connect(&harness);
@@ -295,6 +368,8 @@ fn an_edited_message_forks_the_thread_and_runs_there() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     window.until(status_is(Status::Done));
     window.ask(Request::Fork {
@@ -304,6 +379,12 @@ fn an_edited_message_forks_the_thread_and_runs_there() {
         text: "make f.txt say better".into(),
         model: Some("sonnet".into()),
         permission: None,
+        effort: Some("high".into()),
+        helpers: cedian_wire::Helpers {
+            review: Some("none".into()),
+            goal: Some("f.txt says better".into()),
+            ..Default::default()
+        },
     });
     let (_, seen) = window.until(|n| matches!(n, Notice::Forked { .. }));
     assert!(
@@ -330,6 +411,20 @@ fn an_edited_message_forks_the_thread_and_runs_there() {
         args.windows(2).any(|w| w == ["--model", "sonnet"]),
         "{args:?}"
     );
+    assert!(
+        args.windows(2).any(|w| w == ["--effort", "high"]),
+        "{args:?}"
+    );
+    assert!(
+        args.windows(2).any(|w| w == ["--review", "none"]),
+        "{args:?}"
+    );
+    assert!(
+        args.windows(2)
+            .any(|w| w == ["--goal", "f.txt says better"]),
+        "{args:?}"
+    );
+    assert!(!args.contains(&"--plan"), "{args:?}");
 }
 
 #[test]
@@ -343,6 +438,8 @@ fn a_cedia_that_cannot_fork_says_so() {
         text: "again".into(),
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     assert!(matches!(window.next(), Notice::Error { .. }));
 }
@@ -377,6 +474,8 @@ fn a_prompt_runs_and_a_second_window_rebuilds_it() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     let (lines, seen) = window.until(status_is(Status::Done));
     assert!(
@@ -421,6 +520,8 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     window.until(|n| matches!(n, Notice::Line { .. }));
 
@@ -433,6 +534,8 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     window.ask(Request::Stop {
         thread: "t-00000001".into(),
@@ -457,6 +560,8 @@ fn a_rating_reaches_the_thread_and_the_list() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     window.until(status_is(Status::Done));
     window.ask(Request::Rate {
@@ -488,6 +593,8 @@ fn a_queued_message_can_be_taken_back() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     window.until(|n| matches!(n, Notice::Line { .. }));
     window.ask(Request::Send {
@@ -693,6 +800,8 @@ fn a_new_thread_can_run_in_its_own_worktree() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     let (_, seen) = window.until(status_is(Status::Done));
     assert!(
@@ -754,6 +863,8 @@ fn rejecting_a_hunk_puts_the_file_back_and_tells_the_thread() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     let (_, seen) = window.until(status_is(Status::Done));
     let thread = seen
@@ -884,6 +995,8 @@ fn a_verified_thread_with_nothing_to_review_archives_itself() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     window.until(|n| {
         matches!(n, Notice::Threads { threads, .. }
@@ -907,6 +1020,8 @@ fn an_unverified_thread_stays() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     window.until(status_is(Status::Done));
     // A list after the run ended, which an archive would have come before.
@@ -982,6 +1097,8 @@ fn a_prompt_that_names_a_model_and_a_mode_runs_on_them() {
         profile: None,
         model: Some("sonnet".into()),
         permission: Some("plan".into()),
+        effort: None,
+        helpers: Default::default(),
     });
     window.until(status_is(Status::Done));
     let args = std::fs::read_to_string(harness.threads.join("../args")).expect("args");
@@ -1008,6 +1125,8 @@ fn the_window_gets_the_schedules_and_a_due_one_wakes_its_thread() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
+        helpers: Default::default(),
     });
     window.until(status_is(Status::Done));
     let state = harness.threads.join("..");

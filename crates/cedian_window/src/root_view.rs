@@ -5,6 +5,7 @@ mod background;
 mod blocks;
 mod chat;
 mod knowledge;
+mod restore;
 mod run_choices;
 mod tear_off;
 #[cfg(test)]
@@ -101,6 +102,7 @@ pub struct RootView {
     git: Entity<GitPane>,
     outputs: Entity<OutputsPane>,
     memory: Entity<MemoryPane>,
+    skills: Entity<crate::skills_pane::SkillsPane>,
     workplace: Entity<Workplace>,
     /// The models and permission modes cedia lists, and the picks for the next runs.
     choices: run_choices::RunChoices,
@@ -148,6 +150,13 @@ pub struct RootView {
     dock_badge: Option<usize>,
     /// cedia can fork a thread at a run (`threads.fork`), which edit and resend take.
     can_fork: bool,
+    /// cedia undoes a turn and rewinds a thread for a client (`threads.restore-json`).
+    can_restore: bool,
+    /// The card over the composer saying what an undo or a rewind did, or asking first.
+    restore: Option<restore::RestoreCard>,
+    /// Threads whose last turn was undone, with that turn's tree after it: the receipt offers
+    /// redo while the thread's last turn is still that one.
+    undone: std::collections::HashMap<String, String>,
     /// The sent message the composer holds to send again: its thread and the run it started.
     editing: Option<(String, String)>,
     /// `⌘P`, while open.
@@ -306,6 +315,8 @@ impl RootView {
             window,
             |view, agent, event, window, cx| match event {
                 AgentEvent::Edit(text) => view.edit_sent(text, window, cx),
+                AgentEvent::Rewind(text) => view.ask_rewind(text, cx),
+                AgentEvent::Restore { redo } => view.restore_turn(*redo, false, cx),
                 AgentEvent::Rate(rating) => {
                     if let Some(thread) = view.project().current.clone() {
                         view.request(Request::Rate {
@@ -379,6 +390,13 @@ impl RootView {
         })
         .detach();
         let memory = cx.new(|_| MemoryPane::default());
+        let skills = cx.new(|_| crate::skills_pane::SkillsPane::default());
+        cx.subscribe_in(&skills, window, |view, _, event, window, cx| match event {
+            crate::skills_pane::SkillsEvent::Use(name) => view
+                .composer
+                .update(cx, |composer, cx| composer.use_command(name, window, cx)),
+        })
+        .detach();
         let settings = cx.new(|_| SettingsView::default());
         cx.subscribe(&settings, |view, _, event, _| match event {
             SettingsEvent::Set { key, value } => view.request(Request::SetDesktop {
@@ -435,6 +453,7 @@ impl RootView {
             git,
             outputs,
             memory,
+            skills,
             workplace,
             choices: run_choices::RunChoices::default(),
             search,
@@ -464,6 +483,9 @@ impl RootView {
             sound: Sound::Off,
             dock_badge: None,
             can_fork: false,
+            can_restore: false,
+            restore: None,
+            undone: std::collections::HashMap::new(),
             editing: None,
             finder: None,
             contents: None,
@@ -519,6 +541,10 @@ impl RootView {
                     v.capabilities
                         .contains(&cedian_protocol::Capability::ThreadsFork)
                 });
+                self.can_restore = cedia.as_ref().is_ok_and(|v| {
+                    v.capabilities
+                        .contains(&cedian_protocol::Capability::ThreadsRestoreJson)
+                });
                 let cedia = match cedia {
                     // A cedia whose schema is not the pinned one may send shapes cedian skips.
                     Ok(version) if version.protocol != cedian_protocol::PROTOCOL_HASH => {
@@ -562,6 +588,8 @@ impl RootView {
                 }
             }
             Notice::Commands { cwd, commands } if cwd == self.project().cwd => {
+                self.skills
+                    .update(cx, |pane, cx| pane.set(commands.clone(), cx));
                 self.composer.update(cx, |composer, cx| {
                     composer.set_commands(commands.clone(), cx)
                 });
@@ -569,6 +597,18 @@ impl RootView {
                     .update(cx, |composer, cx| composer.set_commands(commands, cx));
             }
             Notice::Commands { .. } => {}
+            Notice::Restored {
+                cwd,
+                thread,
+                result,
+            } if cwd == self.project().cwd => self.on_restored(thread, result, cx),
+            Notice::Rewound {
+                cwd,
+                thread,
+                n,
+                result,
+            } if cwd == self.project().cwd => self.on_rewound(thread, n, result, cx),
+            Notice::Restored { .. } | Notice::Rewound { .. } => {}
             Notice::Background {
                 cwd,
                 schedules,
@@ -800,15 +840,32 @@ impl RootView {
         self.search.update(cx, |search, cx| search.set(found, cx));
         self.workplace
             .update(cx, |workplace, cx| workplace.set(branch, dir, cx));
-        // A fork goes back to a run's start; a run still going would race it.
-        let editable = info
-            .filter(|t| self.can_fork && t.status != Status::Working)
-            .map(|t| t.thread.runs.iter().map(|r| r.prompt.clone()).collect())
-            .unwrap_or_default();
-        self.agent
-            .update(cx, |agent, cx| agent.set_editable(editable, cx));
+        self.show_offers(cx);
         self.composer
             .update(cx, |composer, cx| composer.set_queue(queue, cx));
+    }
+
+    /// What the open thread's messages and latest receipt offer. A fork or a rewind goes back
+    /// to a run's start and an undo moves its files; a run still going would race each.
+    fn show_offers(&mut self, cx: &mut Context<Self>) {
+        let offers = self
+            .project()
+            .info()
+            .filter(|t| t.status != Status::Working)
+            .map(|t| crate::agent_pane::RunOffers {
+                prompts: t.thread.runs.iter().map(|r| r.prompt.clone()).collect(),
+                edit: self.can_fork,
+                rewind: self.can_restore,
+                undone: t
+                    .thread
+                    .last_turn
+                    .as_ref()
+                    .filter(|_| self.can_restore)
+                    .map(|turn| self.undone.get(&t.thread.id) == Some(&turn.after)),
+            })
+            .unwrap_or_default();
+        self.agent
+            .update(cx, |agent, cx| agent.set_offers(offers, cx));
     }
 
     /// The person's message `text` goes in the composer to edit; sending it forks the thread
@@ -1415,7 +1472,9 @@ impl RootView {
             && self.project().current.as_ref() == Some(&thread)
         {
             let writer = self.writer_model(cx);
-            let (model, permission) = self.choices.for_run(Some(&thread), writer.as_deref());
+            let (model, permission, effort) =
+                self.choices.for_run(Some(&thread), writer.as_deref());
+            let helpers = self.choices.helpers_for_run(Some(&thread), &text);
             self.request(Request::Fork {
                 cwd: self.project().cwd.clone(),
                 thread,
@@ -1423,6 +1482,8 @@ impl RootView {
                 text,
                 model,
                 permission,
+                effort,
+                helpers,
             });
             cx.notify();
             return;
@@ -1437,7 +1498,9 @@ impl RootView {
         }
         let writer = self.writer_model(cx);
         let current = self.project().current.clone();
-        let (model, permission) = self.choices.for_run(current.as_deref(), writer.as_deref());
+        let (model, permission, effort) =
+            self.choices.for_run(current.as_deref(), writer.as_deref());
+        let helpers = self.choices.helpers_for_run(current.as_deref(), &text);
         let project = self.project();
         self.request(Request::Prompt {
             cwd: project.cwd.clone(),
@@ -1447,6 +1510,8 @@ impl RootView {
             profile: None,
             model,
             permission,
+            effort,
+            helpers,
         });
         self.retitle(cx);
         cx.notify();
@@ -1938,6 +2003,7 @@ impl RootView {
                 )
             })
             .children(question)
+            .children(self.render_restore(cx))
             .when(live, |column| {
                 let worktree = self.project().current.is_none().then(|| {
                     let word = if self.use_worktree {

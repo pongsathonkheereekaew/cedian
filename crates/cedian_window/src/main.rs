@@ -31,6 +31,7 @@ mod settings_view;
 mod settings_window;
 mod shell_pane;
 mod sidebar_foot;
+mod skills_pane;
 mod sound;
 mod tab_strip;
 mod thread_details;

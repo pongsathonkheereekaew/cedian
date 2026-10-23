@@ -5,7 +5,8 @@ use std::{
 
 use cedian_index::{MemoryNote, Output};
 use cedian_protocol::{
-    CommandEntry, ModelList, PermissionList, Rating, Schedule, UsageReport, VersionInfo,
+    CommandEntry, ModelList, PermissionList, Rating, Restored, RewindResult, Schedule, UsageReport,
+    VersionInfo,
 };
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -42,6 +43,12 @@ pub enum Request {
         /// keeps cedia's default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         permission: Option<String>,
+        /// How hard the writer starts thinking (`cedia --effort`): a level the model lists;
+        /// none keeps the model's own.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
+        #[serde(default, skip_serializing_if = "Helpers::is_empty")]
+        helpers: Helpers,
     },
     /// The `/` commands a run in the project can take (`cedia commands`), answered with
     /// `Notice::Commands` when this cedia lists them.
@@ -53,6 +60,27 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<PathBuf>,
         since: String,
+    },
+    /// Puts the files of `thread`'s last turn that changed files back (`cedia threads undo`),
+    /// or forward again with `redo`; `force` also moves a file changed since. The client is
+    /// sent `Restored`, when this cedia offers `threads.restore-json`.
+    Restore {
+        cwd: PathBuf,
+        thread: String,
+        #[serde(default)]
+        redo: bool,
+        #[serde(default)]
+        force: bool,
+    },
+    /// Takes `thread` back to just before its run `n`, from 1, conversation and files
+    /// together (`cedia threads rewind`); `force` goes past a refusal that allows it. The
+    /// client is sent `Rewound`.
+    Rewind {
+        cwd: PathBuf,
+        thread: String,
+        n: u32,
+        #[serde(default)]
+        force: bool,
     },
     /// Edit and resend: a new thread whose conversation is `thread`'s just before `run`
     /// (`cedia threads fork`), then `text` as its next run. The client is sent `Forked`, then
@@ -66,6 +94,10 @@ pub enum Request {
         model: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         permission: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
+        #[serde(default, skip_serializing_if = "Helpers::is_empty")]
+        helpers: Helpers,
     },
     /// A message the running thread sees at its next turn.
     Send {
@@ -126,6 +158,31 @@ pub enum Request {
         key: String,
         value: serde_json::Value,
     },
+}
+
+/// The roles a run adds around its writer, each cedia's flag: a model ref, `claude-code[:<model>]`
+/// or `none`; none keeps cedia's setting (`roles` in its settings).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Helpers {
+    /// `--plan`: a model plans before the writer starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    /// `--review`: a model reviews the change once the done gate passes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<String>,
+    /// `--advisor`: a model reads each writer turn and may leave a note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub advisor: Option<String>,
+    /// `--goal`: the run goes on until a judge finds this holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<String>,
+}
+
+impl Helpers {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// What the person decided about a hunk.
@@ -221,6 +278,19 @@ pub enum Notice {
         schedules: Option<Vec<Schedule>>,
         mcp: Vec<McpServer>,
     },
+    /// What `Request::Restore` moved, and what it left.
+    Restored {
+        cwd: PathBuf,
+        thread: String,
+        result: Restored,
+    },
+    /// What `Request::Rewind` did, or why it did not.
+    Rewound {
+        cwd: PathBuf,
+        thread: String,
+        n: u32,
+        result: RewindResult,
+    },
     /// The answer to `Request::Usage`, with the request's `cwd` and `since`.
     Usage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -265,6 +335,8 @@ mod tests {
             profile: None,
             model: None,
             permission: None,
+            effort: None,
+            helpers: Helpers::default(),
         };
         let mut buffer = Vec::new();
         write_message(&mut buffer, &request).expect("write");

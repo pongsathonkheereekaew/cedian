@@ -57,6 +57,7 @@ pub fn icon(kind: Kind) -> &'static str {
         Kind::Git => "icons/git_branch.svg",
         Kind::Outputs => "icons/box_open.svg",
         Kind::Memory => "icons/book.svg",
+        Kind::Skills => "icons/sparkle.svg",
         Kind::Usage => "icons/signal_high.svg",
         Kind::Background => "icons/clock.svg",
         Kind::Session => "icons/info.svg",
