@@ -3,6 +3,7 @@ use std::{
     path::PathBuf,
 };
 
+use cedian_index::{MemoryNote, Output};
 use cedian_protocol::{CommandEntry, ModelList, PermissionList, Rating, UsageReport, VersionInfo};
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -91,6 +92,11 @@ pub enum Request {
         thread: String,
         archived: bool,
     },
+    /// The project's memory (`~/.cedia/projects/<slug>/memory.jsonl`), answered with
+    /// `Notice::Memory`.
+    Memory { cwd: PathBuf },
+    /// The files the project's threads changed, answered with `Notice::Outputs`.
+    Outputs { cwd: PathBuf },
     /// The thread's changes since its first snapshot, answered with `Notice::Review`.
     Review { cwd: PathBuf, thread: String },
     /// A decision on one hunk of the thread's review, answered with the review again.
@@ -163,6 +169,16 @@ pub enum Notice {
     Review {
         thread: String,
         review: Review,
+    },
+    /// The project's memory notes, oldest first.
+    Memory {
+        cwd: PathBuf,
+        notes: Vec<MemoryNote>,
+    },
+    /// The files the project's threads changed, the most recent first.
+    Outputs {
+        cwd: PathBuf,
+        outputs: Vec<Output>,
     },
     Settings {
         path: PathBuf,

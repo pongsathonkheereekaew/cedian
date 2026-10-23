@@ -149,6 +149,7 @@ impl RootView {
         if self.showing(Kind::Review) {
             self.refresh_review();
         }
+        self.refresh_knowledge();
         cx.notify();
     }
 
@@ -1047,6 +1048,10 @@ impl RootView {
             Kind::Review => {
                 (self.waiting_hunks > 0).then(|| format!("รอ {}", self.waiting_hunks).into())
             }
+            Kind::Memory => {
+                let notes = self.memory.read(cx).count();
+                (notes > 0).then(|| format!("{notes} โน้ต").into())
+            }
             Kind::Threads => {
                 let working = self.project().working();
                 (working > 0).then(|| format!("{working} กำลังทำ").into())
@@ -1241,11 +1246,13 @@ impl RootView {
                     })
                     .into_any_element()
             }
+            Kind::Outputs => self.outputs.clone().into_any_element(),
+            Kind::Memory => self.memory.clone().into_any_element(),
             Kind::Usage => {
                 self.ask_usage(cx);
                 self.usage.clone().into_any_element()
             }
-            Kind::Browser | Kind::Outputs | Kind::Memory | Kind::Background => div()
+            Kind::Browser | Kind::Background => div()
                 .size_full()
                 .flex()
                 .items_center()
