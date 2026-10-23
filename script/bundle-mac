@@ -8,7 +8,7 @@
 #   Cedian.app/Contents/Resources/chrome-headless-shell/ found by the daemon at ../Resources
 #
 # Usage: script/bundle-mac --cedia <path> [--arch aarch64|x86_64] [--sign <identity>] [--dmg]
-#                          [--notarize <keychain profile>]
+#                          [--notarize <keychain profile>] [--runtime-shaders]
 #   --cedia     a compiled cedia for the same architecture (`bun build --compile` in cedia)
 #   --arch      default: this Mac's
 #   --sign      a Developer ID Application identity; without it the app is signed ad hoc,
@@ -17,6 +17,8 @@
 #   --notarize  submit the dmg with `notarytool` under this keychain profile and staple it
 #               (needs --sign and --dmg; make the profile once with
 #               `xcrun notarytool store-credentials`)
+#   --runtime-shaders  compile the Metal shaders when the app starts, for trying a bundle on
+#               a Mac with only the Command Line Tools; never for a build that ships
 #
 # The binaries are built as Zed builds its own: release profile (thin LTO, one codegen unit),
 # Rust symbols kept out of the export table, debug info moved to a dSYM beside the build
@@ -32,6 +34,7 @@ cedia=""
 arch=""
 identity=""
 dmg=false
+features=()
 notary_profile=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     --arch) arch="${2:?}"; shift 2 ;;
     --sign) identity="${2:?}"; shift 2 ;;
     --dmg) dmg=true; shift ;;
+    --runtime-shaders) features=(--features runtime_shaders); shift ;;
     --notarize) notary_profile="${2:?}"; shift 2 ;;
     *) usage ;;
   esac
@@ -72,7 +76,7 @@ rustup target add "$triple" >/dev/null
 # Rust's mangled symbols (`__R…`) need not be exported from an executable; leaving them out of
 # the export trie shrinks __LINKEDIT, as Zed does for its own binary.
 hide='link-arg=-Wl,-unexported_symbol,__R*'
-cargo rustc --release --locked --target "$triple" -p cedian_window --bin cedian -- -C "$hide"
+cargo rustc --release --locked --target "$triple" -p cedian_window --bin cedian ${features[@]+"${features[@]}"} -- -C "$hide"
 cargo rustc --release --locked --target "$triple" -p cedian_daemon --bin cedian-daemon -- -C "$hide"
 
 script/fetch-chromium "$chromium" "$out"
