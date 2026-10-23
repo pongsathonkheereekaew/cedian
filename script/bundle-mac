@@ -5,7 +5,7 @@
 #   Cedian.app/Contents/MacOS/cedian                     the window
 #   Cedian.app/Contents/MacOS/cedian-daemon              found by the window beside itself
 #   Cedian.app/Contents/MacOS/cedia                      the pinned cedia build, found by the daemon
-#   Cedian.app/Contents/Resources/chrome-headless-shell/ found by the daemon at ../Resources
+#   Cedian.app/Contents/Resources/chromium/              found by the daemon at ../Resources
 #
 # Usage: script/bundle-mac --cedia <path> [--arch aarch64|x86_64] [--sign <identity>] [--dmg]
 #                          [--notarize <keychain profile>] [--runtime-shaders]
@@ -91,7 +91,7 @@ for bin in cedian cedian-daemon; do
   strip -x "$app/Contents/MacOS/$bin"
 done
 cp "$cedia" "$app/Contents/MacOS/cedia"
-cp -R "$out/chrome-headless-shell" "$app/Contents/Resources/chrome-headless-shell"
+cp -R "$out/chromium" "$app/Contents/Resources/chromium"
 cp brand/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -136,7 +136,7 @@ else
   echo "no --sign: signing ad hoc, for this Mac only"
   sign=(codesign --force --sign -)
 fi
-shell="$app/Contents/Resources/chrome-headless-shell"
+shell="$app/Contents/Resources/chromium"
 for lib in "$shell"/*.dylib; do
   "${sign[@]}" "$lib"
 done
