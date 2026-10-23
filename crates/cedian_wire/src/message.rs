@@ -11,7 +11,7 @@ use cedian_protocol::{
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{BrowserPage, McpServer, Status, ThreadInfo};
+use crate::{BrowserPage, Build, McpServer, Status, ThreadInfo};
 
 /// From the window to the daemon.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -210,6 +210,9 @@ pub enum Notice {
         daemon: String,
         /// The cedia build the daemon runs, or why it could not be asked.
         cedia: Result<VersionInfo, String>,
+        /// The daemon's own build; none from a daemon older than this field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        build: Option<Build>,
     },
     Threads {
         cwd: PathBuf,
