@@ -190,6 +190,46 @@ fn the_window_gets_the_projects_commands() {
 }
 
 #[test]
+fn the_window_gets_the_usage_of_one_project_or_all() {
+    let harness = start_with("edit-and-check", "\"usage\"");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Usage {
+        cwd: Some(harness.cwd.clone()),
+        since: "7d".into(),
+    });
+    match window.next() {
+        Notice::Usage { cwd, since, report } => {
+            assert_eq!(cwd.as_ref(), Some(&harness.cwd));
+            assert_eq!(since, "7d");
+            assert_eq!(report.threads[0].title, "7d repo");
+            assert_eq!(report.days.len(), 1);
+        }
+        other => panic!("{other:?}"),
+    }
+    window.ask(Request::Usage {
+        cwd: None,
+        since: "30d".into(),
+    });
+    match window.next() {
+        Notice::Usage {
+            cwd: None, report, ..
+        } => assert_eq!(report.threads[0].title, "30d all"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_cedia_without_usage_says_so() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::Usage {
+        cwd: None,
+        since: "7d".into(),
+    });
+    assert!(matches!(window.next(), Notice::Error { .. }));
+}
+
+#[test]
 fn an_edited_message_forks_the_thread_and_runs_there() {
     let harness = start_with("edit-and-check", "\"threads.fork\"");
     let mut window = Window::connect(&harness);

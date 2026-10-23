@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
 };
 
-use cedian_protocol::{CommandEntry, ModelList, PermissionList, Rating, VersionInfo};
+use cedian_protocol::{CommandEntry, ModelList, PermissionList, Rating, UsageReport, VersionInfo};
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -43,6 +43,14 @@ pub enum Request {
     /// The `/` commands a run in the project can take (`cedia commands`), answered with
     /// `Notice::Commands` when this cedia lists them.
     Commands { cwd: PathBuf },
+    /// Where the spend went since `since` (`7d`, `30d` or a day, `YYYY-MM-DD`), in the project
+    /// at `cwd` or, with none, every project (`cedia usage --json --since`), answered with
+    /// `Notice::Usage` when this cedia offers `usage`.
+    Usage {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<PathBuf>,
+        since: String,
+    },
     /// Edit and resend: a new thread whose conversation is `thread`'s just before `run`
     /// (`cedia threads fork`), then `text` as its next run. The client is sent `Forked`, then
     /// the run's lines as for an open thread.
@@ -176,6 +184,13 @@ pub enum Notice {
     Commands {
         cwd: PathBuf,
         commands: Vec<CommandEntry>,
+    },
+    /// The answer to `Request::Usage`, with the request's `cwd` and `since`.
+    Usage {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<PathBuf>,
+        since: String,
+        report: Box<UsageReport>,
     },
     Error {
         message: String,

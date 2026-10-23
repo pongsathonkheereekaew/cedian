@@ -16,7 +16,7 @@ pub const CLOSE_AFTER: Duration = Duration::from_millis(220);
 pub fn built(kind: Kind) -> bool {
     !matches!(
         kind,
-        Kind::Browser | Kind::Outputs | Kind::Memory | Kind::Usage | Kind::Background
+        Kind::Browser | Kind::Outputs | Kind::Memory | Kind::Background
     )
 }
 
