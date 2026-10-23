@@ -10,13 +10,14 @@ use cedian_protocol::{
     Capability, CommandList, ModelList, PermissionList, Rating, Schedule, UsageReport, VersionInfo,
 };
 
-/// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--ask on`
-/// and `--todo on`.
+/// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--effort`,
+/// `--ask on` and `--todo on`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Flags<'a> {
     pub profile: Option<&'a str>,
     pub model: Option<&'a str>,
     pub permission: Option<&'a str>,
+    pub effort: Option<&'a str>,
     /// The run may end on a question for the person, when this cedia can.
     pub ask: bool,
     /// The writer keeps a todo list, when this cedia can.
@@ -171,7 +172,8 @@ impl Cedia {
     }
 
     /// One run: `cedia --print=<text> --output-format stream-json --cwd <cwd> [--thread <id>]
-    /// [--profile <name>] [--model <ref>] [--permission <mode>] [--ask on] [--todo on]`. `--print=`
+    /// [--profile <name>] [--model <ref>] [--permission <mode>] [--effort <level>] [--ask on]
+    /// [--todo on]`. `--print=`
     /// keeps a prompt that starts with `-` from reading as a flag.
     /// `ask` lets the run end on a question for the person, when this cedia can.
     pub fn prompt(
@@ -201,6 +203,9 @@ impl Cedia {
         }
         if let Some(permission) = flags.permission {
             command.args(["--permission", permission]);
+        }
+        if let Some(effort) = flags.effort {
+            command.args(["--effort", effort]);
         }
         if flags.ask {
             command.args(["--ask", "on"]);

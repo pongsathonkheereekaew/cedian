@@ -111,6 +111,7 @@ fn a_new_daemon_follows_a_run_the_old_one_started() {
             profile: None,
             model: None,
             permission: None,
+            effort: None,
         },
     )
     .expect("prompt");

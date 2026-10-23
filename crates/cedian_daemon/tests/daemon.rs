@@ -226,6 +226,7 @@ fn the_window_gets_the_projects_memory_and_outputs() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     window.until(status_is(Status::Done));
     window.ask(Request::Outputs {
@@ -295,6 +296,7 @@ fn an_edited_message_forks_the_thread_and_runs_there() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     window.until(status_is(Status::Done));
     window.ask(Request::Fork {
@@ -304,6 +306,7 @@ fn an_edited_message_forks_the_thread_and_runs_there() {
         text: "make f.txt say better".into(),
         model: Some("sonnet".into()),
         permission: None,
+        effort: Some("high".into()),
     });
     let (_, seen) = window.until(|n| matches!(n, Notice::Forked { .. }));
     assert!(
@@ -330,6 +333,10 @@ fn an_edited_message_forks_the_thread_and_runs_there() {
         args.windows(2).any(|w| w == ["--model", "sonnet"]),
         "{args:?}"
     );
+    assert!(
+        args.windows(2).any(|w| w == ["--effort", "high"]),
+        "{args:?}"
+    );
 }
 
 #[test]
@@ -343,6 +350,7 @@ fn a_cedia_that_cannot_fork_says_so() {
         text: "again".into(),
         model: None,
         permission: None,
+        effort: None,
     });
     assert!(matches!(window.next(), Notice::Error { .. }));
 }
@@ -377,6 +385,7 @@ fn a_prompt_runs_and_a_second_window_rebuilds_it() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     let (lines, seen) = window.until(status_is(Status::Done));
     assert!(
@@ -421,6 +430,7 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     window.until(|n| matches!(n, Notice::Line { .. }));
 
@@ -433,6 +443,7 @@ fn stop_ends_a_run_and_send_reaches_the_thread() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     window.ask(Request::Stop {
         thread: "t-00000001".into(),
@@ -457,6 +468,7 @@ fn a_rating_reaches_the_thread_and_the_list() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     window.until(status_is(Status::Done));
     window.ask(Request::Rate {
@@ -488,6 +500,7 @@ fn a_queued_message_can_be_taken_back() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     window.until(|n| matches!(n, Notice::Line { .. }));
     window.ask(Request::Send {
@@ -693,6 +706,7 @@ fn a_new_thread_can_run_in_its_own_worktree() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     let (_, seen) = window.until(status_is(Status::Done));
     assert!(
@@ -754,6 +768,7 @@ fn rejecting_a_hunk_puts_the_file_back_and_tells_the_thread() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     let (_, seen) = window.until(status_is(Status::Done));
     let thread = seen
@@ -884,6 +899,7 @@ fn a_verified_thread_with_nothing_to_review_archives_itself() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     window.until(|n| {
         matches!(n, Notice::Threads { threads, .. }
@@ -907,6 +923,7 @@ fn an_unverified_thread_stays() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     window.until(status_is(Status::Done));
     // A list after the run ended, which an archive would have come before.
@@ -982,6 +999,7 @@ fn a_prompt_that_names_a_model_and_a_mode_runs_on_them() {
         profile: None,
         model: Some("sonnet".into()),
         permission: Some("plan".into()),
+        effort: None,
     });
     window.until(status_is(Status::Done));
     let args = std::fs::read_to_string(harness.threads.join("../args")).expect("args");
@@ -1008,6 +1026,7 @@ fn the_window_gets_the_schedules_and_a_due_one_wakes_its_thread() {
         profile: None,
         model: None,
         permission: None,
+        effort: None,
     });
     window.until(status_is(Status::Done));
     let state = harness.threads.join("..");

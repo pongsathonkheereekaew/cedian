@@ -42,6 +42,10 @@ pub enum Request {
         /// keeps cedia's default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         permission: Option<String>,
+        /// How hard the writer starts thinking (`cedia --effort`): a level the model lists;
+        /// none keeps the model's own.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
     },
     /// The `/` commands a run in the project can take (`cedia commands`), answered with
     /// `Notice::Commands` when this cedia lists them.
@@ -66,6 +70,8 @@ pub enum Request {
         model: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         permission: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
     },
     /// A message the running thread sees at its next turn.
     Send {
@@ -265,6 +271,7 @@ mod tests {
             profile: None,
             model: None,
             permission: None,
+            effort: None,
         };
         let mut buffer = Vec::new();
         write_message(&mut buffer, &request).expect("write");

@@ -17,7 +17,7 @@ use crate::{agent_pane::AgentPane, thread_search};
 
 const MODELS: &str = r#"{"default":"faux/scripted","models":[
   {"ref":"faux/scripted","label":"Faux (scripted)","provider":"faux","available":true,"contextWindow":200000,"effort":false},
-  {"ref":"anthropic/claude-opus-5-5-fast","alias":"opus-fast","label":"Claude Opus 5.5 (fast, a long name to shrink)","provider":"anthropic","available":true,"contextWindow":1000000,"effort":true},
+  {"ref":"anthropic/claude-opus-5-5-fast","alias":"opus-fast","label":"Claude Opus 5.5 (fast, a long name to shrink)","provider":"anthropic","available":true,"contextWindow":1000000,"effort":true,"effortLevels":["low","medium","high","xhigh","max"],"defaultEffort":"medium"},
   {"ref":"opencode-go/deepseek-v4.1-flash","label":"DeepSeek V4.1 Flash","provider":"opencode-go","available":false,"reason":"OPENCODE_API_KEY is not set","contextWindow":1000000,"effort":false}]}"#;
 const PERMISSIONS: &str = r#"{"default":"workspace","modes":[
   {"mode":"read-only","label":"Read only","description":"Reads and runs nothing that writes."},
@@ -112,25 +112,37 @@ pub(super) fn apart(a_name: &str, a: Bounds<Pixels>, b_name: &str, b: Bounds<Pix
 #[test]
 fn the_composer_row_keeps_its_chips_inside_at_every_size() {
     let mut app = app();
-    let (_, cx) = window(&mut app);
-    for (width, height) in SIZES {
-        cx.simulate_resize(size(px(width), px(height)));
-        cx.run_until_parked();
-        let block = bounds(cx, "agent-block");
-        let row = bounds(cx, "composer-row");
-        inside("the composer row", row, "the Agent block", block);
-        let model = bounds(cx, "run-model");
-        let permission = bounds(cx, "run-permission");
-        inside("the model chip", model, "the composer row", row);
-        inside("the permission chip", permission, "the composer row", row);
-        apart("the model chip", model, "the permission chip", permission);
-        // A narrow block gives the context and the view mode up to the run's choices.
-        if let Some(chips) = cx.debug_bounds("agent-chips") {
-            inside("the agent chips", chips, "the composer row", row);
-            for part in ["context-chip", "view-modes"] {
-                let chip = bounds(cx, part);
-                inside(part, chip, "the agent chips", chips);
-                apart(part, chip, "the permission chip", permission);
+    let (view, cx) = window(&mut app);
+    // The faux writer takes no effort; a model that takes one shows it after its name.
+    for model in [None, Some("anthropic/claude-opus-5-5-fast")] {
+        view.update(cx, |view, cx| {
+            view.choices.pick_mut(Some("t-00000001")).model = model.map(str::to_owned);
+            cx.notify();
+        });
+        for (width, height) in SIZES {
+            cx.simulate_resize(size(px(width), px(height)));
+            cx.run_until_parked();
+            let block = bounds(cx, "agent-block");
+            let row = bounds(cx, "composer-row");
+            inside("the composer row", row, "the Agent block", block);
+            let chip = bounds(cx, "run-model");
+            let permission = bounds(cx, "run-permission");
+            inside("the model chip", chip, "the composer row", row);
+            inside("the permission chip", permission, "the composer row", row);
+            apart("the model chip", chip, "the permission chip", permission);
+            let effort = cx.debug_bounds("run-effort");
+            assert_eq!(effort.is_some(), model.is_some(), "the effort");
+            if let Some(effort) = effort {
+                inside("the effort", effort, "the model chip", chip);
+            }
+            // A narrow block gives the context and the view mode up to the run's choices.
+            if let Some(chips) = cx.debug_bounds("agent-chips") {
+                inside("the agent chips", chips, "the composer row", row);
+                for part in ["context-chip", "view-modes"] {
+                    let chip = bounds(cx, part);
+                    inside(part, chip, "the agent chips", chips);
+                    apart(part, chip, "the permission chip", permission);
+                }
             }
         }
     }
@@ -140,6 +152,10 @@ fn the_composer_row_keeps_its_chips_inside_at_every_size() {
 fn the_run_menus_open_inside_the_agent_block_and_the_window() {
     let mut app = app();
     let (view, cx) = window(&mut app);
+    view.update(cx, |view, _| {
+        view.choices.pick_mut(Some("t-00000001")).model =
+            Some("anthropic/claude-opus-5-5-fast".into());
+    });
     for (width, height) in SIZES {
         cx.simulate_resize(size(px(width), px(height)));
         for menu in [

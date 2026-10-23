@@ -1415,7 +1415,8 @@ impl RootView {
             && self.project().current.as_ref() == Some(&thread)
         {
             let writer = self.writer_model(cx);
-            let (model, permission) = self.choices.for_run(Some(&thread), writer.as_deref());
+            let (model, permission, effort) =
+                self.choices.for_run(Some(&thread), writer.as_deref());
             self.request(Request::Fork {
                 cwd: self.project().cwd.clone(),
                 thread,
@@ -1423,6 +1424,7 @@ impl RootView {
                 text,
                 model,
                 permission,
+                effort,
             });
             cx.notify();
             return;
@@ -1437,7 +1439,8 @@ impl RootView {
         }
         let writer = self.writer_model(cx);
         let current = self.project().current.clone();
-        let (model, permission) = self.choices.for_run(current.as_deref(), writer.as_deref());
+        let (model, permission, effort) =
+            self.choices.for_run(current.as_deref(), writer.as_deref());
         let project = self.project();
         self.request(Request::Prompt {
             cwd: project.cwd.clone(),
@@ -1447,6 +1450,7 @@ impl RootView {
             profile: None,
             model,
             permission,
+            effort,
         });
         self.retitle(cx);
         cx.notify();

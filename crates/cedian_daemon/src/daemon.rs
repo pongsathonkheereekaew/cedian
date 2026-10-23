@@ -442,11 +442,13 @@ impl Daemon {
                 profile,
                 model,
                 permission,
+                effort,
             } => {
                 let with = Flags {
                     profile: profile.as_deref(),
                     model: model.as_deref(),
                     permission: permission.as_deref(),
+                    effort: effort.as_deref(),
                     ..Flags::default()
                 };
                 let running = thread.as_deref().is_some_and(|t| lock(shared).running(t));
@@ -518,6 +520,7 @@ impl Daemon {
                 text,
                 model,
                 permission,
+                effort,
             } => {
                 let (cedia, can) = {
                     let daemon = lock(shared);
@@ -543,6 +546,7 @@ impl Daemon {
                         let with = Flags {
                             model: model.as_deref(),
                             permission: permission.as_deref(),
+                            effort: effort.as_deref(),
                             ..Flags::default()
                         };
                         // No requester: the window opens the fork itself, for the history the
