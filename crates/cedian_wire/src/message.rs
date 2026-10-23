@@ -5,13 +5,13 @@ use std::{
 
 use cedian_index::{MemoryNote, Output};
 use cedian_protocol::{
-    CommandEntry, ModelList, PermissionList, Rating, Restored, RewindResult, Schedule, UsageReport,
-    VersionInfo,
+    CommandEntry, McpCheck, McpList, ModelList, PermissionList, Rating, Restored, RewindResult,
+    Schedule, UsageReport, VersionInfo,
 };
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{BrowserPage, Build, McpServer, Status, ThreadInfo};
+use crate::{BrowserPage, Build, McpAdd, McpServer, Status, ThreadInfo};
 
 /// From the window to the daemon.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -168,6 +168,17 @@ pub enum Request {
     /// The project's page in the shared Chromium, which the daemon starts when none runs.
     /// Answered with `Notice::Browser`; from then on the project's runs get the page.
     Browser { cwd: PathBuf },
+    /// The person's MCP servers (`cedia mcp list --json`), answered with `Notice::Mcp`, when
+    /// this cedia offers `mcp.manage`.
+    McpList,
+    /// Starts one server as a run would and lists its tools (`cedia mcp check`), answered with
+    /// `Notice::McpChecked`.
+    McpCheck { name: String },
+    /// Adds a server, or replaces the one of that name (`cedia mcp add`), answered with
+    /// `Notice::Mcp`.
+    McpAdd { name: String, server: McpAdd },
+    /// Removes a server (`cedia mcp remove`), answered with `Notice::Mcp`.
+    McpRemove { name: String },
     /// The `desktop` key of cedia's settings file, answered with `Notice::Settings`.
     Settings,
     /// Sets one key of `desktop`; `null` removes it. Every window gets `Notice::Settings`.
@@ -317,6 +328,16 @@ pub enum Notice {
         cwd: Option<PathBuf>,
         since: String,
         report: Box<UsageReport>,
+    },
+    /// The person's MCP servers, and why the change asked for last was refused, if it was.
+    Mcp {
+        list: McpList,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        refused: Option<String>,
+    },
+    /// The answer to `Request::McpCheck`.
+    McpChecked {
+        check: McpCheck,
     },
     /// The answer to `Request::Browser`: the project's page, or why there is none (no
     /// Chromium found, or it did not start).

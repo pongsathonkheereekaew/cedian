@@ -17,13 +17,19 @@ use crate::type_scale::TypeScale as _;
 use crate::{
     density::Density,
     desktop::{Desktop, ThemeMode, UI_FONT_SIZES},
+    settings_mcp::McpSection,
     sound::Sound,
     tokens,
     view_mode::ViewMode,
 };
 
 pub enum SettingsEvent {
-    Set { key: &'static str, value: Value },
+    Set {
+        key: &'static str,
+        value: Value,
+    },
+    /// A request a section makes of the daemon, such as MCP's.
+    Send(Box<cedian_wire::Request>),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -32,14 +38,16 @@ enum Section {
     Appearance,
     Bots,
     Models,
+    Mcp,
 }
 
 impl Section {
     /// Each section, its word, and whether its keys are cedia's.
-    const ALL: [(Section, &'static str, bool); 3] = [
+    const ALL: [(Section, &'static str, bool); 4] = [
         (Section::Appearance, "รูปลักษณ์", false),
         (Section::Bots, "Bots", true),
         (Section::Models, "Models", true),
+        (Section::Mcp, "MCP", true),
     ];
 }
 
@@ -50,6 +58,7 @@ pub struct SettingsView {
     section: Section,
     /// The key the last change set, marked in the file column.
     changed: Option<&'static str>,
+    pub(crate) mcp: McpSection,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
@@ -251,8 +260,12 @@ impl SettingsView {
             .text_ui()
             .when(on, |item| item.bg(colors.element_selected))
             .hover(|item| item.bg(colors.element_hover))
+            .debug_selector(move || format!("settings-{label}"))
             .on_click(cx.listener(move |view, _, _, cx| {
                 view.section = section;
+                if section == Section::Mcp {
+                    view.open_mcp(cx);
+                }
                 cx.notify();
             }))
             .child(div().flex_grow(1.).child(label))
@@ -299,7 +312,7 @@ fn row(
 }
 
 impl Render for SettingsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors().clone();
         let code = tokens::Tokens::of(cx).code;
         let mut nav = div()
@@ -320,6 +333,7 @@ impl Render for SettingsView {
             Section::Appearance => ("รูปลักษณ์", self.render_appearance(cx)),
             Section::Bots => ("Bots", self.render_cedia_section("Bots", cx)),
             Section::Models => ("Models", self.render_cedia_section("Models", cx)),
+            Section::Mcp => ("MCP servers", self.render_mcp(window, cx)),
         };
         let form = div()
             .id("settings-body")

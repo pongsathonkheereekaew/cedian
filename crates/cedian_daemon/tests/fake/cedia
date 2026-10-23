@@ -23,7 +23,7 @@ if [[ "${1:-}" == "permissions" && -n "${FAKE_PERMISSIONS:-}" ]]; then
 fi
 
 if [[ "${1:-}" == "models" ]]; then
-  echo '{"default":"faux/a","models":[{"ref":"faux/a","label":"Faux A","provider":"faux","available":true,"contextWindow":200000,"effort":false},{"ref":"faux/b","label":"Faux B","provider":"faux","available":false,"reason":"no key","contextWindow":100000,"effort":true}]}'
+  echo '{"default":"faux/a","models":[{"ref":"faux/a","label":"Faux A","provider":"faux","available":true,"contextWindow":200000,"effort":false},{"ref":"faux/b","label":"Faux B","provider":"faux","available":false,"reason":"no key","contextWindow":100000,"effort":true}],"modes":[]}'
   exit 0
 fi
 
@@ -59,6 +59,26 @@ if [[ "${1:-}" == "usage" ]]; then
   # where it read named in the thread's title.
   where="all"; [[ "${5:-}" == "--cwd" ]] && where="$(basename "$6")"
   echo "{\"sessions\":1,\"requests\":2,\"costUsd\":0.25,\"keepaliveUsd\":0,\"compactUsd\":0,\"tokens\":{\"input\":1000,\"cacheRead\":500,\"output\":100},\"sources\":[],\"largest\":[],\"misses\":[],\"overPriceLine\":0,\"maxEffort\":0,\"handoffs\":0,\"unpriced\":0,\"days\":[{\"day\":\"2026-10-22\",\"costUsd\":0.25}],\"models\":[{\"model\":\"faux/a\",\"costUsd\":0.25,\"requests\":2}],\"projects\":[{\"project\":\"p\",\"costUsd\":0.25}],\"threads\":[{\"thread\":\"t-1\",\"title\":\"$4 $where\",\"project\":\"p\",\"costUsd\":0.25}]}"
+  exit 0
+fi
+
+if [[ "${1:-}" == "mcp" ]]; then
+  # mcp list|check|add|remove ...: each call's arguments go to $FAKE_THREADS/../mcp-calls, the
+  # list is $FAKE_THREADS/../mcp.json, an add names one server x and a server named bad is refused.
+  state="$FAKE_THREADS/.."
+  mkdir -p "$state"
+  printf '%s\n' "$*" >>"$state/mcp-calls"
+  verb=""; for arg in "${@:2}"; do [[ "$arg" != -* ]] && { verb="$arg"; break; }; done
+  name="${!#}"
+  case "$verb" in
+    list) cat "$state/mcp.json" 2>/dev/null || echo '{"servers":[]}' ;;
+    check) echo "{\"name\":\"$name\",\"ok\":true,\"tools\":[{\"name\":\"search\"}]}" ;;
+    add)
+      if [[ "$name" == "bad" ]]; then echo "cedia: mcpServers.bad: needs a command or a url" >&2; exit 1; fi
+      echo "{\"servers\":[{\"name\":\"$name\",\"command\":\"x\",\"env\":[\"TOKEN\"]}]}" >"$state/mcp.json"
+      echo "added MCP server $name" ;;
+    remove) echo '{"servers":[]}' >"$state/mcp.json"; echo "removed MCP server $name" ;;
+  esac
   exit 0
 fi
 

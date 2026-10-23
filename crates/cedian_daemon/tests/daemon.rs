@@ -276,6 +276,91 @@ fn the_window_gets_the_usage_of_one_project_or_all() {
 }
 
 #[test]
+fn mcp_servers_are_listed_checked_added_and_removed_through_cedia() {
+    let harness = start_with("edit-and-check", "\"mcp.manage\"");
+    let mut window = Window::connect(&harness);
+    let calls = harness.threads.join("../mcp-calls");
+    window.ask(Request::McpList);
+    match window.next() {
+        Notice::Mcp { list, refused } => assert!(list.servers.is_empty() && refused.is_none()),
+        other => panic!("{other:?}"),
+    }
+    window.ask(Request::McpAdd {
+        name: "gh".into(),
+        server: cedian_wire::McpAdd {
+            target: cedian_wire::McpTarget::Command {
+                command: "npx".into(),
+                args: vec!["-y".into(), "server github".into()],
+            },
+            pairs: vec![("TOKEN".into(), "s=cret".into())],
+            read_only: true,
+        },
+    });
+    match window.next() {
+        Notice::Mcp { list, refused } => {
+            assert_eq!(refused, None);
+            assert_eq!(list.servers[0].name, "gh");
+            assert_eq!(list.servers[0].env, ["TOKEN"]);
+        }
+        other => panic!("{other:?}"),
+    }
+    window.ask(Request::McpAdd {
+        name: "bad".into(),
+        server: cedian_wire::McpAdd {
+            target: cedian_wire::McpTarget::Url {
+                url: "https://mcp.example.com".into(),
+            },
+            pairs: vec![("Authorization".into(), "Bearer k".into())],
+            read_only: false,
+        },
+    });
+    match window.next() {
+        Notice::Mcp { list, refused } => {
+            assert_eq!(
+                refused.as_deref(),
+                Some("mcpServers.bad: needs a command or a url")
+            );
+            assert_eq!(list.servers.len(), 1);
+        }
+        other => panic!("{other:?}"),
+    }
+    window.ask(Request::McpCheck { name: "gh".into() });
+    match window.next() {
+        Notice::McpChecked {
+            check: cedian_protocol::McpCheck::Variant0 { name, tools, .. },
+        } => assert_eq!((name.as_str(), tools.len()), ("gh", 1)),
+        other => panic!("{other:?}"),
+    }
+    window.ask(Request::McpRemove { name: "gh".into() });
+    match window.next() {
+        Notice::Mcp { list, .. } => assert!(list.servers.is_empty()),
+        other => panic!("{other:?}"),
+    }
+    let calls = std::fs::read_to_string(calls).expect("calls");
+    assert_eq!(
+        calls.lines().collect::<Vec<_>>(),
+        [
+            "mcp --json list",
+            "mcp add --command=npx --arg=-y --arg=server github --env=TOKEN=s=cret --read-only -- gh",
+            "mcp --json list",
+            "mcp add --url=https://mcp.example.com --header=Authorization=Bearer k -- bad",
+            "mcp --json list",
+            "mcp check --json -- gh",
+            "mcp remove -- gh",
+            "mcp --json list",
+        ]
+    );
+}
+
+#[test]
+fn a_cedia_without_mcp_manage_says_so() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::McpList);
+    assert!(matches!(window.next(), Notice::Error { .. }));
+}
+
+#[test]
 fn a_cedia_without_usage_says_so() {
     let harness = start("edit-and-check");
     let mut window = Window::connect(&harness);

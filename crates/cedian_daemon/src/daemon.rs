@@ -693,6 +693,39 @@ impl Daemon {
                 }
                 lock(shared).send(client, Notice::Browser { cwd, page });
             }
+            Request::McpList
+            | Request::McpCheck { .. }
+            | Request::McpAdd { .. }
+            | Request::McpRemove { .. } => {
+                let (cedia, can) = {
+                    let daemon = lock(shared);
+                    let can = daemon.version.as_ref().is_ok_and(|v| {
+                        v.capabilities
+                            .contains(&cedian_protocol::Capability::McpManage)
+                    });
+                    (daemon.cedia.clone(), can)
+                };
+                if !can {
+                    lock(shared).error(client, "this cedia does not manage MCP servers yet".into());
+                    return;
+                }
+                let refused = match request {
+                    Request::McpCheck { name } => {
+                        match cedia.mcp_check(&name) {
+                            Ok(check) => lock(shared).send(client, Notice::McpChecked { check }),
+                            Err(error) => lock(shared).error(client, error),
+                        }
+                        return;
+                    }
+                    Request::McpAdd { name, server } => cedia.mcp_add(&name, &server).err(),
+                    Request::McpRemove { name } => cedia.mcp_remove(&name).err(),
+                    _ => None,
+                };
+                match cedia.mcp_list() {
+                    Ok(list) => lock(shared).send(client, Notice::Mcp { list, refused }),
+                    Err(error) => lock(shared).error(client, error),
+                }
+            }
             Request::Settings => lock(shared).settings(client),
             Request::SetDesktop { key, value } => lock(shared).set_desktop(client, &key, value),
             Request::Review { cwd, thread } => {

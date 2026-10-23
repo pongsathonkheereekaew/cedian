@@ -32,6 +32,7 @@ mod receipt;
 mod replay;
 mod review_pane;
 mod root_view;
+mod settings_mcp;
 mod settings_view;
 mod settings_window;
 mod shell_pane;

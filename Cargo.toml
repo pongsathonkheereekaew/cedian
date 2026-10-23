@@ -11,6 +11,7 @@ license-file = "LICENSE"
 [workspace.dependencies]
 anyhow = "1"
 base64 = "0.22"
+shlex = "2"
 assets = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 collections = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
 editor = { git = "https://github.com/zed-industries/zed", rev = "d25fa01ccd788d812f236810b71af4feff6b2e38" }
