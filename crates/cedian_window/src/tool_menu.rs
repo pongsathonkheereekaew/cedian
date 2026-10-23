@@ -12,11 +12,6 @@ use crate::{block_header::icon, block_keys, on_click::OnClick, popup_menu::Row};
 pub const OPEN_AFTER: Duration = Duration::from_millis(120);
 pub const CLOSE_AFTER: Duration = Duration::from_millis(220);
 
-/// Whether cedian draws this kind yet; the rest are in the spec and say so.
-pub fn built(kind: Kind) -> bool {
-    !matches!(kind, Kind::Browser)
-}
-
 /// The key that opens or focuses `kind`, when it has one.
 pub fn key(kind: Kind) -> Option<String> {
     let letter = match kind {
@@ -33,18 +28,11 @@ pub fn key(kind: Kind) -> Option<String> {
 }
 
 pub fn rows(ws: &Workspace, pick: impl Fn(Kind) -> OnClick) -> Vec<Row> {
-    let row = |kind: Kind, label: &str| {
-        let note = if built(kind) {
-            note(ws, kind)
-        } else {
-            Some("เร็วๆ นี้".to_owned())
-        };
-        Row::Item {
-            icon: Some(icon(kind)),
-            label: label.to_owned().into(),
-            note: note.map(Into::into),
-            on_click: built(kind).then(|| pick(kind)),
-        }
+    let row = |kind: Kind, label: &str| Row::Item {
+        icon: Some(icon(kind)),
+        label: label.to_owned().into(),
+        note: note(ws, kind).map(Into::into),
+        on_click: Some(pick(kind)),
     };
     let mut rows = vec![Row::Label("ของ thread ที่เปิดอยู่".into())];
     rows.extend(THREAD_TOOLS.iter().map(|(kind, label)| row(*kind, label)));

@@ -117,7 +117,6 @@ impl RootView {
         let tools = tool_menu::THREAD_TOOLS
             .iter()
             .chain(&tool_menu::PROJECT_TOOLS)
-            .filter(|(kind, _)| tool_menu::built(*kind))
             .map(|(kind, label)| Action {
                 act: Act::Add(*kind),
                 label: (*label).into(),
@@ -209,8 +208,9 @@ impl RootView {
             Some(Kind::Agent) => self.composer.update(cx, |c, cx| c.focus(window, cx)),
             Some(Kind::Chat) => self.chat_composer.update(cx, |c, cx| c.focus(window, cx)),
             Some(Kind::Review) => window.focus(&self.review.focus_handle(cx), cx),
-            Some(Kind::Threads) | Some(Kind::Terminal) | Some(Kind::Editor) => {
-                // A click puts the keys in the list's search, the shell or the editor.
+            Some(Kind::Threads) | Some(Kind::Terminal) | Some(Kind::Editor)
+            | Some(Kind::Browser) => {
+                // A click puts the keys in the list's search, the shell, the editor or the page.
                 if !self.root_focus.contains_focused(window, cx) {
                     window.focus(&self.root_focus, cx);
                 }
@@ -1259,16 +1259,15 @@ impl RootView {
                 self.ask_usage(cx);
                 self.usage.clone().into_any_element()
             }
-            Kind::Browser => div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .p_4()
-                .text_ui()
-                .text_color(colors.text_muted)
-                .child(format!("{} มาใน phase C", kind.name()))
-                .into_any_element(),
+            Kind::Browser => {
+                let cwd = self.project().cwd.clone();
+                let agent = self.agent_on_browser(cx);
+                self.browser.update(cx, |pane, cx| {
+                    pane.want(&cwd, cx);
+                    pane.set_agent(agent, cx);
+                });
+                self.browser.clone().into_any_element()
+            }
         }
     }
 

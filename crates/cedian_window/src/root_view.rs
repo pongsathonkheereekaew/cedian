@@ -33,6 +33,7 @@ use theme::ActiveTheme as _;
 use crate::type_scale::TypeScale as _;
 use crate::{
     agent_pane::{AgentEvent, AgentPane, Header, StopRun},
+    browser_pane::{BrowserEvent, BrowserPane},
     composer::{Composer, ComposerEvent, Queued},
     content_search::{ContentEvent, ContentSearch, SearchContents},
     daemon_client::DaemonClient,
@@ -109,6 +110,7 @@ pub struct RootView {
     search: Entity<ThreadSearch>,
     review: Entity<ReviewPane>,
     usage: Entity<UsagePane>,
+    browser: Entity<BrowserPane>,
     /// Hunks of the open thread's review still waiting, for the Review block's meta.
     waiting_hunks: usize,
     /// The block keys act on, the one zoomed to fill the area, and where a dragged block
@@ -428,6 +430,13 @@ impl RootView {
             ),
         })
         .detach();
+        let browser = cx.new(|cx| BrowserPane::new(window, cx));
+        cx.subscribe(&browser, |view, _, event, _| match event {
+            BrowserEvent::Wanted => view.request(Request::Browser {
+                cwd: view.project().cwd.clone(),
+            }),
+        })
+        .detach();
         let usage = cx.new(|_| UsagePane::new());
         cx.subscribe(&usage, |view, _, event, cx| match event {
             UsageEvent::Changed => {
@@ -459,6 +468,7 @@ impl RootView {
             search,
             review,
             usage,
+            browser,
             waiting_hunks: 0,
             focused: None,
             zoomed: None,
@@ -528,6 +538,24 @@ impl RootView {
         self.request(Request::Usage { cwd, since });
     }
 
+    /// Whether the open thread is working and its last tool call is the browser, for the
+    /// Browser block's line that the agent is using the page.
+    pub(super) fn agent_on_browser(&self, cx: &gpui::App) -> bool {
+        self.project().status == Some(Status::Working)
+            && self
+                .agent
+                .read(cx)
+                .transcript()
+                .blocks()
+                .iter()
+                .rev()
+                .find_map(|block| match block {
+                    cedian_agent::Block::Tool(call) => Some(call.name == "browser"),
+                    _ => None,
+                })
+                .unwrap_or(false)
+    }
+
     fn request(&self, request: Request) {
         if let Some(client) = &self.client {
             client.request(&request);
@@ -537,6 +565,8 @@ impl RootView {
     fn on_notice(&mut self, notice: Notice, cx: &mut Context<Self>) {
         match notice {
             Notice::Welcome { cedia, .. } => {
+                // A Browser block drawn before the daemon answered asked no one: ask again.
+                self.browser.update(cx, |pane, cx| pane.forget(cx));
                 self.can_fork = cedia.as_ref().is_ok_and(|v| {
                     v.capabilities
                         .contains(&cedian_protocol::Capability::ThreadsFork)
@@ -770,6 +800,9 @@ impl RootView {
             Notice::Usage { cwd, since, report } => self
                 .usage
                 .update(cx, |pane, cx| pane.set_report(cwd, since, *report, cx)),
+            Notice::Browser { cwd, page } => self
+                .browser
+                .update(cx, |pane, cx| pane.set_page(cwd, page, cx)),
             Notice::Outputs { cwd, outputs } if cwd == self.project().cwd => {
                 self.outputs.update(cx, |pane, cx| pane.set(outputs, cx));
             }

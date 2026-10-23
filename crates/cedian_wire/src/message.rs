@@ -11,7 +11,7 @@ use cedian_protocol::{
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{McpServer, Status, ThreadInfo};
+use crate::{BrowserPage, McpServer, Status, ThreadInfo};
 
 /// From the window to the daemon.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -151,6 +151,9 @@ pub enum Request {
         id: String,
         enabled: bool,
     },
+    /// The project's page in the shared Chromium, which the daemon starts when none runs.
+    /// Answered with `Notice::Browser`; from then on the project's runs get the page.
+    Browser { cwd: PathBuf },
     /// The `desktop` key of cedia's settings file, answered with `Notice::Settings`.
     Settings,
     /// Sets one key of `desktop`; `null` removes it. Every window gets `Notice::Settings`.
@@ -297,6 +300,12 @@ pub enum Notice {
         cwd: Option<PathBuf>,
         since: String,
         report: Box<UsageReport>,
+    },
+    /// The answer to `Request::Browser`: the project's page, or why there is none (no
+    /// Chromium found, or it did not start).
+    Browser {
+        cwd: PathBuf,
+        page: Result<BrowserPage, String>,
     },
     Error {
         message: String,

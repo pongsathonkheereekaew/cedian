@@ -18,6 +18,7 @@ use cedian_wire::{Notice, Request, Status, ThreadInfo};
 
 use crate::{
     Cedia, auto_archive,
+    browser::Browser,
     cedia::Flags,
     desktop_settings::{read_desktop, set_desktop_key, settings_path},
     follow::{Offsets, follow},
@@ -71,6 +72,9 @@ pub struct Daemon {
     started: HashSet<(String, String)>,
     /// Each shown project's scheduled runs, as last listed.
     schedules: background::Schedules,
+    /// The shared Chromium, locked on its own: starting it takes a moment, and only a
+    /// Browser block starts it.
+    browser: Arc<Mutex<Browser>>,
     next_id: u64,
 }
 
@@ -103,6 +107,7 @@ impl Daemon {
             Err(error) => log::warn!("{error}"),
         }
         let choices = choices(&cedia, &version);
+        let browser = Arc::new(Mutex::new(Browser::new(state_dir, cedia.env.clone())));
         Self {
             cedia,
             home,
@@ -118,6 +123,7 @@ impl Daemon {
             seen: Seen::new(state_dir),
             started: HashSet::new(),
             schedules: background::Schedules::default(),
+            browser,
             next_id: 1,
         }
     }
@@ -644,6 +650,18 @@ impl Daemon {
                     Err(error) => lock(shared).error(client, format!("{error:#}")),
                 }
             }
+            Request::Browser { cwd } => {
+                let browser = lock(shared).browser.clone();
+                let page = browser
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .page(&project_key(&cwd))
+                    .map_err(|e| format!("{e:#}"));
+                if let Err(error) = &page {
+                    log::warn!("browser: {error}");
+                }
+                lock(shared).send(client, Notice::Browser { cwd, page });
+            }
             Request::Settings => lock(shared).settings(client),
             Request::SetDesktop { key, value } => lock(shared).set_desktop(client, &key, value),
             Request::Review { cwd, thread } => {
@@ -1001,9 +1019,20 @@ impl Daemon {
                 .as_ref()
                 .is_ok_and(|v| v.capabilities.contains(&capability))
         };
+        // The project's page, when the shared browser runs: a run never starts it.
+        let page = can(cedian_protocol::Capability::Browser)
+            .then(|| {
+                daemon
+                    .browser
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .running_page(&slug)
+            })
+            .flatten();
         let with = Flags {
             ask: can(cedian_protocol::Capability::Ask),
             todo: can(cedian_protocol::Capability::Todo),
+            browser: page.as_ref().map(|p| p.socket.as_str()),
             ..with
         };
         let child = match daemon.cedia.prompt(&cwd, text, thread.as_deref(), with) {

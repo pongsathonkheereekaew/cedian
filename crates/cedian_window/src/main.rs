@@ -3,6 +3,8 @@ mod assets;
 mod block_drag;
 mod block_header;
 mod block_keys;
+mod browser_pane;
+mod cdp;
 mod composer;
 mod content_search;
 mod daemon_client;
@@ -203,6 +205,7 @@ fn open(mode: Mode, cx: &mut App) -> anyhow::Result<()> {
         KeyBinding::new("up", file_finder::Previous, Some("FileFinder > Editor")),
         KeyBinding::new("down", file_finder::Next, Some("FileFinder > Editor")),
         KeyBinding::new("enter", file_finder::Pick, Some("FileFinder > Editor")),
+        KeyBinding::new("enter", browser_pane::Go, Some("BrowserUrl > Editor")),
         KeyBinding::new(SEARCH_CONTENTS_KEY, content_search::SearchContents, None),
         KeyBinding::new(
             SEARCH_CONTENTS_KEY,

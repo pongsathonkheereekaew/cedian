@@ -24,6 +24,9 @@ pub struct Flags<'a> {
     pub ask: bool,
     /// The writer keeps a todo list, when this cedia can.
     pub todo: bool,
+    /// The project's page in the shared browser (`--browser`), when it runs and this cedia can
+    /// drive it.
+    pub browser: Option<&'a str>,
 }
 
 /// How the daemon starts cedia: which binary, with which environment.
@@ -175,7 +178,7 @@ impl Cedia {
 
     /// One run: `cedia --print=<text> --output-format stream-json --cwd <cwd> [--thread <id>]
     /// [--profile <name>] [--model <ref>] [--permission <mode>] [--effort <level>] [--ask on]
-    /// [--todo on]`. `--print=`
+    /// [--todo on] [--browser <page>]`. `--print=`
     /// keeps a prompt that starts with `-` from reading as a flag.
     /// `ask` lets the run end on a question for the person, when this cedia can.
     pub fn prompt(
@@ -227,6 +230,10 @@ impl Cedia {
         // The writer's todo list is the thread's progress in the window.
         if flags.todo {
             command.args(["--todo", "on"]);
+        }
+        // The page the person sees in the Browser block (core/tools/browser.ts in cedia).
+        if let Some(page) = flags.browser {
+            command.args(["--browser", page]);
         }
         command
             .spawn()
