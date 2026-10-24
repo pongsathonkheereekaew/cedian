@@ -187,12 +187,49 @@ fn chromium_args(profile: &Path) -> Vec<String> {
             "--no-default-browser-check".to_owned(),
             "--hide-scrollbars".to_owned(),
             // Headless screencasts at the screen's scale, not the viewport's
-            // `deviceScaleFactor`: at 1 a Retina block stretches each pixel over four. At 2 a
-            // 1x block asks for frames no wider than itself, so Chromium scales them down.
-            "--force-device-scale-factor=2".to_owned(),
+            // `deviceScaleFactor`: at 1 a Retina block stretches each pixel over four, and at 2
+            // a 1x block gets frames Chromium drew twice as large and shrank, which blurs text.
+            format!("--force-device-scale-factor={}", screen_scale()),
             "about:blank".to_owned(),
         ])
         .collect()
+}
+
+/// The main display's scale: its pixels per point, 2 on Retina. A Chromium keeps the scale it
+/// started at, so a window on a screen of another scale draws its page less sharply.
+#[cfg(target_os = "macos")]
+fn screen_scale() -> u32 {
+    use std::ffi::c_void;
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGMainDisplayID() -> u32;
+        fn CGDisplayCopyDisplayMode(display: u32) -> *mut c_void;
+        fn CGDisplayModeGetWidth(mode: *mut c_void) -> usize;
+        fn CGDisplayModeGetPixelWidth(mode: *mut c_void) -> usize;
+        fn CGDisplayModeRelease(mode: *mut c_void);
+    }
+    // SAFETY: the mode is checked for null, read, and released once.
+    let (points, pixels) = unsafe {
+        let mode = CGDisplayCopyDisplayMode(CGMainDisplayID());
+        if mode.is_null() {
+            return 2;
+        }
+        let size = (
+            CGDisplayModeGetWidth(mode),
+            CGDisplayModeGetPixelWidth(mode),
+        );
+        CGDisplayModeRelease(mode);
+        size
+    };
+    if points == 0 {
+        return 2;
+    }
+    (pixels as f64 / points as f64).round().clamp(1., 3.) as u32
+}
+
+#[cfg(not(target_os = "macos"))]
+fn screen_scale() -> u32 {
+    1
 }
 
 /// `$CEDIAN_CHROMIUM`, else the bundled headless shell beside `exe`, else an installed
@@ -267,6 +304,12 @@ fn http(port: u16, method: &str, path: &str) -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn the_screen_scale_is_a_whole_number_of_pixels_per_point() {
+        assert!((1..=3).contains(&screen_scale()));
+    }
 
     #[test]
     fn chromium_comes_from_the_environment_first() {
