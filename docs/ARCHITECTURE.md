@@ -118,7 +118,7 @@ Decided 2026-10-22 with the owner over mockups (the "cedian UI design" canvas: a
 ### Agent pane
 
 - Header: the title (16/24, 600), live cost while working (each reply's cost as it lands), Stop (`⌘.`). Chips: worktree branch, model and role, a context meter (`76k/200k`), and the view mode: คำตอบ, + ความคิด, ทุก tool.
-- Blocks: a session divider; the user's message as a right-aligned bubble with its delivery reactions under it; the agent's answer in the serif face, at most 680 px wide; thinking with a dashed border and its duration (hidden in คำตอบ); tool cards with a 30 px header (icon, tool, argument, then exit code, `+n −n` or duration), opened only for a failure's output or an edit's diff, tinted `working` while running, and folded into one chip (`3 tools · read, bash exit 101, edit +6 −1`) in the two narrower view modes.
+- Blocks: a session divider; the user's message as a right-aligned bubble with its delivery reactions under it; the agent's answer in the interface's face a size up, at most 680 px wide; thinking with a dashed border and its duration (hidden in คำตอบ); tool cards with a 30 px header (icon, tool, argument, then exit code, `+n −n` or duration), opened only for a failure's output or an edit's diff, tinted `working` while running, and folded into one chip (`3 tools · read, bash exit 101, edit +6 −1`) in the two narrower view modes.
 - Receipt: a card with an `accent` border; a header with `verified` (or a dashed `unverified n`), the verdict, and turns, time and cost; checks with the thread that ran each, and changed files against the first snapshot; next steps (รีวิว diff, เปิด PR, รวมเข้า main) and 👍/👎 for `cedia threads rate`.
 - Composer: queued messages sit above the text as chips (ส่งที่ turn ถัดไป, ส่งเลย, แก้, ลบ). Enter sends, Shift-Enter adds a line, `@` mentions a bot, `/` opens commands, and macOS dictation works.
 - Thread details (a tool): environment, sessions in order with where each started, cost by model, outputs, and the context meter split into system, tools and messages.
@@ -190,22 +190,22 @@ The tokens ship as two Zed theme files, "cedian Dark" and "cedian Light", so the
 
 ### Type
 
-The owner asked for type in the manner of the Claude desktop app: a plain sans for the interface and a serif for the agent's answers. Claude's own faces (anthropicSans, anthropicSerif) are Anthropic's and not licensed to anyone, so cedian bundles open (OFL) look-alikes for Latin and registers them with GPUI's text system at start. Claude's faces have no Thai, so Claude's Thai is the system's; cedian does the same (owner, 2026-10-22), so Thai looks as it does in Claude:
+The owner first asked for type in the manner of the Claude desktop app (a sans interface, serif answers, 2026-10-22), then for a more professional look like the other tools (2026-10-23): Cursor, Codex and Zed set the whole app, answers included, in the system's sans at a tighter scale, so cedian does too. Thai stays in the system's Thai face (owner, 2026-10-22):
 
-- Interface: **Inter**; Thai in the system's Thai face (Thonburi on macOS, through Core Text's fallback for the script).
-- Agent answers: **Source Serif 4**; Thai in the same system face, as in Claude.
+- Interface and agent answers: the system face (`.SystemUIFont`, SF Pro on macOS), with the bundled **Inter** (OFL) where there is no such face (Linux); Thai in the system's Thai face (Thonburi on macOS, through Core Text's fallback for the script).
 - Code, tool output and terminal: **Lilex** (Zed's); Thai in the same system face.
-- Linux has no fixed Thai face, so there the window keeps the bundled Noto Sans Thai as the fallback; macOS no longer needs Noto Sans Thai or Noto Serif Thai in the bundle.
+- Linux has no fixed Thai face, so there the window keeps the bundled Noto Sans Thai as the fallback; macOS needs none in the bundle. The serif faces (Source Serif 4, Noto Serif Thai) left the bundle with the serif.
+- `ui_font_size` defaults to 14 and `code_font_size` to 13, as in Cursor; Settings still goes from the range's smallest to its largest.
 
 | Name | Size / line | Weight | Use |
 | --- | --- | --- | --- |
-| title | 22 / 30 | 600 | settings section title |
+| title | 20 / 28 | 600 | settings section title |
 | pane title | 14 / 22 | 600 | thread title in the sheet's header |
-| answer | 16 / 27 serif | 400 | the agent's text |
-| message | 14.5 / 24 | 400 | the person's text, composer |
-| ui | 13.5 / 21 | 400 | lists, buttons, inputs |
-| meta | 12 / 18 | 400 | chips, secondary lines |
-| label | 11.5 / 16 | 500 | group headers, badges |
+| answer | 14.5 / 24 | 400 | the agent's text |
+| message | 14 / 23 | 400 | the person's text, composer |
+| ui | 13 / 20 | 400 | lists, buttons, inputs |
+| meta | 11.5 / 17 | 400 | chips, secondary lines |
+| label | 11 / 15 | 500 | group headers, badges |
 | code | 12.5 / 20 | 400 | editor, tool output, terminal |
 
 Thai: line height at least 1.6 times the size for running text, no italics (use weight), capitals only on English labels, and line breaks by dictionary, not spaces. GPUI's line wrapper breaks at spaces and punctuation, so Thai would wrap mid-word; the first step of this work is word segmentation (ICU4X `icu_segmenter`) feeding the agent pane's wrap points, measured against the 10k-block scroll budget.
@@ -294,7 +294,7 @@ Decided 2026-10-22 with the owner over the canvas's B1–B4 and H1–H7 boards (
   - the open project's tab keeps its whole name.
   Each rule has a test that draws the window at 720, 900, 1024, 1280 and 1440 px in both themes, goes through those states and fails on any box whose content is wider than it without an ellipsis, any element outside the window, and any one-line control taller than a line.
 - **Speed is part of the spec**: a block shows its content within 50 ms of opening (the daemon sends a thread's latest screen first, then the rest); dragging, dividers and scrolling hold 120 fps on a ProMotion display; a split, close, zoom or park animates for 140 ms ease-out, and not at all when the system asks for reduced motion; a block nobody can see (another layout, parked) is not drawn but keeps its state from the daemon.
-- **Inside an agent block**, from both apps: the serif answer at most 720 px wide, thinking as one line (คิดอยู่ 12 วินาที ›), tool calls as a folded card that opens to the calls and an edit's numbers, a per-turn line in mono (`16.5s · 15K token · $0.14 รอบนี้`), permission asks inline with the primary answer filled, and on the person's message, on hover, แก้, ส่งใหม่ and คัดลอก.
+- **Inside an agent block**, from both apps: the answer at most 720 px wide, thinking as one line (คิดอยู่ 12 วินาที ›), tool calls as a folded card that opens to the calls and an edit's numbers, a per-turn line in mono (`16.5s · 15K token · $0.14 รอบนี้`), permission asks inline with the primary answer filled, and on the person's message, on hover, แก้, ส่งใหม่ and คัดลอก.
 - **The composer**, as in the Claude desktop app: 20 px corners; files and images attached with `+`, by dropping them or by pasting a screenshot, shown as tiles above the text; `/` lists cedia's commands for the thread and `@` the worktree's files; `!` runs a line in the thread's terminal; a row of chips for the model and effort and the branch, then the permission mode (ถามก่อนแก้ไฟล์, แก้เองได้, วางแผนก่อน, as cedia offers them), dictation (macOS's own), and send.
 - **Lime is for the person**: the send button, a question waiting on them and the project chat's dot. Focus, a new block and drop targets use the neutral tokens and `accent soft`.
 - This replaces, from Layout and Polish: the fixed sidebar, the pane tabs, the tool panel and its rail, and the header's tool toggles (each tool is a block now). The sidebar's foot (daemon dot, archived count, today's cost, Settings) moves to the Threads block's foot.

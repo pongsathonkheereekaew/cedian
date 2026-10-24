@@ -25,18 +25,6 @@ const OWN: &[(&str, &[u8])] = &[
         include_bytes!("../assets/fonts/inter/Inter-SemiBold.ttf"),
     ),
     (
-        "fonts/source-serif-4/SourceSerif4-Bold.ttf",
-        include_bytes!("../assets/fonts/source-serif-4/SourceSerif4-Bold.ttf"),
-    ),
-    (
-        "fonts/source-serif-4/SourceSerif4-Regular.ttf",
-        include_bytes!("../assets/fonts/source-serif-4/SourceSerif4-Regular.ttf"),
-    ),
-    (
-        "fonts/source-serif-4/SourceSerif4-SemiBold.ttf",
-        include_bytes!("../assets/fonts/source-serif-4/SourceSerif4-SemiBold.ttf"),
-    ),
-    (
         "themes/cedian.json",
         include_bytes!("../assets/themes/cedian.json"),
     ),
@@ -61,18 +49,6 @@ const THAI: &[(&str, &[u8])] = &[
     (
         "fonts/noto-sans-thai/NotoSansThai-SemiBold.ttf",
         include_bytes!("../assets/fonts/noto-sans-thai/NotoSansThai-SemiBold.ttf"),
-    ),
-    (
-        "fonts/noto-serif-thai/NotoSerifThai-Bold.ttf",
-        include_bytes!("../assets/fonts/noto-serif-thai/NotoSerifThai-Bold.ttf"),
-    ),
-    (
-        "fonts/noto-serif-thai/NotoSerifThai-Regular.ttf",
-        include_bytes!("../assets/fonts/noto-serif-thai/NotoSerifThai-Regular.ttf"),
-    ),
-    (
-        "fonts/noto-serif-thai/NotoSerifThai-SemiBold.ttf",
-        include_bytes!("../assets/fonts/noto-serif-thai/NotoSerifThai-SemiBold.ttf"),
     ),
 ];
 #[cfg(target_os = "macos")]
@@ -137,15 +113,11 @@ mod tests {
         let fonts = Assets.list("fonts/").expect("list");
         for face in [
             "fonts/inter/Inter-Regular.ttf",
-            "fonts/source-serif-4/SourceSerif4-Regular.ttf",
             "fonts/lilex/Lilex-Regular.ttf",
         ] {
             assert!(fonts.iter().any(|f| f == face), "{face} missing");
         }
-        let thai = [
-            "fonts/noto-sans-thai/NotoSansThai-Regular.ttf",
-            "fonts/noto-serif-thai/NotoSerifThai-Regular.ttf",
-        ];
+        let thai = ["fonts/noto-sans-thai/NotoSansThai-Regular.ttf"];
         for face in thai {
             // macOS sets Thai in the system's face, so its bundle has none.
             let bundled = fonts.iter().any(|f| f == face);

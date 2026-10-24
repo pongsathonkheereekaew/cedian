@@ -43,16 +43,26 @@ impl Tokens {
     }
 }
 
-pub const UI_FAMILY: &str = "Inter";
-pub const ANSWER_FAMILY: &str = "Source Serif 4";
+/// The interface and the agent's answers: the system's face on macOS (SF Pro, as Cursor, Codex
+/// and Zed set theirs), the bundled Inter elsewhere.
+pub const UI_FAMILY: &str = if cfg!(target_os = "macos") {
+    ".SystemUIFont"
+} else {
+    "Inter"
+};
+/// `UI_FAMILY` as Settings names it.
+pub const UI_NAME: &str = if cfg!(target_os = "macos") {
+    "SF Pro"
+} else {
+    "Inter"
+};
 pub const CODE_FAMILY: &str = "Lilex";
-/// The bundled Thai faces, used where the system has no fixed Thai face (Linux). On macOS
+/// The bundled Thai face, used where the system has no fixed Thai face (Linux). On macOS
 /// Thai is set in the system's face (Thonburi) through Core Text's fallback, as in Claude,
 /// so no Thai face is named there (Interface, Type).
 pub const THAI_SANS: &str = "Noto Sans Thai";
-pub const THAI_SERIF: &str = "Noto Serif Thai";
 
-/// The Thai fallback beside the sans and mono faces.
+/// The Thai fallback beside the interface's and the code's faces.
 pub fn thai_sans() -> Vec<String> {
     if cfg!(target_os = "macos") {
         Vec::new()
@@ -61,24 +71,15 @@ pub fn thai_sans() -> Vec<String> {
     }
 }
 
-/// The Thai fallback beside the serif.
-pub fn thai_serif() -> Vec<String> {
-    if cfg!(target_os = "macos") {
-        Vec::new()
-    } else {
-        vec![THAI_SERIF.to_owned()]
-    }
-}
-
 fn fallbacks(fonts: Vec<String>) -> Option<FontFallbacks> {
     (!fonts.is_empty()).then(|| FontFallbacks::from_fonts(fonts))
 }
 
-/// The serif the agent's answers are set in.
+/// The agent's answers: the interface's face, a size up (`text_answer`).
 pub fn answer_font() -> Font {
     Font {
-        family: ANSWER_FAMILY.into(),
-        fallbacks: fallbacks(thai_serif()),
+        family: UI_FAMILY.into(),
+        fallbacks: fallbacks(thai_sans()),
         weight: FontWeight::NORMAL,
         ..Font::default()
     }
@@ -93,8 +94,8 @@ pub fn code_font() -> Font {
     }
 }
 
-/// Numbers in interface text (costs, counts, times): Inter with its tabular digits, so they
-/// line up without the mono face.
+/// Numbers in interface text (costs, counts, times): the interface's face with its tabular
+/// digits, so they line up without the mono face.
 pub fn numeric_font() -> Font {
     Font {
         family: UI_FAMILY.into(),

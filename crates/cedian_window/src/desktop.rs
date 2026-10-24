@@ -53,8 +53,8 @@ impl Desktop {
         };
         Self {
             theme,
-            ui_font_size: size("ui_font_size", 16.0),
-            code_font_size: size("code_font_size", 14.0),
+            ui_font_size: size("ui_font_size", 14.0),
+            code_font_size: size("code_font_size", 13.0),
             view_mode: ViewMode::from_key(desktop.get("view_mode").and_then(Value::as_str)),
             density: Density::from_key(desktop.get("density").and_then(Value::as_str)),
             sound: Sound::from_key(desktop.get("sound").and_then(Value::as_str)),

@@ -175,18 +175,9 @@ impl SettingsView {
         let thai = if cfg!(target_os = "macos") {
             "ภาษาไทยใช้ฟอนต์ของระบบ".to_owned()
         } else {
-            format!(
-                "กับ {} และ {} สำหรับภาษาไทย",
-                tokens::thai_sans().join(""),
-                tokens::thai_serif().join("")
-            )
+            format!("กับ {} สำหรับภาษาไทย", tokens::thai_sans().join(""))
         };
-        let fonts = format!(
-            "{} · {} · {}, {thai}",
-            tokens::UI_FAMILY,
-            tokens::ANSWER_FAMILY,
-            tokens::CODE_FAMILY,
-        );
+        let fonts = format!("{} · {}, {thai}", tokens::UI_NAME, tokens::CODE_FAMILY,);
         div()
             .flex()
             .flex_col()
