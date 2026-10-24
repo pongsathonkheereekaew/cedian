@@ -42,6 +42,8 @@ pub enum ReviewEvent {
 pub struct ReviewPane {
     thread: Option<String>,
     review: Option<Review>,
+    /// The block's header draws the toolbar (the block holds no other tab).
+    pub bar_in_header: bool,
     /// Index into every hunk of the review, in file order.
     selected: usize,
     /// The open file, which follows the selected hunk; a file with no hunks can be opened too.
@@ -69,6 +71,7 @@ impl ReviewPane {
         Self {
             thread: None,
             review: None,
+            bar_in_header: false,
             selected: 0,
             file: 0,
             rejecting: None,
@@ -688,15 +691,11 @@ fn button(
         .children(key.map(|key| div().text_label().text_color(colors.text_muted).child(key)))
 }
 
-impl Render for ReviewPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let colors = cx.theme().colors();
-        let (muted, panel, text, border) = (
-            colors.text_muted,
-            colors.panel_background,
-            colors.text,
-            colors.border,
-        );
+impl ReviewPane {
+    /// What is left to decide, รับที่เหลือทั้งหมด and refresh: in the block's header when the
+    /// block holds only the review, else over the hunks.
+    pub fn toolbar(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let muted = cx.theme().colors().text_muted;
         let review = self.review.clone();
         let (decided, total, pending, added, removed) =
             review.as_ref().map_or((0, 0, 0, 0, 0), |r| {
@@ -711,6 +710,54 @@ impl Render for ReviewPane {
                     r.files.iter().map(|f| f.removed).sum::<usize>(),
                 )
             });
+        div()
+            .id("review-toolbar")
+            .debug_selector(|| "review-toolbar".into())
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap_2()
+            // The block's header names it; this line counts what is left.
+            .when(total > 0, |row| {
+                row.child(
+                    div()
+                        .font(tokens::numeric_font())
+                        .text_meta()
+                        .text_color(muted)
+                        .child(format!("+{added} −{removed} · {decided}/{total} hunk")),
+                )
+            })
+            .child(div().flex_grow(1.))
+            .when(pending > 0, |row| {
+                row.child(
+                    button(cx, ("accept-rest", 0), "รับที่เหลือทั้งหมด", None)
+                        .on_click(cx.listener(|pane, _, _, cx| pane.accept_rest(cx))),
+                )
+            })
+            .child(
+                icon_button(cx, "refresh-review", "icons/rotate_cw.svg")
+                    .tooltip(|_, cx| {
+                        crate::tooltip::text(
+                            "อ่านใหม่ · เทียบกับ snapshot แรกของ thread ไม่ใช่ git HEAD".into(),
+                            cx,
+                        )
+                    })
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(ReviewEvent::Refresh))),
+            )
+    }
+}
+
+impl Render for ReviewPane {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = cx.theme().colors();
+        let (muted, panel, text, border) = (
+            colors.text_muted,
+            colors.panel_background,
+            colors.text,
+            colors.border,
+        );
+        let review = self.review.clone();
         let empty: Option<&'static str> = match (&self.thread, &review) {
             (None, _) => Some("ยังไม่ได้เปิด thread"),
             (Some(_), None) => Some("กำลังอ่านสิ่งที่ thread เปลี่ยน"),
@@ -720,48 +767,16 @@ impl Render for ReviewPane {
             _ => None,
         };
         let wide = self.wide;
-        let header = div()
-            .flex_none()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .px_3()
-            .py_2()
-            .border_b_1()
-            .border_color(border)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    // The block's header names it; this line counts what is left.
-                    .when(total > 0, |row| {
-                        row.child(
-                            div()
-                                .font(tokens::numeric_font())
-                                .text_meta()
-                                .text_color(muted)
-                                .child(format!("+{added} −{removed} · {decided}/{total} hunk")),
-                        )
-                    })
-                    .child(div().flex_grow(1.))
-                    .when(pending > 0, |row| {
-                        row.child(
-                            button(cx, ("accept-rest", 0), "รับที่เหลือทั้งหมด", None)
-                                .on_click(cx.listener(|pane, _, _, cx| pane.accept_rest(cx))),
-                        )
-                    })
-                    .child(
-                        icon_button(cx, "refresh-review", "icons/rotate_cw.svg")
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ReviewEvent::Refresh))),
-                    ),
-            )
-            .child(
-                div()
-                    .text_meta()
-                    .text_color(muted)
-                    .child("เทียบกับ snapshot แรกของ thread ไม่ใช่ git HEAD"),
-            );
+        let header = (!self.bar_in_header).then(|| {
+            div()
+                .flex_none()
+                .px_3()
+                .py_2()
+                .border_b_1()
+                .border_color(border)
+                .flex()
+                .child(self.toolbar(cx))
+        });
         let mut hunk_list = div()
             .id("review")
             .key_context("ReviewList")
@@ -833,7 +848,7 @@ impl Render for ReviewPane {
             .flex_col()
             .bg(panel)
             .text_color(text)
-            .child(header)
+            .children(header)
             .child(body)
     }
 }

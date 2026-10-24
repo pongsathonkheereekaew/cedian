@@ -1,6 +1,8 @@
 //! A block's 36 px header (Interface, Blocks): the kind's icon, the tabs (a thread's tab with
-//! its state dot), a short meta in the code face, then Zoom and ⋯. The grip shows in the middle
-//! of the focused block's header, and on hover on the others; the whole header drags.
+//! its state dot), a short meta in the code face, then Zoom. A block that holds one tab and has
+//! controls of its own (Browser, Review) puts them in place of the icon, the tab and the meta,
+//! as Tern does. The grip shows in the middle of the focused block's header, and on hover on the
+//! others; it opens the block's menu, and the header drags from anywhere a control is not.
 
 use cedian_layout::{BlockId, Kind};
 use cedian_wire::Status;
@@ -14,6 +16,8 @@ use theme::ActiveTheme as _;
 use crate::{on_click::OnClick, thread_list, tokens, type_scale::TypeScale as _};
 
 pub const HEADER_HEIGHT: f32 = 36.;
+/// The grip's height, from the header's top: the block's menu opens under it.
+pub const GRIP_HEIGHT: f32 = 11.;
 
 pub struct Tab {
     pub id: BlockId,
@@ -36,6 +40,8 @@ pub struct HeaderSpec {
     pub narrow: bool,
     /// The most tabs that fit; the rest wait behind a `+n` tab.
     pub max_tabs: usize,
+    /// The block's own controls, drawn in place of the icon, the tabs and the meta.
+    pub bar: Option<AnyElement>,
 }
 
 pub struct HeaderActions {
@@ -82,6 +88,7 @@ pub fn header(spec: HeaderSpec, actions: HeaderActions, cx: &App) -> Stateful<Di
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(svg().path(icon).size(px(14.)).text_color(colors.text_muted))
     };
+    let meta = spec.meta.clone().filter(|_| !spec.narrow);
     let (shown, behind) = fit(&spec.tabs, spec.active, spec.max_tabs);
     let mut tabs = div()
         .flex_grow(1.)
@@ -163,31 +170,43 @@ pub fn header(spec: HeaderSpec, actions: HeaderActions, cx: &App) -> Stateful<Di
         .items_center()
         .gap_1()
         .cursor_grab()
-        .child(
-            div()
-                .flex_none()
-                .size(px(24.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    svg()
-                        .path(icon(spec.kind))
-                        .size(px(14.))
-                        .text_color(colors.text_muted),
-                ),
-        )
-        .child(tabs)
-        .when_some(spec.meta.filter(|_| !spec.narrow), |h, meta| {
-            h.child(
+        .map(|h| match spec.bar {
+            Some(bar) => h.child(
                 div()
-                    .flex_none()
-                    .px_1()
-                    .font(tokens::numeric_font())
-                    .text_meta()
-                    .text_color(colors.text_placeholder)
-                    .child(meta),
-            )
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    // A press on a control is not the start of a drag.
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(bar),
+            ),
+            None => h
+                .child(
+                    div()
+                        .flex_none()
+                        .size(px(24.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            svg()
+                                .path(icon(spec.kind))
+                                .size(px(14.))
+                                .text_color(colors.text_muted),
+                        ),
+                )
+                .child(tabs)
+                .when_some(meta, |h, meta| {
+                    h.child(
+                        div()
+                            .flex_none()
+                            .px_1()
+                            .font(tokens::numeric_font())
+                            .text_meta()
+                            .text_color(colors.text_placeholder)
+                            .child(meta),
+                    )
+                }),
         })
         .child(
             button(
@@ -200,14 +219,7 @@ pub fn header(spec: HeaderSpec, actions: HeaderActions, cx: &App) -> Stateful<Di
             )
             .on_click(actions.zoom),
         )
-        .child(
-            button(
-                SharedString::from(format!("block-menu-{}", spec.id)),
-                "icons/ellipsis.svg",
-            )
-            .on_click(actions.menu),
-        )
-        .child(grip(spec.focused, cx))
+        .child(grip(spec.id, spec.focused, actions.menu, cx))
 }
 
 /// The tabs that fit, in order and always with the open one, and the ones behind `+n`.
@@ -229,8 +241,9 @@ fn fit(tabs: &[Tab], active: BlockId, max: usize) -> (Vec<&Tab>, Vec<&Tab>) {
     (shown, behind)
 }
 
-/// The ⠿ in the middle of the header: always on the focused block, on hover elsewhere.
-fn grip(focused: bool, cx: &App) -> AnyElement {
+/// The ⠿ in the middle of the header: always on the focused block, on hover elsewhere. A
+/// click opens the block's menu; a drag from it moves the block like the rest of the header.
+fn grip(id: BlockId, focused: bool, menu: OnClick, cx: &App) -> AnyElement {
     let colors = cx.theme().colors();
     let dots = (0..2).fold(div().flex().flex_col().gap(px(2.)), |col, _| {
         col.child((0..3).fold(div().flex().gap(px(4.)), |row, _| {
@@ -244,14 +257,28 @@ fn grip(focused: bool, cx: &App) -> AnyElement {
     });
     div()
         .absolute()
-        .top(px(2.))
+        .top_0()
         .left_0()
         .right_0()
         .flex()
         .justify_center()
-        .opacity(if focused { 0.75 } else { 0. })
-        .group_hover("block-header", |g| g.opacity(0.75))
-        .child(dots)
+        .child(
+            div()
+                .id(SharedString::from(format!("block-menu-{id}")))
+                .debug_selector(move || format!("block-grip-{id}"))
+                .w(px(36.))
+                .h(px(GRIP_HEIGHT))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_b(px(5.))
+                .cursor_pointer()
+                .opacity(if focused { 0.75 } else { 0. })
+                .group_hover("block-header", |g| g.opacity(0.75))
+                .hover(|g| g.opacity(1.).bg(colors.element_hover))
+                .on_click(menu)
+                .child(dots),
+        )
         .into_any_element()
 }
 

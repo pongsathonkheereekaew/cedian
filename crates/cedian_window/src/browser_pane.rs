@@ -55,6 +55,9 @@ pub struct BrowserPane {
     frame: Option<Arc<RenderImage>>,
     /// The page's size in CSS pixels, as the last frame shows it.
     frame_size: (f32, f32),
+    /// The block's header draws the toolbar (the block holds no other tab), so the page goes
+    /// up to the header.
+    pub bar_in_header: bool,
     /// Frames drawn and replaced, dropped from the sprite atlas at the next frame.
     spent: Vec<Arc<RenderImage>>,
     /// Where the page is drawn, and the viewport last set: width, height, scale, mobile.
@@ -97,6 +100,7 @@ impl BrowserPane {
             cdp: None,
             reader: None,
             frame: None,
+            bar_in_header: false,
             frame_size: (0., 0.),
             spent: Vec::new(),
             area: Bounds::default(),
@@ -776,6 +780,82 @@ fn tool_button(cx: &App, id: &'static str, icon: &'static str) -> gpui::Stateful
 }
 
 impl BrowserPane {
+    /// Back, reload, the address, the widths and จับภาพ: in the block's header when the
+    /// block holds only this page, else over the page.
+    pub fn toolbar(&mut self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+        let colors = cx.theme().colors().clone();
+        let field = tokens::Tokens::of(cx).field;
+        let width = |mobile: bool, label: &'static str, id: &'static str| {
+            let on = self.mobile == mobile;
+            div()
+                .id(id)
+                .px_2()
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .rounded(px(6.))
+                .text_meta()
+                .cursor_pointer()
+                .when(on, |b| {
+                    b.bg(colors.element_selected).text_color(colors.text)
+                })
+                .when(!on, |b| {
+                    b.text_color(colors.text_muted)
+                        .hover(|b| b.bg(colors.element_hover))
+                })
+                .on_click(cx.listener(move |pane, _, _, cx| pane.set_mobile(mobile, cx)))
+                .child(label)
+        };
+        div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(
+                tool_button(cx, "browser-back", "icons/arrow_left.svg")
+                    .on_click(cx.listener(|pane, _, window, cx| pane.back(window, cx))),
+            )
+            .child(
+                tool_button(cx, "browser-reload", "icons/rotate_cw.svg")
+                    .on_click(cx.listener(|pane, _, window, cx| pane.reload(window, cx))),
+            )
+            .child(
+                div()
+                    .key_context("BrowserUrl")
+                    .on_action(cx.listener(Self::go))
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(28.))
+                    .px_2p5()
+                    .flex()
+                    .items_center()
+                    .rounded(px(8.))
+                    .bg(field)
+                    .text_ui()
+                    .child(self.address.clone()),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .gap_0p5()
+                    .child(width(true, "มือถือ", "browser-mobile"))
+                    .child(width(false, "เดสก์ท็อป", "browser-desktop")),
+            )
+            .child(
+                tool_button(cx, "browser-capture", "icons/pencil.svg")
+                    .debug_selector(|| "browser-capture".into())
+                    .when(self.frame.is_none(), |b| b.opacity(0.4))
+                    .tooltip(|_, cx| {
+                        crate::tooltip::text("จับภาพและวาด แล้วแนบไปกับข้อความ".into(), cx)
+                    })
+                    .on_click(cx.listener(|pane, _, window, cx| pane.capture(window, cx))),
+            )
+            .id("browser-toolbar")
+            .debug_selector(|| "browser-toolbar".into())
+    }
+
     /// The row over a capture while it is marked: what to do, undo, put away, attach.
     fn render_marking_bar(&self, cx: &mut Context<Self>) -> gpui::Div {
         let colors = cx.theme().colors();
@@ -849,77 +929,16 @@ impl Render for BrowserPane {
         self.drop_spent(window, cx);
         self.sync_address(window, cx);
         let colors = cx.theme().colors().clone();
-        let field = tokens::Tokens::of(cx).field;
         let pane = cx.entity();
         let focus = self.focus.clone();
-        let width = |mobile: bool, label: &'static str, id: &'static str| {
-            let on = self.mobile == mobile;
+        let toolbar = (!self.bar_in_header).then(|| {
             div()
-                .id(id)
+                .flex_none()
+                .h(px(40.))
                 .px_2()
-                .h(px(24.))
                 .flex()
-                .items_center()
-                .rounded(px(6.))
-                .text_meta()
-                .cursor_pointer()
-                .when(on, |b| {
-                    b.bg(colors.element_selected).text_color(colors.text)
-                })
-                .when(!on, |b| {
-                    b.text_color(colors.text_muted)
-                        .hover(|b| b.bg(colors.element_hover))
-                })
-                .on_click(cx.listener(move |pane, _, _, cx| pane.set_mobile(mobile, cx)))
-                .child(label)
-        };
-        let toolbar = div()
-            .flex_none()
-            .h(px(40.))
-            .px_2()
-            .flex()
-            .items_center()
-            .gap_1()
-            .child(
-                tool_button(cx, "browser-back", "icons/arrow_left.svg")
-                    .on_click(cx.listener(|pane, _, window, cx| pane.back(window, cx))),
-            )
-            .child(
-                tool_button(cx, "browser-reload", "icons/rotate_cw.svg")
-                    .on_click(cx.listener(|pane, _, window, cx| pane.reload(window, cx))),
-            )
-            .child(
-                div()
-                    .key_context("BrowserUrl")
-                    .on_action(cx.listener(Self::go))
-                    .flex_1()
-                    .min_w_0()
-                    .h(px(28.))
-                    .px_2p5()
-                    .flex()
-                    .items_center()
-                    .rounded(px(8.))
-                    .bg(field)
-                    .text_ui()
-                    .child(self.address.clone()),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .flex()
-                    .gap_0p5()
-                    .child(width(true, "มือถือ", "browser-mobile"))
-                    .child(width(false, "เดสก์ท็อป", "browser-desktop")),
-            )
-            .child(
-                tool_button(cx, "browser-capture", "icons/pencil.svg")
-                    .debug_selector(|| "browser-capture".into())
-                    .when(self.frame.is_none(), |b| b.opacity(0.4))
-                    .tooltip(|_, cx| {
-                        crate::tooltip::text("จับภาพและวาด แล้วแนบไปกับข้อความ".into(), cx)
-                    })
-                    .on_click(cx.listener(|pane, _, window, cx| pane.capture(window, cx))),
-            );
+                .child(self.toolbar(cx))
+        });
         let marking = self.marks.is_some().then(|| self.render_marking_bar(cx));
         let marks_error = (self.marks.is_none())
             .then(|| self.marks_error.clone())
@@ -956,9 +975,10 @@ impl Render for BrowserPane {
             .relative()
             .flex_1()
             .min_h_0()
-            .mx_2()
-            .mb_2()
-            .rounded(px(8.))
+            // Under the header's toolbar the page runs to the block's edges.
+            .when(!self.bar_in_header, |page| {
+                page.mx_2().mb_2().rounded(px(8.))
+            })
             .overflow_hidden()
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::mouse_down))
@@ -1039,7 +1059,7 @@ impl Render for BrowserPane {
             .size_full()
             .flex()
             .flex_col()
-            .child(toolbar)
+            .children(toolbar)
             // A quiet line while the page loads, in place of a spinner.
             .child(
                 div()

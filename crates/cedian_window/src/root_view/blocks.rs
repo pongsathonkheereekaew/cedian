@@ -866,6 +866,7 @@ impl RootView {
             narrow,
             // The icon and the buttons take about 120 px, a tab about 110.
             max_tabs: ((width - 120.) / 110.).floor().max(1.) as usize,
+            bar: self.header_bar(kind, tabs.len() == 1, cx),
         };
         let actions = HeaderActions {
             tab: Box::new({
@@ -989,6 +990,34 @@ impl RootView {
             .children(drop)
             .children(menu)
             .into_any_element()
+    }
+
+    /// A Browser or Review block holding one tab draws its toolbar in its header, as Tern
+    /// does; among other tabs the toolbar stays in the block, under the tabs.
+    fn header_bar(
+        &mut self,
+        kind: Kind,
+        alone: bool,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        match kind {
+            Kind::Browser => Some(self.browser.update(cx, |pane, cx| {
+                if pane.bar_in_header != alone {
+                    pane.bar_in_header = alone;
+                    cx.notify();
+                }
+                alone.then(|| pane.toolbar(cx).into_any_element())
+            })),
+            Kind::Review => Some(self.review.update(cx, |pane, cx| {
+                if pane.bar_in_header != alone {
+                    pane.bar_in_header = alone;
+                    cx.notify();
+                }
+                alone.then(|| pane.toolbar(cx).into_any_element())
+            })),
+            _ => None,
+        }
+        .flatten()
     }
 
     fn tab_of(&self, id: BlockId, kind: Kind, cx: &gpui::App) -> Tab {
@@ -1138,20 +1167,16 @@ impl RootView {
                 })),
             )
         });
-        // The menu opens on the side with room: from the block's left edge when the block
-        // is near the window's left and narrower than the menu.
-        let from_left = self.block_rect(id).is_some_and(|r| r.x + r.w < 260.);
+        // The menu opens under the grip it came from, in the middle of the header.
         deferred(
             div()
                 .absolute()
-                .top(px(block_header::HEADER_HEIGHT))
-                .map(|m| {
-                    if from_left {
-                        m.left(px(6.))
-                    } else {
-                        m.right(px(6.))
-                    }
-                })
+                .top(px(block_header::GRIP_HEIGHT + 2.))
+                .debug_selector(|| "block-menu".into())
+                .left_0()
+                .right_0()
+                .flex()
+                .justify_center()
                 .child(
                     popup_menu::menu("block-menu", rows, cx).on_mouse_down_out(cx.listener(
                         |view, _, _, cx| {
