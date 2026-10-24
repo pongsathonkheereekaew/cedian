@@ -874,3 +874,61 @@ fn a_thread_is_renamed_in_its_row_and_deleted_after_the_row_asks() {
     assert!(view.read_with(cx, |view, _| title(view, "t-00000002").is_none()));
     assert!(cx.debug_bounds("thread-delete-confirm").is_none());
 }
+
+#[test]
+fn blocks_fill_the_window_when_their_shares_sum_under_one() {
+    use cedian_layout::{Dir, Node};
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    // The layout a drag-split left on the owner's Mac: a block moved out of a split leaves the
+    // others their shares, here 0.59 of the row and 0.75 of the column.
+    view.update(cx, |view, cx| {
+        let ws = view.ws();
+        let [agent, threads, review, session] =
+            [Kind::Agent, Kind::Threads, Kind::Review, Kind::Session]
+                .map(|kind| ws.find(kind).unwrap_or_else(|| panic!("{kind:?}")));
+        let tree = Node::Split {
+            dir: Dir::Row,
+            sizes: vec![0.08, 0.51],
+            kids: vec![
+                Node::leaf(session),
+                Node::Split {
+                    dir: Dir::Col,
+                    sizes: vec![0.25, 0.5],
+                    kids: vec![
+                        Node::Leaf {
+                            tabs: vec![threads, agent],
+                            active: 1,
+                        },
+                        Node::leaf(review),
+                    ],
+                },
+            ],
+        };
+        view.change(cx, |ws, _| {
+            if let Some(layout) = ws.layouts.get_mut(ws.current) {
+                layout.tree = Some(tree);
+            }
+        });
+    });
+    cx.run_until_parked();
+    let (mut left, mut right, mut bottom) = (px(f32::MAX), px(0.), px(0.));
+    for block in ["session-block", "agent-block", "review-block"] {
+        let b = bounds(cx, block);
+        left = left.min(b.left());
+        right = right.max(b.right());
+        bottom = bottom.max(b.bottom());
+    }
+    let window = view.update_in(cx, |_, window, _| window.viewport_size());
+    // Each edge within the gap and a border of the window's.
+    assert!(left < px(12.), "the blocks start at {left:?}");
+    assert!(
+        right > window.width - px(12.),
+        "the blocks end at {right:?} of {window:?}"
+    );
+    assert!(
+        bottom > window.height - px(12.),
+        "the blocks end at {bottom:?} of {window:?}"
+    );
+}

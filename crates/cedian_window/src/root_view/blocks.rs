@@ -703,6 +703,9 @@ impl RootView {
                 if dir == Dir::Col {
                     split = split.flex_col();
                 }
+                // Shares are parts of their sum, which a move can leave under 1; a flex
+                // grow summing under 1 hands out only that part of the space.
+                let total = sizes.iter().sum::<f32>().max(f32::EPSILON);
                 for (n, (size, kid)) in sizes.iter().zip(kids).enumerate() {
                     if n > 0 {
                         let drag = SplitDrag {
@@ -756,7 +759,7 @@ impl RootView {
                     split = split.child(
                         div()
                             .flex_basis(px(0.))
-                            .flex_grow(*size)
+                            .flex_grow(size / total)
                             .flex_shrink(0.)
                             .min_w(px(min_w))
                             .min_h(px(min_h))
