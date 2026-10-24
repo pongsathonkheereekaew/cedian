@@ -1,6 +1,6 @@
 # Spawn cedia
 
-A prompt asks the daemon to run one cedia process. The argv is `--print=<text> --output-format stream-json --cwd <dir>`, then `--thread` only when the thread id is already known, then `--model` when the request sets one. The child is its own process group. The thread file is cedia's to write, under `$CEDIA_HOME`. cedian reads it and does not write a second copy.
+A prompt asks the daemon to run one cedia process. The argv is `--print=<text> --output-format stream-json --cwd <dir>`, then `--thread` only when the thread id is already known, then `--model` when the request sets one. A pinned cedia that lists ask, todo, and cache-ttl also receives `--ask on`, `--todo on`, and `--cache-ttl 1h` after `--model`. The child is its own process group. The thread file is cedia's to write, under `$CEDIA_HOME`. cedian reads it and does not write a second copy.
 
 ## Sub-features
 

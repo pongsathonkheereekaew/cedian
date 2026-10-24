@@ -1,6 +1,6 @@
 # Terminal pane
 
-The terminal is a `ShellPane`. The window starts it the first time a Terminal block is shown. The default layout has no terminal. `ctrl+alt+shift+t` opens it. The shell is a pty child of the cedian pid. Dropping that terminal sends the child SIGTERM. The daemon is a different process and keeps running after the window quits. Cleanup kills the daemon itself.
+The terminal is a `ShellPane`. The window starts it the first time a Terminal block is shown. The default layout has no terminal. On Linux `ctrl+alt+shift+t` opens it. On macOS the chord is `cmd+shift+t`. The shell is a pty child of the cedian pid. It dies when the window exits. The daemon is a different process and keeps running after the window quits. Cleanup kills the daemon itself.
 
 ## Sub-features
 
