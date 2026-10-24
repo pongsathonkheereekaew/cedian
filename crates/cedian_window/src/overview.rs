@@ -200,11 +200,13 @@ fn mini(node: &Node, ws: &Workspace, cx: &App) -> AnyElement {
             if *dir == Dir::Col {
                 split = split.flex_col();
             }
+            // As in the blocks: a share is a part of the split's sum.
+            let total = sizes.iter().sum::<f32>().max(f32::EPSILON);
             for (size, kid) in sizes.iter().zip(kids) {
                 split = split.child(
                     div()
                         .flex_basis(px(0.))
-                        .flex_grow(*size)
+                        .flex_grow(size / total)
                         .min_w_0()
                         .min_h_0()
                         .flex()

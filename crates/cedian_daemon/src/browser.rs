@@ -186,6 +186,10 @@ fn chromium_args(profile: &Path) -> Vec<String> {
             "--no-first-run".to_owned(),
             "--no-default-browser-check".to_owned(),
             "--hide-scrollbars".to_owned(),
+            // Headless screencasts at the screen's scale, not the viewport's
+            // `deviceScaleFactor`: at 1 a Retina block stretches each pixel over four. At 2 a
+            // 1x block asks for frames no wider than itself, so Chromium scales them down.
+            "--force-device-scale-factor=2".to_owned(),
             "about:blank".to_owned(),
         ])
         .collect()
