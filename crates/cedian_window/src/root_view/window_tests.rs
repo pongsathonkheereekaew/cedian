@@ -932,3 +932,58 @@ fn blocks_fill_the_window_when_their_shares_sum_under_one() {
         "the blocks end at {bottom:?} of {window:?}"
     );
 }
+
+#[test]
+fn a_browser_alone_draws_its_toolbar_as_its_header_and_the_grip_opens_the_menu() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    view.update(cx, |view, cx| {
+        view.open_kind(
+            Kind::Browser,
+            super::blocks::ToolTarget { against: None },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    let (browser, alone) = view.read_with(cx, |view, _| {
+        let id = view.ws().find(Kind::Browser).expect("browser");
+        let tabs = view
+            .ws()
+            .tree()
+            .and_then(|t| t.tabs_of(id))
+            .map(|(t, _)| t.len());
+        (id, tabs == Some(1))
+    });
+    assert!(alone, "the Browser opens as a block of its own");
+    let block = bounds(cx, "browser-block");
+    let toolbar = bounds(cx, "browser-toolbar");
+    inside("browser-toolbar", toolbar, "browser-block", block);
+    assert!(
+        toolbar.bottom() <= block.top() + px(crate::block_header::HEADER_HEIGHT),
+        "the toolbar {toolbar:?} sits in the header of {block:?}"
+    );
+    // The Review shares its leaf with Session in this layout: its toolbar stays under the tabs.
+    let review_alone = view.read_with(cx, |view, _| {
+        let id = view.ws().find(Kind::Review).expect("review");
+        view.ws()
+            .tree()
+            .and_then(|t| t.tabs_of(id))
+            .map(|(t, _)| t.len())
+            == Some(1)
+    });
+    if !review_alone && let Some(review) = cx.debug_bounds("review-block") {
+        let toolbar = bounds(cx, "review-toolbar");
+        assert!(toolbar.top() >= review.top() + px(crate::block_header::HEADER_HEIGHT));
+    }
+    assert!(cx.debug_bounds("block-menu").is_none());
+    let grip: &'static str = Box::leak(format!("block-grip-{browser}").into());
+    let grip = bounds(cx, grip);
+    inside("the grip", grip, "browser-block", block);
+    cx.simulate_click(grip.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("block-menu").is_some(),
+        "the grip opens the menu"
+    );
+}
