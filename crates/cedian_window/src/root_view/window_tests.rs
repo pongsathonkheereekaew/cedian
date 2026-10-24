@@ -724,6 +724,116 @@ fn the_receipt_undoes_its_turn_and_a_message_rewinds_to_before_it() {
 }
 
 #[test]
+fn the_receipt_commits_with_cedias_message_then_opens_a_pr_after_saying_where() {
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    view.update(cx, |view, cx| {
+        view.can_commit = true;
+        view.can_pr = true;
+        let info: cedian_wire::ThreadInfo = serde_json::from_value(serde_json::json!({
+            "id": "t-00000001", "title": "f", "task": "f", "state": "done", "result": null,
+            "parent": null, "archived": false, "sessions": [], "messages": [], "pending": [],
+            "updated_at": "2026-10-22T01:00:00.000Z", "status": "done",
+            "runs": [{"id": "r-1", "prompt": "make f.txt say good"}]
+        }))
+        .expect("info");
+        view.projects[0].set_threads(vec![info]);
+        view.show_offers(cx);
+    });
+    cx.run_until_parked();
+    let block = bounds(cx, "agent-block");
+    inside(
+        "the PR button",
+        bounds(cx, "receipt-pr"),
+        "the Agent block",
+        block,
+    );
+    let commit = bounds(cx, "receipt-commit").center();
+    cx.simulate_click(commit, gpui::Modifiers::none());
+    assert!(
+        cx.debug_bounds("ship-card").is_some(),
+        "the card waits on cedia"
+    );
+    view.update(cx, |view, cx| {
+        let draft = serde_json::from_str(
+            r#"{"files":["f.txt"],"message":"Make f.txt say good\n\nOne line.","branch":"work"}"#,
+        )
+        .expect("draft");
+        view.on_notice(
+            Notice::CommitDraft {
+                thread: "t-00000001".into(),
+                draft,
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    inside(
+        "the commit card",
+        bounds(cx, "ship-card"),
+        "the Agent block",
+        block,
+    );
+    let message = view.read_with(cx, |view, cx| {
+        view.ship_message
+            .as_ref()
+            .map(|editor| editor.read(cx).text(cx))
+    });
+    assert_eq!(message.as_deref(), Some("Make f.txt say good\n\nOne line."));
+    assert!(cx.debug_bounds("ship-message").is_some());
+    view.update(cx, |view, cx| {
+        let result = serde_json::from_str(
+            r#"{"commit":"abc1234def","subject":"Make f.txt say good","files":["f.txt"]}"#,
+        )
+        .expect("committed");
+        view.on_notice(
+            Notice::Committed {
+                thread: "t-00000001".into(),
+                result,
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    let then_pr = bounds(cx, "ship-then-pr").center();
+    cx.simulate_click(then_pr, gpui::Modifiers::none());
+    view.update(cx, |view, cx| {
+        let plan = serde_json::from_str(r#"{"branch":"work","base":"main"}"#).expect("plan");
+        view.on_notice(
+            Notice::PrPlan {
+                thread: "t-00000001".into(),
+                plan,
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("ship-pr").is_some(),
+        "it asks before the push"
+    );
+    view.update(cx, |view, cx| {
+        let result = serde_json::from_str(
+            r#"{"url":"https://example.test/pr/7","branch":"work","base":"main","out":""}"#,
+        )
+        .expect("opened");
+        view.on_notice(
+            Notice::PrOpened {
+                thread: "t-00000001".into(),
+                result,
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("ship-open-link").is_some());
+    let close = bounds(cx, "ship-close").center();
+    cx.simulate_click(close, gpui::Modifiers::none());
+    assert!(cx.debug_bounds("ship-card").is_none());
+}
+
+#[test]
 fn the_skills_block_lists_the_commands_and_a_click_puts_one_in_the_composer() {
     let mut app = app();
     let (view, cx) = window(&mut app);

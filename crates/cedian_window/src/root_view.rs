@@ -8,6 +8,7 @@ mod editing;
 mod knowledge;
 mod restore;
 mod run_choices;
+mod ship;
 mod tear_off;
 mod thread_edit;
 
@@ -176,6 +177,13 @@ pub struct RootView {
     deleting: Option<String>,
     /// The card over the composer saying what an undo or a rewind did, or asking first.
     restore: Option<restore::RestoreCard>,
+    /// cedia commits and opens pull requests (`commit`, `pr`).
+    can_commit: bool,
+    can_pr: bool,
+    /// The card over the composer that commits the thread's files or opens its pull request,
+    /// and the field its commit message is edited in.
+    ship: Option<ship::ShipCard>,
+    ship_message: Option<Entity<Editor>>,
     /// Threads whose last turn was undone, with that turn's tree after it: the receipt offers
     /// redo while the thread's last turn is still that one.
     undone: std::collections::HashMap<String, String>,
@@ -362,6 +370,8 @@ impl RootView {
                         value: mode.key().into(),
                     });
                 }
+                AgentEvent::Commit => view.start_commit(window, cx),
+                AgentEvent::OpenPr => view.start_pr(cx),
                 AgentEvent::Review => {
                     view.open_kind(Kind::Review, blocks::ToolTarget { against: None }, cx)
                 }
@@ -537,6 +547,10 @@ impl RootView {
             renaming: None,
             deleting: None,
             restore: None,
+            can_commit: false,
+            can_pr: false,
+            ship: None,
+            ship_message: None,
             undone: std::collections::HashMap::new(),
             editing: None,
             finder: None,
@@ -625,6 +639,13 @@ impl RootView {
                     v.capabilities
                         .contains(&cedian_protocol::Capability::ThreadsDelete)
                 });
+                self.can_commit = cedia.as_ref().is_ok_and(|v| {
+                    v.capabilities
+                        .contains(&cedian_protocol::Capability::Commit)
+                });
+                self.can_pr = cedia
+                    .as_ref()
+                    .is_ok_and(|v| v.capabilities.contains(&cedian_protocol::Capability::Pr));
                 let can_mcp = cedia.as_ref().is_ok_and(|v| {
                     v.capabilities
                         .contains(&cedian_protocol::Capability::McpManage)
@@ -704,6 +725,10 @@ impl RootView {
                 result,
             } if cwd == self.project().cwd => self.on_rewound(thread, n, result, cx),
             Notice::Restored { .. } | Notice::Rewound { .. } => {}
+            Notice::CommitDraft { thread, draft } => self.on_commit_draft(thread, draft, cx),
+            Notice::Committed { thread, result } => self.on_committed(thread, result, cx),
+            Notice::PrPlan { thread, plan } => self.on_pr_plan(thread, plan, cx),
+            Notice::PrOpened { thread, result } => self.on_pr_opened(thread, result, cx),
             Notice::Background {
                 cwd,
                 schedules,
@@ -969,6 +994,8 @@ impl RootView {
                     .as_ref()
                     .filter(|_| self.can_restore)
                     .map(|turn| self.undone.get(&t.thread.id) == Some(&turn.after)),
+                commit: self.can_commit,
+                pr: self.can_pr,
             })
             .unwrap_or_default();
         self.agent
@@ -2140,6 +2167,7 @@ impl RootView {
             })
             .children(question)
             .children(self.render_restore(cx))
+            .children(self.render_ship(cx))
             .when(live, |column| {
                 let worktree = self.project().current.is_none().then(|| {
                     let word = if self.use_worktree {

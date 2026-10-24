@@ -62,6 +62,21 @@ if [[ "${1:-}" == "usage" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "commit" || "${1:-}" == "pr" ]]; then
+  # commit --thread=<id> [--message=<m> --file=<f>...] --cwd <dir> --json, pr [--check] --cwd <dir>
+  # --json: each call's arguments go to $FAKE_THREADS/../ship-calls.
+  state="$FAKE_THREADS/.."
+  mkdir -p "$state"
+  printf '%s\n' "$*" >>"$state/ship-calls"
+  case "$1 $*" in
+    commit*--message=*) echo '{"commit":"abc1234","subject":"Make f.txt say good","files":["f.txt"]}' ;;
+    commit*) echo '{"files":["f.txt"],"message":"Make f.txt say good\n\nOne line.","branch":"work"}' ;;
+    pr*--check*) echo '{"branch":"work","base":"main"}' ;;
+    *) echo '{"branch":"work","base":"main","url":"https://example.test/pr/7","out":"https://example.test/pr/7"}' ;;
+  esac
+  exit 0
+fi
+
 if [[ "${1:-}" == "mcp" ]]; then
   # mcp list|check|add|remove ...: each call's arguments go to $FAKE_THREADS/../mcp-calls, the
   # list is $FAKE_THREADS/../mcp.json, an add names one server x and a server named bad is refused.

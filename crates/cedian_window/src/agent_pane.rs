@@ -51,6 +51,10 @@ pub enum AgentEvent {
     Restore {
         redo: bool,
     },
+    /// Commit the files the thread changed, with a message cedia drafts.
+    Commit,
+    /// Push the thread's branch and open a pull request.
+    OpenPr,
 }
 
 /// What a message of the person's that started a run offers on hover, and the latest
@@ -65,6 +69,9 @@ pub struct RunOffers {
     pub rewind: bool,
     /// The latest receipt undoes its turn's files; `Some(true)` once undone, to redo.
     pub undone: Option<bool>,
+    /// The latest receipt commits its files and opens a pull request (`commit`, `pr`).
+    pub commit: bool,
+    pub pr: bool,
 }
 
 impl EventEmitter<AgentEvent> for AgentPane {}
@@ -431,6 +438,8 @@ impl AgentPane {
                         actions: latest.then(|| Actions {
                             rating: self.header.rating,
                             undone: self.offers.undone,
+                            commit: self.offers.commit,
+                            pr: self.offers.pr,
                             emit: Self::emitter(pane),
                         }),
                     }

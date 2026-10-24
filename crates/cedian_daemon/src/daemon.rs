@@ -693,6 +693,61 @@ impl Daemon {
                 }
                 lock(shared).send(client, Notice::Browser { cwd, page });
             }
+            Request::CommitDraft { .. }
+            | Request::Commit { .. }
+            | Request::PrCheck { .. }
+            | Request::Pr { .. } => {
+                let (cedia, can_commit, can_pr) = {
+                    let daemon = lock(shared);
+                    let can = |capability| {
+                        daemon
+                            .version
+                            .as_ref()
+                            .is_ok_and(|v| v.capabilities.contains(&capability))
+                    };
+                    (
+                        daemon.cedia.clone(),
+                        can(cedian_protocol::Capability::Commit),
+                        can(cedian_protocol::Capability::Pr),
+                    )
+                };
+                let can = match request {
+                    Request::CommitDraft { .. } | Request::Commit { .. } => can_commit,
+                    _ => can_pr,
+                };
+                if !can {
+                    lock(shared).error(client, "this cedia does not commit or open PRs yet".into());
+                    return;
+                }
+                // A draft asks a model and a PR pushes: neither holds the window's other asks.
+                let shared = shared.clone();
+                std::thread::spawn(move || {
+                    let notice = match request {
+                        Request::CommitDraft { cwd, thread } => cedia
+                            .commit_draft(&cwd, &thread)
+                            .map(|draft| Notice::CommitDraft { thread, draft }),
+                        Request::Commit {
+                            cwd,
+                            thread,
+                            message,
+                            files,
+                        } => cedia
+                            .commit(&cwd, &thread, &message, &files)
+                            .map(|result| Notice::Committed { thread, result }),
+                        Request::PrCheck { cwd, thread } => cedia
+                            .pr_check(&cwd)
+                            .map(|plan| Notice::PrPlan { thread, plan }),
+                        Request::Pr { cwd, thread } => cedia
+                            .pr(&cwd)
+                            .map(|result| Notice::PrOpened { thread, result }),
+                        _ => return,
+                    };
+                    match notice {
+                        Ok(notice) => lock(&shared).send(client, notice),
+                        Err(error) => lock(&shared).error(client, error),
+                    }
+                });
+            }
             Request::McpList
             | Request::McpCheck { .. }
             | Request::McpAdd { .. }

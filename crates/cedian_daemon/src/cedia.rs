@@ -7,8 +7,8 @@ use std::{
 
 use anyhow::Context as _;
 use cedian_protocol::{
-    Capability, CommandList, McpCheck, McpList, ModelList, PermissionList, Rating, Restored,
-    RewindResult, Schedule, UsageReport, VersionInfo,
+    Capability, CommandList, CommitDraft, Committed, McpCheck, McpList, ModelList, PermissionList,
+    PrOpened, PrPlan, Rating, Restored, RewindResult, Schedule, UsageReport, VersionInfo,
 };
 
 /// A run's flags beyond its text: cedia's `--profile`, `--model`, `--permission`, `--effort`,
@@ -144,6 +144,61 @@ impl Cedia {
             Some(_) => self.list_with(cwd, "usage", &range),
             None => self.list_with(None, "usage", &[range[0], range[1], "--all"]),
         }
+    }
+
+    /// `cedia commit --thread <id> --cwd <cwd> --json`: the files the thread changed and a message
+    /// its writer model drafted for them. Commits nothing.
+    pub fn commit_draft(&self, cwd: &Path, thread: &str) -> Result<CommitDraft, String> {
+        self.answer(cwd, "commit", &[format!("--thread={thread}")])
+    }
+
+    /// `cedia commit --thread <id> --cwd <cwd> --message=<m> --file=<f>... --json`.
+    pub fn commit(
+        &self,
+        cwd: &Path,
+        thread: &str,
+        message: &str,
+        files: &[String],
+    ) -> Result<Committed, String> {
+        let mut args = vec![format!("--thread={thread}"), format!("--message={message}")];
+        args.extend(files.iter().map(|file| format!("--file={file}")));
+        self.answer(cwd, "commit", &args)
+    }
+
+    /// `cedia pr --check --cwd <cwd> --json`: the branch, the base, or why not. Pushes nothing.
+    pub fn pr_check(&self, cwd: &Path) -> Result<PrPlan, String> {
+        self.answer(cwd, "pr", &["--check".to_owned()])
+    }
+
+    /// `cedia pr --cwd <cwd> --json`: pushes the branch and opens its pull request.
+    pub fn pr(&self, cwd: &Path) -> Result<PrOpened, String> {
+        self.answer(cwd, "pr", &[])
+    }
+
+    /// `cedia <command> <args> --cwd <cwd> --json`, read as `T` whether or not it succeeded: a
+    /// refusal is an answer (`{error}`, or a plan that says why not) with exit 1.
+    fn answer<T: serde::de::DeserializeOwned>(
+        &self,
+        cwd: &Path,
+        command: &str,
+        args: &[String],
+    ) -> Result<T, String> {
+        let output = self
+            .command(cwd)
+            .arg(command)
+            .args(args)
+            .arg("--cwd")
+            .arg(cwd)
+            .arg("--json")
+            .output()
+            .map_err(|e| format!("running {}: {e}", self.bin.display()))?;
+        serde_json::from_slice(&output.stdout).map_err(|_| {
+            format!(
+                "cedia {command} exited with {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            )
+        })
     }
 
     /// `cedia mcp list --json`: the person's MCP servers, without the values of their

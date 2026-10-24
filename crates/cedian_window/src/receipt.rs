@@ -35,6 +35,9 @@ pub struct Actions {
     pub rating: Option<Rating>,
     /// The turn's files can be put back; `Some(true)` once they were, to put them forward.
     pub undone: Option<bool>,
+    /// cedia commits the files the thread changed, and opens a pull request.
+    pub commit: bool,
+    pub pr: bool,
     pub emit: Emit,
 }
 
@@ -209,6 +212,20 @@ impl Actions {
         };
         let review = self.emit.clone();
         let restore = self.emit.clone();
+        let commit = (self.commit && changed).then(|| {
+            let emit = self.emit.clone();
+            button("receipt-commit")
+                .debug_selector(|| "receipt-commit".into())
+                .child("Commit")
+                .on_click(move |_, _, cx| emit(AgentEvent::Commit, cx))
+        });
+        let pr = self.pr.then(|| {
+            let emit = self.emit.clone();
+            button("receipt-pr")
+                .debug_selector(|| "receipt-pr".into())
+                .child("เปิด PR")
+                .on_click(move |_, _, cx| emit(AgentEvent::OpenPr, cx))
+        });
         // Undo is the whole turn's: cedia puts back every file it changed, from its snapshots.
         let undo = self.undone.filter(|_| changed).map(|undone| {
             button("receipt-undo")
@@ -232,6 +249,8 @@ impl Actions {
                 )
             })
             .children(undo)
+            .children(commit)
+            .children(pr)
             .child(div().flex_grow(1.))
             .child(thumb("rate-up", Rating::Up, "icons/thumbs_up.svg"))
             .child(thumb("rate-down", Rating::Down, "icons/thumbs_down.svg"))

@@ -353,6 +353,90 @@ fn mcp_servers_are_listed_checked_added_and_removed_through_cedia() {
 }
 
 #[test]
+fn a_commit_is_drafted_then_made_and_a_pr_is_checked_then_opened_through_cedia() {
+    let harness = start_with("edit-and-check", "\"commit\",\"pr\"");
+    let mut window = Window::connect(&harness);
+    let cwd = harness.cwd.clone();
+    let thread = || "t-1".to_owned();
+    window.ask(Request::CommitDraft {
+        cwd: cwd.clone(),
+        thread: thread(),
+    });
+    match window.next() {
+        Notice::CommitDraft {
+            thread,
+            draft: cedian_protocol::CommitDraft::Variant0 { files, message, .. },
+        } => {
+            assert_eq!(thread, "t-1");
+            assert_eq!(files, ["f.txt"]);
+            assert!(message.starts_with("Make f.txt say good"));
+        }
+        other => panic!("{other:?}"),
+    }
+    window.ask(Request::Commit {
+        cwd: cwd.clone(),
+        thread: thread(),
+        message: "-Make it\n\nso".into(),
+        files: vec!["f.txt".into()],
+    });
+    assert!(matches!(
+        window.next(),
+        Notice::Committed {
+            result: cedian_protocol::Committed::Variant0 { .. },
+            ..
+        }
+    ));
+    window.ask(Request::PrCheck {
+        cwd: cwd.clone(),
+        thread: thread(),
+    });
+    match window.next() {
+        Notice::PrPlan { plan, .. } => {
+            assert_eq!(
+                (plan.branch.as_deref(), plan.base.as_deref()),
+                (Some("work"), Some("main"))
+            )
+        }
+        other => panic!("{other:?}"),
+    }
+    window.ask(Request::Pr {
+        cwd: cwd.clone(),
+        thread: thread(),
+    });
+    match window.next() {
+        Notice::PrOpened {
+            result: cedian_protocol::PrOpened::Variant0 { url, .. },
+            ..
+        } => assert_eq!(url.as_deref(), Some("https://example.test/pr/7")),
+        other => panic!("{other:?}"),
+    }
+    let calls = std::fs::read_to_string(harness.threads.join("../ship-calls")).expect("calls");
+    let at = cwd.display();
+    assert_eq!(
+        calls.lines().collect::<Vec<_>>(),
+        [
+            format!("commit --thread=t-1 --cwd {at} --json"),
+            "commit --thread=t-1 --message=-Make it".to_string(),
+            String::new(),
+            format!("so --file=f.txt --cwd {at} --json"),
+            format!("pr --check --cwd {at} --json"),
+            format!("pr --cwd {at} --json"),
+        ]
+    );
+}
+
+#[test]
+fn a_cedia_without_commit_says_so() {
+    let harness = start("edit-and-check");
+    let mut window = Window::connect(&harness);
+    window.ask(Request::PrCheck {
+        cwd: harness.cwd.clone(),
+        thread: "t-1".into(),
+    });
+    assert!(matches!(window.next(), Notice::Error { .. }));
+}
+
+#[test]
 fn a_cedia_without_mcp_manage_says_so() {
     let harness = start("edit-and-check");
     let mut window = Window::connect(&harness);
