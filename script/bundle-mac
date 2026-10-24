@@ -76,6 +76,10 @@ rustup target add "$triple" >/dev/null
 # Rust's mangled symbols (`__R…`) need not be exported from an executable; leaving them out of
 # the export trie shrinks __LINKEDIT, as Zed does for its own binary.
 hide='link-arg=-Wl,-unexported_symbol,__R*'
+# A dSYM from before split-debuginfo "packed" is a directory Cargo cannot replace with its link.
+for bin in cedian cedian-daemon; do
+  if [[ -d "$out/$bin.dSYM" && ! -L "$out/$bin.dSYM" ]]; then rm -rf "${out:?}/$bin.dSYM"; fi
+done
 cargo rustc --release --locked --target "$triple" -p cedian_window --bin cedian ${features[@]+"${features[@]}"} -- -C "$hide"
 cargo rustc --release --locked --target "$triple" -p cedian_daemon --bin cedian-daemon -- -C "$hide"
 
