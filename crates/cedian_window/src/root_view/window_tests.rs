@@ -874,3 +874,52 @@ fn a_thread_is_renamed_in_its_row_and_deleted_after_the_row_asks() {
     assert!(view.read_with(cx, |view, _| title(view, "t-00000002").is_none()));
     assert!(cx.debug_bounds("thread-delete-confirm").is_none());
 }
+
+#[test]
+fn a_split_whose_shares_add_up_to_less_than_one_still_fills_the_window() {
+    use cedian_layout::{Dir, Node};
+
+    let mut app = app();
+    let (view, cx) = window(&mut app);
+    cx.simulate_resize(size(px(1280.), px(800.)));
+    // The shares a drag left behind once a block moved out of each split.
+    view.update(cx, |view, cx| {
+        let ws = &mut view.project_mut().workspace;
+        let mut id = |kind| ws.find(kind).unwrap_or_else(|| ws.new_block(kind));
+        let (session, threads, agent, review) = (
+            id(Kind::Session),
+            id(Kind::Threads),
+            id(Kind::Agent),
+            id(Kind::Review),
+        );
+        let tree = Node::Split {
+            dir: Dir::Row,
+            sizes: vec![0.08, 0.51],
+            kids: vec![
+                Node::leaf(session),
+                Node::Split {
+                    dir: Dir::Col,
+                    sizes: vec![0.25, 0.5],
+                    kids: vec![
+                        Node::Leaf {
+                            tabs: vec![threads, agent],
+                            active: 1,
+                        },
+                        Node::leaf(review),
+                    ],
+                },
+            ],
+        };
+        let current = ws.current;
+        ws.layouts[current].tree = Some(tree);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let window = bounds(cx, "review-block");
+    // The window's bottom-right corner, less the outer gap and a pixel of rounding.
+    let far = (px(1280. - 8.), px(800. - 8.));
+    assert!(
+        window.right() >= far.0 && window.bottom() >= far.1,
+        "the review reaches the window's corner: {window:?}"
+    );
+}

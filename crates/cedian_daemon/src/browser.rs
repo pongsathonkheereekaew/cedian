@@ -186,6 +186,10 @@ fn chromium_args(profile: &Path) -> Vec<String> {
             "--no-first-run".to_owned(),
             "--no-default-browser-check".to_owned(),
             "--hide-scrollbars".to_owned(),
+            // A headless screencast is drawn at the screen's scale, which is 1 whatever
+            // `Emulation.setDeviceMetricsOverride` says; at 1 a Retina window stretches each
+            // page pixel over four. The window's `maxWidth` scales frames down on a 1x screen.
+            "--force-device-scale-factor=2".to_owned(),
             "about:blank".to_owned(),
         ])
         .collect()
