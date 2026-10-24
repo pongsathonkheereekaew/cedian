@@ -618,10 +618,11 @@ cmd_drive() {
   fi
   case "$feature" in
     agent-pane)
-      local shot ocr i
+      local shot ocr i center id
       shot="${EVIDENCE_DIR}/agent-pane.png"
       ocr="${EVIDENCE_DIR}/agent-pane.ocr.txt"
-      rm -f "$ocr" "$ARGV_FILE"
+      center="${EVIDENCE_DIR}/agent-pane-conversation.png"
+      rm -f "$ocr" "$ARGV_FILE" "$center"
       (
         for ((n = 0; n < 200; n++)); do
           sample_cedia_argv || true
@@ -640,9 +641,32 @@ cmd_drive() {
         fi
         sleep 0.25
       done
-      sleep 1
+      sleep 0.6
+      send_block_key "ctrl+k" >>"$body" || true
+      id=""
+      if [[ -f "$WINDOW_ID_FILE" ]]; then
+        id="$(tr -d '[:space:]' <"$WINDOW_ID_FILE")"
+      fi
+      if [[ -n "$id" ]]; then
+        xdotool type --window "$id" --delay 40 good
+        sleep 0.4
+        xdotool key --window "$id" Return
+        echo "search_query=good" >>"$body"
+      else
+        echo "search_query=unsent" >>"$body"
+      fi
+      sleep 1.2
       capture_window "$shot" >>"$body" || true
-      ocr_contains "$shot" "say good" "ocr_prompt" "$ocr" >>"$body"
+      if [[ -f "$shot" ]] && command -v convert >/dev/null 2>&1; then
+        convert "$shot" -crop 700x640+260+80 +repage "$center" 2>/dev/null || true
+      fi
+      if [[ -f "$center" ]]; then
+        ocr_contains "$center" "say good" "ocr_prompt" "$ocr" >>"$body"
+        ocr_contains "$center" '$' "ocr_cost" "$ocr" >>"$body"
+      else
+        echo "ocr_prompt=no" >>"$body"
+        echo "ocr_cost=no" >>"$body"
+      fi
       echo "thread_files=$(thread_jsonl_count)" >>"$body"
       if [[ "$(thread_jsonl_count)" != 0 ]]; then
         echo "thread_file=present" >>"$body"
@@ -650,7 +674,9 @@ cmd_drive() {
         echo "thread_file=absent" >>"$body"
       fi
       if grep -q '^window=started$' "$body" \
+        && grep -q '^search_query=good$' "$body" \
         && grep -q '^ocr_prompt=yes$' "$body" \
+        && grep -q '^ocr_cost=yes$' "$body" \
         && grep -q '^thread_file=present$' "$body" \
         && [[ "$(home_cedia_state)" == absent ]]; then
         exit_code=0

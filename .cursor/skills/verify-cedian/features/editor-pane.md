@@ -25,5 +25,6 @@ Preconditions:
 ## Gotchas
 
 - The editor and the terminal are different blocks. Quitting the window closes both.
+- On macOS the open chord is `cmd+shift+e`. This drive sends the Linux chord `ctrl+alt+shift+e`.
 - A passing drive does not claim `editor-file`.
 - There is no `cedian spike` line in this checkout.

@@ -52,7 +52,7 @@ The harness is `verify-cedian.sh drive <feature>`. Feature ids are `agent-pane`,
 bash .cursor/skills/verify-cedian/scripts/verify-cedian.sh drive agent-pane
 ```
 
-Drive uses the process launch started. It does not exec a second `cedian`. `agent-pane` sends one prompt through the daemon socket, the same `prompt` request the composer sends, with `worktree` false. `editor-pane` and `terminal-pane` send `ctrl+alt+shift+e` and `ctrl+alt+shift+t`. Run `agent-pane` before `spawn-cedia`, and run `review-pane`, `composer`, `sidebar`, and `project-tab` before those keys, because the keys open blocks on top of the default layout.
+Drive uses the process launch started. It does not exec a second `cedian`. `agent-pane` sends one prompt through the daemon socket, the same `prompt` request the composer sends, with `worktree` false, then opens that thread with `ctrl+k`. `editor-pane` and `terminal-pane` send `ctrl+alt+shift+e` and `ctrl+alt+shift+t`. Run `agent-pane` before `spawn-cedia`, and run `review-pane`, `composer`, `sidebar`, and `project-tab` before those keys. The keys split the largest pane, and Review stays on screen, so the drives that read the default columns run first.
 
 There is no dry-run mode and no model client in this repo. The fake stand-in plays a recorded fixture. A pinned cedia run uses faux and does not call a model API.
 

@@ -1,6 +1,6 @@
 # Sidebar
 
-The sidebar lists the project's threads. On the default layout its header reads `Threads`. A new project shows the new-thread row. Replay does not draw this block.
+The sidebar lists the project's threads. On the default layout its header reads `Threads`. With no threads yet, the block shows a search field, the project chat row, and a foot with the daemon state and Settings. Replay does not draw this block.
 
 ## Sub-features
 
