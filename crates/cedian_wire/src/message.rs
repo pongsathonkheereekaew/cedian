@@ -5,8 +5,8 @@ use std::{
 
 use cedian_index::{MemoryNote, Output};
 use cedian_protocol::{
-    CommandEntry, McpCheck, McpList, ModelList, PermissionList, Rating, Restored, RewindResult,
-    Schedule, UsageReport, VersionInfo,
+    CommandEntry, CommitDraft, Committed, McpCheck, McpList, ModelList, PermissionList, PrOpened,
+    PrPlan, Rating, Restored, RewindResult, Schedule, UsageReport, VersionInfo,
 };
 use cedian_review::Review;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -168,6 +168,24 @@ pub enum Request {
     /// The project's page in the shared Chromium, which the daemon starts when none runs.
     /// Answered with `Notice::Browser`; from then on the project's runs get the page.
     Browser { cwd: PathBuf },
+    /// A message for the files `thread` changed in `cwd` (its worktree, else the project),
+    /// drafted by its writer model (`cedia commit --thread --json`), answered with
+    /// `Notice::CommitDraft`, when this cedia offers `commit`. Nothing is committed.
+    CommitDraft { cwd: PathBuf, thread: String },
+    /// Commits `files` of `thread` with the person's `message` (`cedia commit --message
+    /// --file`), answered with `Notice::Committed`.
+    Commit {
+        cwd: PathBuf,
+        thread: String,
+        message: String,
+        files: Vec<String>,
+    },
+    /// Where a pull request from `cwd` would go, or why it cannot (`cedia pr --check`),
+    /// answered with `Notice::PrPlan`, when this cedia offers `pr`.
+    PrCheck { cwd: PathBuf, thread: String },
+    /// Pushes `cwd`'s branch and opens its pull request (`cedia pr`), answered with
+    /// `Notice::PrOpened`. Sent only after the person said yes to the plan.
+    Pr { cwd: PathBuf, thread: String },
     /// The person's MCP servers (`cedia mcp list --json`), answered with `Notice::Mcp`, when
     /// this cedia offers `mcp.manage`.
     McpList,
@@ -328,6 +346,26 @@ pub enum Notice {
         cwd: Option<PathBuf>,
         since: String,
         report: Box<UsageReport>,
+    },
+    /// The answer to `Request::CommitDraft`.
+    CommitDraft {
+        thread: String,
+        draft: CommitDraft,
+    },
+    /// The answer to `Request::Commit`.
+    Committed {
+        thread: String,
+        result: Committed,
+    },
+    /// The answer to `Request::PrCheck`.
+    PrPlan {
+        thread: String,
+        plan: PrPlan,
+    },
+    /// The answer to `Request::Pr`.
+    PrOpened {
+        thread: String,
+        result: PrOpened,
     },
     /// The person's MCP servers, and why the change asked for last was refused, if it was.
     Mcp {
